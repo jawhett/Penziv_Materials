@@ -5,6 +5,7 @@ import numpy as np
 
 from penziv_materials.physics.semiconductor_electronics import SemiconductorElectronicEngine
 from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTransportEngine
+from penziv_materials.physics.electro_chemo_mechanics import CoupledPNPMechanicsSolver
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
@@ -35,6 +36,24 @@ class TestPhysicsDomains(unittest.TestCase):
         self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
         self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
         self.dft = DFTEngine()
+        self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
+
+    def test_heterogeneous_dielectric_pnp_solver(self):
+        rho = np.zeros((8, 8, 8))
+        rho[2:4, 2:4, 2:4] = 1.0e6
+        rho[5:7, 5:7, 5:7] = -1.0e6
+        eps_field = np.ones((8, 8, 8)) * 15.0
+        eps_field[4:, :, :] = 45.0  # Dielectric boundary
+        res = self.pnp.solve_space_charge_potential_3d(rho, relative_permittivity_field=eps_field, max_iter=10)
+        self.assertIn("electric_potential_v", res)
+        self.assertGreater(res["max_potential_drop_v"], 0.0)
+
+    def test_chemical_short_range_order(self):
+        pos = np.random.uniform(0.0, 10.0, (24, 3))
+        species = ["Ni"] * 12 + ["Al"] * 12
+        csro_res = self.amorphous.compute_chemical_short_range_order_and_partial_rdfs(pos, species, box_length_angstrom=10.0)
+        self.assertIn("warren_cowley_parameters", csro_res)
+        self.assertIn("Ni", csro_res["warren_cowley_parameters"])
 
     def test_dft_crpa_and_gsfe(self):
         chi0 = np.eye(4) * -0.05

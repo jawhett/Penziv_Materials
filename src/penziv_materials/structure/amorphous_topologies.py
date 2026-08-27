@@ -1,4 +1,4 @@
-"""Amorphous Structures, Stochastic Dense Random Packing (DRP), 3D Voronoi Facets & VRH Transport."""
+"""Amorphous Structures, Stochastic Dense Random Packing (DRP), 3D Voronoi Facets, CSRO & VRH Transport."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -7,7 +7,7 @@ from penziv_materials.core.constants import BOLTZMANN_J_K, BOLTZMANN_EV_K
 
 
 class AmorphousTopologyEngine:
-    """Evaluates disordered atomic networks, generates Dense Random Packing (DRP) structures, and computes exact 3D Voronoi polytope indices."""
+    """Evaluates disordered atomic networks, generates Dense Random Packing (DRP) structures, computes exact 3D Voronoi polytope indices, and CSRO."""
 
     def __init__(self, temperature_k: float = 300.0):
         self.T = temperature_k
@@ -65,6 +65,59 @@ class AmorphousTopologyEngine:
             "coordination_number": rdf_data["coordination_number_first_shell"],
         }
 
+    def compute_chemical_short_range_order_and_partial_rdfs(
+        self,
+        positions_angstrom: np.ndarray,
+        species_list: List[str],
+        box_length_angstrom: float = 15.0,
+        first_shell_cutoff_angstrom: float = 3.2,
+    ) -> Dict[str, Any]:
+        """Compute multi-component Warren-Cowley CSRO parameters alpha_ij = 1 - P_ij / c_j for first coordination shell."""
+        pos = np.asarray(positions_angstrom, dtype=np.float64)
+        n_atoms = len(pos)
+        unique_species = sorted(list(set(species_list)))
+
+        comp = {s: species_list.count(s) / max(1, n_atoms) for s in unique_species}
+
+        diff = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
+        diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
+        distances = np.linalg.norm(diff, axis=-1)
+        np.fill_diagonal(distances, np.inf)
+
+        warren_cowley_matrix: Dict[str, Dict[str, float]] = {s1: {} for s1 in unique_species}
+
+        for s1 in unique_species:
+            idx_s1 = [i for i, s in enumerate(species_list) if s == s1]
+            if not idx_s1:
+                continue
+
+            for s2 in unique_species:
+                idx_s2 = [j for j, s in enumerate(species_list) if s == s2]
+                if not idx_s2:
+                    warren_cowley_matrix[s1][s2] = 0.0
+                    continue
+
+                total_neighbors = 0
+                s2_neighbors = 0
+
+                for i in idx_s1:
+                    neighbors = np.where(distances[i] <= first_shell_cutoff_angstrom)[0]
+                    total_neighbors += len(neighbors)
+                    s2_neighbors += sum(1 for n in neighbors if species_list[n] == s2)
+
+                p_ij = s2_neighbors / max(1, total_neighbors)
+                c_j = comp.get(s2, 0.5)
+                # alpha_ij = 1 - P_ij / c_j
+                alpha_ij = 1.0 - (p_ij / max(1e-4, c_j))
+                warren_cowley_matrix[s1][s2] = float(np.clip(alpha_ij, -1.0, 1.0))
+
+        return {
+            "unique_species": unique_species,
+            "species_concentrations": comp,
+            "warren_cowley_parameters": warren_cowley_matrix,
+            "has_chemical_short_range_ordering": any(abs(v) > 0.15 for s1 in warren_cowley_matrix for v in warren_cowley_matrix[s1].values()),
+        }
+
     def compute_voronoi_polyhedral_indices(
         self,
         positions_angstrom: Optional[np.ndarray] = None,
@@ -84,7 +137,6 @@ class AmorphousTopologyEngine:
         pos = np.asarray(positions_angstrom, dtype=np.float64)
         n_atoms = len(pos)
 
-        # 3x3x3 Periodic boundary condition expansion
         shifts = np.array([-1, 0, 1]) * box_length_angstrom
         grid_shifts = np.array(np.meshgrid(shifts, shifts, shifts)).T.reshape(-1, 3)
         expanded_pos = np.vstack([pos + shift for shift in grid_shifts])
