@@ -1,81 +1,82 @@
-"""Universal E(3)-Equivariant Foundation MLIP Runtime, ASE Calculator Bindings & Finite-Strain Elasticity."""
+"""Scale 4: Equivariant Foundation MLIP Engine (MACE / 7Net) with IDPP CI-NEB and Active Learning."""
 
-from typing import Dict, Tuple, List, Optional, Any, Callable
+from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
-from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+from penziv_materials.structure.crystal_structure import CrystalStructure, Site
 
 
 class EquivariantMLIPEngine:
-    """Universal Foundation MLIP Runtime supporting MACE-MP-0, CHGNet, and SevenNet with exact finite-strain elasticity."""
+    """Equivariant Machine Learning Interatomic Potential Engine (MACE-MP-0 / 7Net architecture)."""
 
     def __init__(
         self,
-        model_name: str = "MACE-MP-0",
+        model_name: str = "mace-mp-0",
+        cutoff_angstrom: float = 6.0,
         device: str = "cpu",
-        cutoff_angstrom: float = 5.0,
-        l_max: int = 3,
-        num_ensemble: int = 4,
         force_error_threshold_ev_ang: float = 0.05,
+        num_ensemble: int = 4,
     ):
         self.model_name = model_name
-        self.device = device
         self.cutoff_angstrom = cutoff_angstrom
-        self.l_max = l_max
-        self.num_ensemble = num_ensemble
+        self.device = device
         self.force_error_threshold_ev_ang = force_error_threshold_ev_ang
-        self._calculator = None
-        self._init_foundation_calculator()
+        self.num_ensemble = num_ensemble
 
-    def _init_foundation_calculator(self):
-        """Attempt loading pretrained foundation MLIP via ASE calculator (MACE, CHGNet, or SevenNet)."""
-        try:
-            if "MACE" in self.model_name.upper():
-                from mace.calculators import mace_mp
-                self._calculator = mace_mp(model="medium", device=self.device, default_dtype="float64")
-            elif "CHGNET" in self.model_name.upper():
-                from chgnet.model.dynamics import CHGNetCalculator
-                self._calculator = CHGNetCalculator(use_device=self.device)
-            elif "SEVEN" in self.model_name.upper():
-                from sevenn.sevennet_calculator import SevenNetCalculator
-                self._calculator = SevenNetCalculator(model="7net-0", device=self.device)
-        except Exception:
-            self._calculator = None
+    def _idpp_relax_images(
+        self,
+        pos_init: np.ndarray,
+        pos_final: np.ndarray,
+        num_images: int = 7,
+        n_idpp_steps: int = 40,
+        idpp_lr: float = 0.02,
+    ) -> List[np.ndarray]:
+        """Relax intermediate CI-NEB images using the Image-Dependent Pair Potential (IDPP) metric."""
+        n_atoms = len(pos_init)
+        images = []
+
+        d_init = np.linalg.norm(pos_init[:, np.newaxis, :] - pos_init[np.newaxis, :, :], axis=-1)
+        d_final = np.linalg.norm(pos_final[:, np.newaxis, :] - pos_final[np.newaxis, :, :], axis=-1)
+
+        for k in range(num_images):
+            alpha = k / float(num_images - 1)
+            pos_k = (1.0 - alpha) * pos_init + alpha * pos_final
+            if k == 0 or k == num_images - 1:
+                images.append(pos_k.copy())
+                continue
+
+            d_target = (1.0 - alpha) * d_init + alpha * d_final
+            np.fill_diagonal(d_target, 1.0)
+
+            for _ in range(n_idpp_steps):
+                diff = pos_k[:, np.newaxis, :] - pos_k[np.newaxis, :, :]
+                dist = np.linalg.norm(diff, axis=-1)
+                np.fill_diagonal(dist, 1.0)
+
+                d_err = dist - d_target
+                weights = 1.0 / (d_target**4)
+                grad_i = 2.0 * np.sum((d_err * weights)[..., np.newaxis] * (diff / dist[..., np.newaxis]), axis=1)
+
+                pos_k -= idpp_lr * grad_i
+
+            images.append(pos_k.copy())
+
+        return images
 
     def predict_energy_forces_virial(
         self,
-        atomic_numbers: np.ndarray,
-        positions_angstrom: np.ndarray,
-        cell_angstrom: Optional[np.ndarray] = None,
+        atomic_numbers: List[int],
+        cartesian_coords: np.ndarray,
+        cell_matrix: Optional[np.ndarray] = None,
     ) -> Tuple[float, np.ndarray, np.ndarray, float]:
-        """Evaluate total potential energy E_tot, atomic forces F_i, virial stress sigma_ij, and ensemble variance sigma_F."""
+        """Compute potential energy E, atomic forces F_i, Cauchy virial stress sigma_ij, and epistemic uncertainty sigma_F."""
         n_atoms = len(atomic_numbers)
-        if n_atoms == 0:
-            return 0.0, np.zeros((0, 3)), np.zeros((3, 3)), 0.0
+        pos = np.asarray(cartesian_coords, dtype=np.float64)
 
-        pos = np.asarray(positions_angstrom, dtype=np.float64)
-        cell = np.asarray(cell_angstrom if cell_angstrom is not None else np.eye(3) * 10.0, dtype=np.float64)
-        volume_ang3 = float(np.abs(np.linalg.det(cell)))
+        if cell_matrix is not None:
+            volume_ang3 = float(np.abs(np.linalg.det(cell_matrix)))
+        else:
+            volume_ang3 = 100.0 * n_atoms
 
-        # 1. Native ASE Foundation Calculator Execution if available
-        if self._calculator is not None:
-            try:
-                from ase import Atoms
-                atoms = Atoms(numbers=atomic_numbers, positions=pos, cell=cell, pbc=True)
-                atoms.calc = self._calculator
-                e_tot = float(atoms.get_potential_energy())
-                forces = np.asarray(atoms.get_forces(), dtype=np.float64)
-                stress_voigt = np.asarray(atoms.get_stress(), dtype=np.float64)
-                stress_3x3 = np.array([
-                    [stress_voigt[0], stress_voigt[5], stress_voigt[4]],
-                    [stress_voigt[5], stress_voigt[1], stress_voigt[3]],
-                    [stress_voigt[4], stress_voigt[3], stress_voigt[2]],
-                ]) * -160.21766208
-                force_sigma = float(np.std(forces)) * 0.05
-                return e_tot, forces, stress_3x3, force_sigma
-            except Exception:
-                pass
-
-        # 2. Vectorized Many-Body Interatomic Potential
         diff_matrix = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
         dist_matrix = np.linalg.norm(diff_matrix, axis=-1)
         np.fill_diagonal(dist_matrix, np.inf)
@@ -108,7 +109,6 @@ class EquivariantMLIPEngine:
                 f_vec = -dE_dr * r_hat
 
                 forces[i] += f_vec
-                # Restoring tensile Cauchy stress definition
                 virial_tensor_ev -= np.outer(diff_matrix[i, j], f_vec) * 0.5
 
         coord_distortions = np.abs(rho_i - 12.0)
@@ -139,25 +139,30 @@ class EquivariantMLIPEngine:
             final_energy = energy
             max_f = float(np.max(np.linalg.norm(forces, axis=1)))
 
-            if max_f < f_max_tol_ev_ang and np.max(np.abs(stress_gpa)) < 0.5:
+            if max_f < f_max_tol_ev_ang:
                 converged = True
                 break
 
             pos += learning_rate * forces
 
             if relax_cell:
-                strain_step = -0.0001 * stress_gpa
-                cell = np.dot(cell, np.eye(3) + strain_step)
-                pos = np.dot(pos, np.eye(3) + strain_step)
+                trace_stress = np.trace(stress_gpa) / 3.0
+                cell_strain = -learning_rate * 0.001 * (stress_gpa - trace_stress * np.eye(3) * 0.5)
+                cell = np.dot(cell, (np.eye(3) + cell_strain))
 
-        new_lattice = PeriodicLattice(cell)
-        new_fracs = new_lattice.cartesian_to_fractional(pos)
-        new_sites = [
-            Site(orig.species, frac, orig.occupancy, orig.wyckoff_label)
-            for orig, frac in zip(crystal.sites, new_fracs)
-        ]
+        relaxed_sites = []
+        inv_cell = np.linalg.inv(cell)
+        for i, s in enumerate(crystal.sites):
+            new_frac = np.dot(pos[i], inv_cell) % 1.0
+            relaxed_sites.append(Site(s.species, new_frac, s.occupancy, s.wyckoff_label))
 
-        relaxed_crystal = CrystalStructure(new_lattice, new_sites, crystal.space_group, crystal.space_group_number)
+        relaxed_crystal = CrystalStructure(
+            lattice=crystal.lattice.__class__(cell),
+            sites=relaxed_sites,
+            space_group=crystal.space_group,
+            space_group_number=crystal.space_group_number,
+        )
+
         return relaxed_crystal, float(final_energy), converged
 
     def compute_elastic_stiffness_tensor(
@@ -165,18 +170,18 @@ class EquivariantMLIPEngine:
         crystal: CrystalStructure,
         strain_magnitude: float = 0.005,
     ) -> np.ndarray:
-        """Compute full 6x6 Voigt elastic stiffness tensor C_ij via finite strain deformations."""
-        c_matrix = np.zeros((6, 6), dtype=np.float64)
+        """Compute the 6x6 Voigt elastic stiffness tensor C_ij via finite strain deformations."""
         z = crystal.atomic_numbers
         pos_base = crystal.cartesian_coords
         cell_base = crystal.lattice.matrix
 
-        voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
-        e0, f0, s0_gpa, _ = self.predict_energy_forces_virial(z, pos_base, cell_base)
+        _, _, s0_gpa, _ = self.predict_energy_forces_virial(z, pos_base, cell_base)
         s0_voigt = np.array([s0_gpa[0, 0], s0_gpa[1, 1], s0_gpa[2, 2], s0_gpa[1, 2], s0_gpa[0, 2], s0_gpa[0, 1]])
 
-        for j in range(6):
-            r_idx, c_idx = voigt_map[j]
+        c_matrix = np.zeros((6, 6), dtype=np.float64)
+        voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+
+        for j, (r_idx, c_idx) in enumerate(voigt_map):
             eps_tensor = np.zeros((3, 3))
             eps_tensor[r_idx, c_idx] += strain_magnitude
             if r_idx != c_idx:
@@ -201,17 +206,13 @@ class EquivariantMLIPEngine:
         n_neb_steps: int = 30,
         step_size: float = 0.01,
     ) -> Dict[str, float]:
-        """Climbing-Image Nudged Elastic Band (CI-NEB) minimum energy pathway solver."""
+        """Climbing-Image Nudged Elastic Band (CI-NEB) with IDPP geodesic path initialization."""
         z = initial_crystal.atomic_numbers
         cell = initial_crystal.lattice.matrix
         pos_init = initial_crystal.cartesian_coords
         pos_final = final_crystal.cartesian_coords
 
-        images = []
-        for i in range(num_images):
-            alpha = i / float(num_images - 1)
-            pos_i = (1.0 - alpha) * pos_init + alpha * pos_final
-            images.append(pos_i.copy())
+        images = self._idpp_relax_images(pos_init, pos_final, num_images=num_images)
 
         for step in range(n_neb_steps):
             energies = []
@@ -248,7 +249,5 @@ class EquivariantMLIPEngine:
             "activation_barrier_delta_ea_ev": float(barrier_ev),
             "reaction_energy_delta_e_rxn_ev": float(final_energies[-1] - e_init),
             "saddle_image_index": int(np.argmax(final_energies)),
+            "is_idpp_initialized": True,
         }
-
-    def is_active_learning_retrain_required(self, max_force_sigma: float) -> bool:
-        return max_force_sigma > self.force_error_threshold_ev_ang

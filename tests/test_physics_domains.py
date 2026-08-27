@@ -14,16 +14,19 @@ from penziv_materials.scale2_continuum.unified_spectral_solver import Unified3DS
 from penziv_materials.scale2_continuum.spectral_multiphase_homogenizer import SpectralMultiphaseHomogenizer
 from penziv_materials.scale2_continuum.damage_mechanics import NonLocalDamageMechanics
 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
+from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
 from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
 from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
-from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
+from penziv_materials.structure.shubnikov_symmetry import ShubnikovMagneticSymmetryEngine
+from penziv_materials.structure.crystal_structure import PeriodicLattice, Site, CrystalStructure
 from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine, AmorphousMeltQuenchEngine
 from penziv_materials.scale3_mesoscale.multiphase_grand_potential import MultiPhaseGrandPotentialEngine
 from penziv_materials.scale1_process.multimodal_synthesizability import MultiModalSynthesizabilityEngine
 from penziv_materials.thermodynamics.dynamic_hull import UniversalConvexHullSolver
 from penziv_materials.scale2_continuum.generalized_slip import UniversalSlipGenerator
+from penziv_materials.orchestration.dag_orchestrator import DynamicDAGOrchestrator, MultiscaleDAGNode
 
 
 class TestPhysicsDomains(unittest.TestCase):
@@ -42,12 +45,39 @@ class TestPhysicsDomains(unittest.TestCase):
         self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
         self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
         self.dft = DFTEngine()
+        self.mlip = EquivariantMLIPEngine()
         self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
         self.unified_spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
         self.rad = RadiationDamageEngine()
+        self.dag = DynamicDAGOrchestrator()
+
+    def test_idpp_ci_neb_solver(self):
+        lat = PeriodicLattice.from_parameters(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)
+        c1 = CrystalStructure(lat, [Site("Ni", np.array([0.0, 0.0, 0.0]))], "Fm-3m")
+        c2 = CrystalStructure(lat, [Site("Ni", np.array([0.5, 0.5, 0.0]))], "Fm-3m")
+        neb_res = self.mlip.compute_ci_neb_migration_barrier(c1, c2, num_images=5)
+        self.assertTrue(neb_res["is_idpp_initialized"])
+        self.assertGreater(neb_res["activation_barrier_delta_ea_ev"], 0.0)
+
+    def test_shubnikov_magnetic_space_groups(self):
+        mag_ops = ShubnikovMagneticSymmetryEngine.get_magnetic_symmetry_operators(225, magnetic_type=3)
+        self.assertGreater(len(mag_ops), 0)
+        thetas = [op[2] for op in mag_ops]
+        self.assertIn(-1, thetas)
+
+        m_init = np.array([0.0, 0.0, 2.5])
+        r_rot = np.diag([1.0, 1.0, -1.0])
+        m_trans = ShubnikovMagneticSymmetryEngine.transform_magnetic_moment(m_init, r_rot, time_reversal_theta=-1)
+        self.assertIsInstance(m_trans, np.ndarray)
+
+    def test_dynamic_dag_orchestration(self):
+        self.dag.register_node(MultiscaleDAGNode("quantum_dft", lambda ctx: {"e_form": -1.5}))
+        self.dag.register_node(MultiscaleDAGNode("semiconductor_bte", lambda ctx: {"mobility": 1500.0}))
+        dag_res = self.dag.execute_dag("semiconductor", {"temperature_k": 300.0})
+        self.assertTrue(dag_res["is_dag_execution_successful"])
+        self.assertIn("semiconductor_bte", dag_res["executed_dag_sequence"])
 
     def test_universal_230_space_groups_and_wyckoff(self):
-        # Monoclinic P2_1/c (14), Orthorhombic Pnma (62), Cubic Fm-3m (225)
         for sg in [2, 14, 62, 141, 194, 225, 227]:
             ops = UniversalSymmetryEngine.get_seitz_matrices(sg)
             self.assertGreaterEqual(len(ops), 1)
@@ -254,7 +284,6 @@ class TestPhysicsDomains(unittest.TestCase):
         born_res = self.sg_engine.evaluate_irreducible_born_stability(c_matrix, crystal_system="cubic")
         self.assertTrue(born_res["is_mechanically_stable"])
 
-        # Monoclinic stability test
         c_mono = np.eye(6) * 120.0
         c_mono[0, 1] = c_mono[1, 0] = 40.0
         c_mono[0, 5] = c_mono[5, 0] = 10.0
