@@ -8,7 +8,9 @@ from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTra
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
+from penziv_materials.scale2_continuum.damage_mechanics import NonLocalDamageMechanics
 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
+from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
 from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
@@ -31,6 +33,25 @@ class TestPhysicsDomains(unittest.TestCase):
         self.proc = MultiModalSynthesizabilityEngine()
         self.ls_solver = LippmannSchwinger3DSolver(grid_shape=(8, 8, 8))
         self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
+        self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
+        self.dft = DFTEngine()
+
+    def test_dft_crpa_and_gsfe(self):
+        chi0 = np.eye(4) * -0.05
+        crpa_res = self.dft.compute_crpa_screened_coulomb_u(electronic_polarizability_matrix=chi0)
+        self.assertIn("screened_coulomb_u_ev", crpa_res)
+        self.assertGreater(crpa_res["screened_coulomb_u_ev"], 1.0)
+
+        gamma_sfe = self.dft.compute_generalized_stacking_fault_energy(0.5)
+        self.assertGreater(gamma_sfe, 10.0)
+
+    def test_3d_phase_field_fracture(self):
+        d_init = np.zeros((8, 8, 8))
+        eps_field = np.zeros((8, 8, 8, 3, 3))
+        eps_field[3:5, 3:5, 3:5] = np.diag([0.05, -0.01, -0.01])  # Tensile localized zone
+        frac_res = self.damage_3d.solve_3d_phase_field_fracture_step(d_init, eps_field, dt=0.02)
+        self.assertIn("max_damage_parameter", frac_res)
+        self.assertGreater(frac_res["max_damage_parameter"], 0.0)
 
     def test_lippmann_schwinger_3d_solver(self):
         stiffness_field = np.ones((8, 8, 8)) * 160.0
@@ -51,7 +72,6 @@ class TestPhysicsDomains(unittest.TestCase):
     def test_seitz_screw_and_glide_operations(self):
         ops_screw = UniversalCrystalBuilder.generate_standard_symmetry_operations("P2_1/c")
         self.assertGreaterEqual(len(ops_screw), 2)
-        # Check non-zero translation in screw axis
         translations = [t for R, t in ops_screw if np.linalg.norm(t) > 0]
         self.assertGreater(len(translations), 0)
 

@@ -1,4 +1,4 @@
-"""Scale 4: Atomistic Defect Kinetics, Harmonic Transition State Theory & Peierls Stress."""
+"""Scale 4: Atomistic Defect Kinetics, Automated CI-NEB Paths & Peierls Stress."""
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
@@ -9,7 +9,7 @@ from penziv_materials.structure.crystal_structure import CrystalStructure, Perio
 
 
 class AtomDynAgent:
-    """Evaluates vacancy/solute migration barriers, HTST kinetic jump frequencies, and SVPN Peierls dislocation core stresses."""
+    """Evaluates vacancy/solute migration barriers via automated CI-NEB, HTST jump frequencies, and SVPN Peierls dislocation core stresses."""
 
     def __init__(self, attempt_frequency_hz: float = 1.0e13):
         self.nu_0 = attempt_frequency_hz
@@ -46,10 +46,18 @@ class AtomDynAgent:
         c44_gpa: float = 115.0,
         crystal_structure: Optional[CrystalStructure] = None,
     ) -> AtomisticState:
-        """Execute Scale 4 atomistic state evaluation deriving barriers and jump frequencies from crystal structure."""
+        """Execute Scale 4 atomistic state evaluation deriving barriers directly from automated CI-NEB on the MLIP PES."""
         if crystal_structure is not None:
-            r_bottleneck = crystal_structure.compute_voronoi_bottleneck_radius()
-            delta_e_barrier = max(0.20, 1.85 - 0.45 * r_bottleneck)
+            # Construct endpoint crystal with displaced interstitial/vacancy for CI-NEB
+            initial_crystal = crystal_structure
+            final_sites = []
+            for s in crystal_structure.sites:
+                disp_frac = (s.fractional_coords + np.array([0.15, 0.15, 0.0])) % 1.0
+                final_sites.append(Site(s.species, disp_frac, s.occupancy, s.wyckoff_label))
+            final_crystal = CrystalStructure(crystal_structure.lattice, final_sites, crystal_structure.space_group)
+
+            neb_res = self.mlip.compute_ci_neb_migration_barrier(initial_crystal, final_crystal, num_images=5)
+            delta_e_barrier = float(neb_res["activation_barrier_delta_ea_ev"])
         else:
             heavy_fraction = sum(v for k, v in composition.items() if k in ["Mo", "W", "Ta", "Nb", "Zr"])
             delta_e_barrier = 0.85 + 0.95 * heavy_fraction

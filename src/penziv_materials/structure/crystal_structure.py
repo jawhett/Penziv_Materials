@@ -1,79 +1,71 @@
-"""Crystallographic structure container, periodic lattice geometry, and symmetry operations."""
+"""Rigorous Crystallographic Structure Container, Dynamic Interaxial Angles, Voronoi Cavities & CIF Serializer."""
 
-from typing import List, Dict, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
 
 
 class PeriodicLattice:
-    """3D periodic lattice matrix and metric tensor operations."""
+    """Rigorous 3D periodic lattice container managing real-space vectors, metric tensors, and exact interaxial cell angles."""
 
-    def __init__(self, matrix_3x3_angstrom: np.ndarray):
-        self.matrix = np.asarray(matrix_3x3_angstrom, dtype=np.float64)
+    def __init__(self, matrix: np.ndarray):
+        self.matrix = np.asarray(matrix, dtype=np.float64)
         if self.matrix.shape != (3, 3):
-            raise ValueError("Lattice matrix must be 3x3")
+            raise ValueError(f"Lattice matrix must be 3x3, got shape {self.matrix.shape}")
+
         self.inv_matrix = np.linalg.inv(self.matrix)
         self.metric_tensor = np.dot(self.matrix, self.matrix.T)
+
+        self.a = float(np.linalg.norm(self.matrix[0]))
+        self.b = float(np.linalg.norm(self.matrix[1]))
+        self.c = float(np.linalg.norm(self.matrix[2]))
+
+        # Exact dot-product interaxial angles in degrees
+        cos_alpha = np.dot(self.matrix[1], self.matrix[2]) / (self.b * self.c)
+        cos_beta = np.dot(self.matrix[0], self.matrix[2]) / (self.a * self.c)
+        cos_gamma = np.dot(self.matrix[0], self.matrix[1]) / (self.a * self.b)
+
+        self.alpha = float(np.degrees(np.arccos(np.clip(cos_alpha, -1.0, 1.0))))
+        self.beta = float(np.degrees(np.arccos(np.clip(cos_beta, -1.0, 1.0))))
+        self.gamma = float(np.degrees(np.arccos(np.clip(cos_gamma, -1.0, 1.0))))
         self.volume_ang3 = float(np.abs(np.linalg.det(self.matrix)))
-
-    @property
-    def a(self) -> float:
-        return float(np.linalg.norm(self.matrix[0]))
-
-    @property
-    def b(self) -> float:
-        return float(np.linalg.norm(self.matrix[1]))
-
-    @property
-    def c(self) -> float:
-        return float(np.linalg.norm(self.matrix[2]))
-
-    @property
-    def angles(self) -> Tuple[float, float, float]:
-        """Compute interaxial angles (alpha, beta, gamma) in degrees from lattice vectors."""
-        a_vec, b_vec, c_vec = self.matrix[0], self.matrix[1], self.matrix[2]
-        len_a, len_b, len_c = self.a, self.b, self.c
-
-        # alpha = angle between b and c
-        cos_alpha = np.dot(b_vec, c_vec) / max(1e-9, len_b * len_c)
-        # beta = angle between a and c
-        cos_beta = np.dot(a_vec, c_vec) / max(1e-9, len_a * len_c)
-        # gamma = angle between a and b
-        cos_gamma = np.dot(a_vec, b_vec) / max(1e-9, len_a * len_b)
-
-        alpha_deg = float(np.degrees(np.arccos(np.clip(cos_alpha, -1.0, 1.0))))
-        beta_deg = float(np.degrees(np.arccos(np.clip(cos_beta, -1.0, 1.0))))
-        gamma_deg = float(np.degrees(np.arccos(np.clip(cos_gamma, -1.0, 1.0))))
-
-        return alpha_deg, beta_deg, gamma_deg
 
     @classmethod
     def from_parameters(
-        cls, a: float, b: float, c: float, alpha_deg: float = 90.0, beta_deg: float = 90.0, gamma_deg: float = 90.0
+        cls,
+        a: float,
+        b: float,
+        c: float,
+        alpha_deg: float = 90.0,
+        beta_deg: float = 90.0,
+        gamma_deg: float = 90.0,
     ) -> "PeriodicLattice":
-        """Construct lattice from lattice constants (a,b,c) and angles (alpha, beta, gamma in degrees)."""
-        alpha_rad = np.radians(alpha_deg)
-        beta_rad = np.radians(beta_deg)
-        gamma_rad = np.radians(gamma_deg)
+        """Construct 3x3 lattice matrix from standard crystallographic parameters."""
+        a_r = np.radians(alpha_deg)
+        b_r = np.radians(beta_deg)
+        g_r = np.radians(gamma_deg)
 
-        val = (np.cos(alpha_rad) - np.cos(beta_rad) * np.cos(gamma_rad)) / np.sin(gamma_rad)
-        val = np.clip(val, -1.0, 1.0)
-        c_x = c * np.cos(beta_rad)
+        val = (np.cos(a_r) - np.cos(b_r) * np.cos(g_r)) / (np.sin(g_r) + 1e-12)
+        c_x = c * np.cos(b_r)
         c_y = c * val
-        c_z = c * np.sqrt(max(0.0, 1.0 - np.cos(beta_rad) ** 2 - val**2))
+        c_z_sq = c**2 - c_x**2 - c_y**2
+        c_z = np.sqrt(max(0.0, c_z_sq))
 
         matrix = np.array([
             [a, 0.0, 0.0],
-            [b * np.cos(gamma_rad), b * np.sin(gamma_rad), 0.0],
+            [b * np.cos(g_r), b * np.sin(g_r), 0.0],
             [c_x, c_y, c_z],
         ], dtype=np.float64)
+
         return cls(matrix)
 
+    @property
+    def angles(self) -> Tuple[float, float, float]:
+        return self.alpha, self.beta, self.gamma
+
     def fractional_to_cartesian(self, fractional_coords: np.ndarray) -> np.ndarray:
-        """Convert fractional coordinates s in [0,1)^3 to Cartesian coordinates r = s . A."""
         return np.dot(fractional_coords, self.matrix)
 
     def cartesian_to_fractional(self, cartesian_coords: np.ndarray) -> np.ndarray:
-        """Convert Cartesian coordinates r to fractional coordinates s = r . A^-1."""
         return np.dot(cartesian_coords, self.inv_matrix)
 
     def get_reciprocal_lattice(self) -> np.ndarray:
@@ -101,6 +93,17 @@ class Site:
 
 class CrystalStructure:
     """Rigorous crystallographic crystal structure container with dynamic CIF parser, Wyckoff expansion, and neighbor graph."""
+
+    SHANNON_IONIC_RADII_ANGSTROM: Dict[str, float] = {
+        "H": 0.25, "Li": 0.76, "Na": 1.02, "K": 1.38, "Rb": 1.52, "Cs": 1.67,
+        "Mg": 0.72, "Ca": 1.00, "Sr": 1.18, "Ba": 1.35, "Zn": 0.74,
+        "Al": 0.535, "Sc": 0.745, "Y": 0.90, "La": 1.032, "Zr": 0.72,
+        "Ti": 0.605, "V": 0.54, "Cr": 0.615, "Mn": 0.645, "Fe": 0.645,
+        "Co": 0.65, "Ni": 0.69, "Cu": 0.73, "Ga": 0.62, "Ge": 0.53,
+        "O": 1.40, "S": 1.84, "Se": 1.98, "Te": 2.21,
+        "F": 1.33, "Cl": 1.81, "Br": 1.96, "I": 2.20,
+        "N": 1.46, "P": 2.12, "Si": 0.40,
+    }
 
     def __init__(
         self,
@@ -142,21 +145,22 @@ class CrystalStructure:
         return float(np.linalg.norm(cart_delta))
 
     def compute_voronoi_bottleneck_radius(self, mobile_carrier_species: str = "Mg") -> float:
-        """Compute geometric Voronoi interstitial bottleneck radius for mobile ion diffusion pathways."""
+        """Compute geometric Voronoi interstitial bottleneck radius using Shannon ionic radii."""
         carrier_sites = [s for s in self.sites if s.species == mobile_carrier_species]
         if not carrier_sites:
-            return 2.45
+            carrier_sites = self.sites[:1]
 
-        anion_sites = [s for s in self.sites if s.species in ["S", "O", "Se", "Cl", "F", "Br", "I"]]
+        anion_sites = [s for s in self.sites if s.species in ["S", "O", "Se", "Cl", "F", "Br", "I", "N", "P"]]
         if not anion_sites:
-            return 2.50
+            anion_sites = [s for s in self.sites if s not in carrier_sites]
 
         min_channel_radii = []
         for c_site in carrier_sites:
-            distances = [self.compute_minimum_image_distance(c_site.fractional_coords, a_site.fractional_coords) for a_site in anion_sites]
-            if distances:
-                channel_r = min(distances) - 1.84
-                min_channel_radii.append(max(1.2, channel_r))
+            for a_site in anion_sites:
+                dist = self.compute_minimum_image_distance(c_site.fractional_coords, a_site.fractional_coords)
+                anion_r = self.SHANNON_IONIC_RADII_ANGSTROM.get(a_site.species, 1.40)
+                channel_r = dist - anion_r
+                min_channel_radii.append(max(0.5, channel_r))
 
         return float(np.mean(min_channel_radii)) if min_channel_radii else 2.45
 
