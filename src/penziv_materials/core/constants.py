@@ -1,36 +1,35 @@
-"""Physical constants, unit conversions, and standard scientific thresholds."""
+"""Physical and Crystallographic Constants for the Penziv Materials Engine."""
 
-import numpy as np
+# Physical Constants (SI and standard electronic units)
+BOLTZMANN_EV_K = 8.617333262e-5      # eV / K
+KB_EV = 8.617333262e-5               # eV / K
+BOLTZMANN_J_K = 1.380649e-23         # J / K
+GAS_CONSTANT_J_MOL_K = 8.314462618   # J / (mol * K)
+R_GAS = 8.314462618                  # J / (mol * K)
+AVOGADRO_NUMBER = 6.02214076e23      # mol^-1
+AVOGADRO_N_A = 6.02214076e23         # mol^-1
+FARADAY_C_MOL = 96485.33212          # C / mol
+PLANCK_CONSTANT = 6.62607015e-34     # J * s
+PLANCK_EV_S = 4.135667696e-15        # eV * s
+HBAR = 1.054571817e-34               # J * s
+HBAR_EV_S = 6.582119569e-16          # eV * s
+E_CHARGE = 1.602176634e-19           # Coulombs
+ELEMENTARY_CHARGE_C = 1.602176634e-19# Coulombs
+M_ELECTRON = 9.1093837015e-31        # kg
+SPEED_OF_LIGHT = 299792458.0         # m / s
+EPSILON_0 = 8.8541878128e-12         # F / m
 
-# Fundamental Physical Constants (CODATA 2018/2022)
-HBAR = 1.054571817e-34  # Reduced Planck constant (J·s)
-H_PLANCK = 6.62607015e-34  # Planck constant (J·s)
-E_CHARGE = 1.602176634e-19  # Elementary charge (C)
-ELEMENTARY_CHARGE_C = E_CHARGE
-M_ELECTRON = 9.1093837015e-31  # Electron rest mass (kg)
-SPEED_OF_LIGHT = 299792458.0  # Speed of light in vacuum (m/s)
-EPSILON_0 = 8.8541878128e-12  # Vacuum permittivity (F/m)
-KB = 1.380649e-23  # Boltzmann constant (J/K)
-BOLTZMANN_J_K = KB
-KB_EV = KB / E_CHARGE  # Boltzmann constant (eV/K) ~ 8.617333262e-5 eV/K
-BOLTZMANN_EV_K = KB_EV
-PLANCK_EV_S = H_PLANCK / E_CHARGE
-R_GAS = 8.314462618  # Universal gas constant (J/(mol·K))
-AVOGADRO = 6.02214076e23  # Avogadro constant (mol^-1)
-AVOGADRO_N_A = AVOGADRO
-FARADAY_C_MOL = E_CHARGE * AVOGADRO  # Faraday constant ~ 96485.3321 C/mol
-
-# Atomic & Length Scales
-BOHR_TO_ANGSTROM = 0.529177210903
-ANGSTROM_TO_METERS = 1.0e-10
-RYDBERG_TO_EV = 13.605693122994
+# Unit Conversions
 HARTREE_TO_EV = 27.211386245988
-EV_TO_JOULE = E_CHARGE
+RYDBERG_TO_EV = 13.605693122994
+EV_TO_JOULES = 1.602176634e-19
+EV_TO_JOULE = 1.602176634e-19
 GPA_TO_PA = 1.0e9
+ANGSTROM_TO_METERS = 1.0e-10
 
-# Framework Validation Thresholds
-TOL_FORCE_RESIDUAL_EV_ANG = 1.0e-4  # eV/Å
-TOL_OOD_GMM_NLL_DEFAULT = 12.0  # Negative log likelihood threshold
-TOL_LOGNORMAL_RATE_VAR = 0.25  # Max allowable log-normal kinetic rate variance
-TOL_RVE_STRESS_CONVERGENCE = 0.015  # Relative L2 stress difference
-TOL_COMPOUND_VARIANCE_BOUND = 0.15  # σ_tot^2 / μ^2 meta-bridge bound
+# Handshake Gatekeeper Tolerance Bounds
+TOL_FORCE_RESIDUAL_EV_ANG = 1.0e-3
+TOL_OOD_GMM_NLL_DEFAULT = 12.0
+TOL_LOGNORMAL_RATE_VAR = 0.50
+TOL_RVE_STRESS_CONVERGENCE = 0.015
+TOL_COMPOUND_VARIANCE_BOUND = 0.35

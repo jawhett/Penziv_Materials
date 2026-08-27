@@ -1,4 +1,4 @@
-"""Electronic Structure, Semiconductor Transport, Effective Mass Tensors & Dielectric Breakdown."""
+"""Electronic Structure, Semiconductor Transport, Anisotropic Effective Mass & Dielectric Breakdown."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -6,7 +6,7 @@ from penziv_materials.core.constants import HBAR, M_ELECTRON, E_CHARGE, BOLTZMAN
 
 
 class SemiconductorElectronicEngine:
-    """Evaluates electronic band structures, anisotropic effective mass tensors, Wannier BTE mobilities, and impact ionization breakdown."""
+    """Evaluates electronic band structures, full anisotropic effective mass tensors, Wannier BTE mobilities, and impact ionization breakdown."""
 
     def __init__(self, temperature_k: float = 300.0):
         self.T = temperature_k
@@ -32,17 +32,29 @@ class SemiconductorElectronicEngine:
         relaxation_time_fs: float = 120.0,
         band_gap_ev: float = 1.42,
         effective_mass_relative: float = 0.25,
+        effective_mass_tensor: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """Evaluate full tensor carrier mobility mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation."""
+        """Evaluate full anisotropic carrier mobility tensor mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation:
+
+        mu_{ij} = e * tau * (m*^-1)_{ij}
+        """
         tau_s = relaxation_time_fs * 1.0e-15
         v_tensor = np.asarray(group_velocity_tensor_m_s, dtype=np.float64)
-        m_eff_kg = max(0.05, effective_mass_relative) * M_ELECTRON
 
-        alpha_np = ((1.0 - effective_mass_relative) ** 2) / max(0.1, band_gap_ev)
-        mu_base_si = (E_CHARGE * tau_s) / m_eff_kg
+        if effective_mass_tensor is not None and effective_mass_tensor.shape == (3, 3):
+            inv_m_tensor = np.linalg.pinv(effective_mass_tensor) / M_ELECTRON
+            m_eff_scalar = float(np.cbrt(np.abs(np.linalg.det(effective_mass_tensor))))
+        else:
+            m_eff_scalar = max(0.05, effective_mass_relative)
+            inv_m_tensor = (1.0 / (m_eff_scalar * M_ELECTRON)) * np.eye(3)
+
+        alpha_np = ((1.0 - m_eff_scalar) ** 2) / max(0.1, band_gap_ev)
         non_parabolic_correction = 1.0 / (1.0 + 2.5 * alpha_np * (BOLTZMANN_J_K * self.T / E_CHARGE))
 
-        mu_tensor_cm2_v_s = (mu_base_si * non_parabolic_correction * 1.0e4) * np.eye(3)
+        # Full 3x3 anisotropic mobility tensor in cm^2 / (V * s)
+        mu_tensor_si = (E_CHARGE * tau_s * non_parabolic_correction) * inv_m_tensor
+        mu_tensor_cm2_v_s = mu_tensor_si * 1.0e4
+
         mu_scalar = float(np.mean(np.diag(mu_tensor_cm2_v_s)))
 
         return {
@@ -50,6 +62,7 @@ class SemiconductorElectronicEngine:
             "isotropic_mobility_cm2_v_s": float(np.clip(mu_scalar, 10.0, 45000.0)),
             "band_non_parabolicity_alpha_ev_inv": float(alpha_np),
             "relaxation_time_fs": float(relaxation_time_fs),
+            "is_anisotropic": bool(np.std(np.diag(mu_tensor_cm2_v_s)) > 1.0),
         }
 
     def compute_carrier_mobility(

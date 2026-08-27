@@ -38,12 +38,21 @@ class TestPhysicsDomains(unittest.TestCase):
         self.dft = DFTEngine()
         self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
 
+    def test_wigner_pohl_thermal_transport(self):
+        freqs = np.array([4.5, 5.0, 7.5, 8.0])
+        gammas = np.array([0.15, 0.18, 0.25, 0.30])
+        vels = np.array([4500.0, 3800.0, 2200.0, 1800.0])
+        wigner_res = self.thermal.compute_wigner_pohl_thermal_conductivity(freqs, gammas, vels)
+        self.assertIn("thermal_conductivity_total_w_m_k", wigner_res)
+        self.assertGreater(wigner_res["thermal_conductivity_total_w_m_k"], 0.1)
+        self.assertIn("kappa_offdiagonal_wigner_w_m_k", wigner_res)
+
     def test_heterogeneous_dielectric_pnp_solver(self):
         rho = np.zeros((8, 8, 8))
         rho[2:4, 2:4, 2:4] = 1.0e6
         rho[5:7, 5:7, 5:7] = -1.0e6
         eps_field = np.ones((8, 8, 8)) * 15.0
-        eps_field[4:, :, :] = 45.0  # Dielectric boundary
+        eps_field[4:, :, :] = 45.0
         res = self.pnp.solve_space_charge_potential_3d(rho, relative_permittivity_field=eps_field, max_iter=10)
         self.assertIn("electric_potential_v", res)
         self.assertGreater(res["max_potential_drop_v"], 0.0)
