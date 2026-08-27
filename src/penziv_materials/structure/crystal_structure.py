@@ -15,6 +15,37 @@ class PeriodicLattice:
         self.metric_tensor = np.dot(self.matrix, self.matrix.T)
         self.volume_ang3 = float(np.abs(np.linalg.det(self.matrix)))
 
+    @property
+    def a(self) -> float:
+        return float(np.linalg.norm(self.matrix[0]))
+
+    @property
+    def b(self) -> float:
+        return float(np.linalg.norm(self.matrix[1]))
+
+    @property
+    def c(self) -> float:
+        return float(np.linalg.norm(self.matrix[2]))
+
+    @property
+    def angles(self) -> Tuple[float, float, float]:
+        """Compute interaxial angles (alpha, beta, gamma) in degrees from lattice vectors."""
+        a_vec, b_vec, c_vec = self.matrix[0], self.matrix[1], self.matrix[2]
+        len_a, len_b, len_c = self.a, self.b, self.c
+
+        # alpha = angle between b and c
+        cos_alpha = np.dot(b_vec, c_vec) / max(1e-9, len_b * len_c)
+        # beta = angle between a and c
+        cos_beta = np.dot(a_vec, c_vec) / max(1e-9, len_a * len_c)
+        # gamma = angle between a and b
+        cos_gamma = np.dot(a_vec, b_vec) / max(1e-9, len_a * len_b)
+
+        alpha_deg = float(np.degrees(np.arccos(np.clip(cos_alpha, -1.0, 1.0))))
+        beta_deg = float(np.degrees(np.arccos(np.clip(cos_beta, -1.0, 1.0))))
+        gamma_deg = float(np.degrees(np.arccos(np.clip(cos_gamma, -1.0, 1.0))))
+
+        return alpha_deg, beta_deg, gamma_deg
+
     @classmethod
     def from_parameters(
         cls, a: float, b: float, c: float, alpha_deg: float = 90.0, beta_deg: float = 90.0, gamma_deg: float = 90.0
@@ -69,7 +100,7 @@ class Site:
 
 
 class CrystalStructure:
-    """Rigorous crystallographic crystal structure container with CIF parser, Wyckoff expansion, and neighbor graph."""
+    """Rigorous crystallographic crystal structure container with dynamic CIF parser, Wyckoff expansion, and neighbor graph."""
 
     def __init__(
         self,
@@ -94,7 +125,6 @@ class CrystalStructure:
 
     @property
     def atomic_numbers(self) -> np.ndarray:
-        from penziv_materials.core.formula_parser import STANDARD_ATOMIC_WEIGHTS
         atomic_z_map = {
             "H": 1, "He": 2, "Li": 3, "Be": 4, "B": 5, "C": 6, "N": 7, "O": 8, "F": 9,
             "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15, "S": 16, "Cl": 17, "K": 19,
@@ -115,9 +145,8 @@ class CrystalStructure:
         """Compute geometric Voronoi interstitial bottleneck radius for mobile ion diffusion pathways."""
         carrier_sites = [s for s in self.sites if s.species == mobile_carrier_species]
         if not carrier_sites:
-            return 2.45  # Default bottleneck radius (Å)
+            return 2.45
 
-        # Minimum inter-anion channel width
         anion_sites = [s for s in self.sites if s.species in ["S", "O", "Se", "Cl", "F", "Br", "I"]]
         if not anion_sites:
             return 2.50
@@ -126,17 +155,15 @@ class CrystalStructure:
         for c_site in carrier_sites:
             distances = [self.compute_minimum_image_distance(c_site.fractional_coords, a_site.fractional_coords) for a_site in anion_sites]
             if distances:
-                # Geometric bottleneck radius is free aperture distance minus anion ionic radius
-                channel_r = min(distances) - 1.84  # Subtract sulfide ionic radius ~1.84 Å
+                channel_r = min(distances) - 1.84
                 min_channel_radii.append(max(1.2, channel_r))
 
         return float(np.mean(min_channel_radii)) if min_channel_radii else 2.45
 
     def to_cif_string(self, name: str = "Penziv-Crystal") -> str:
-        """Export crystal structure to standard Crystallographic Information File (CIF) format."""
-        a = float(np.linalg.norm(self.lattice.matrix[0]))
-        b = float(np.linalg.norm(self.lattice.matrix[1]))
-        c = float(np.linalg.norm(self.lattice.matrix[2]))
+        """Export crystal structure to standard Crystallographic Information File (CIF) format with exact dynamic angles."""
+        a, b, c = self.lattice.a, self.lattice.b, self.lattice.c
+        alpha, beta, gamma = self.lattice.angles
 
         cif_lines = [
             f"data_{name}",
@@ -145,9 +172,9 @@ class CrystalStructure:
             f"_cell_length_a                   {a:.6f}",
             f"_cell_length_b                   {b:.6f}",
             f"_cell_length_c                   {c:.6f}",
-            "_cell_angle_alpha                 90.000",
-            "_cell_angle_beta                  90.000",
-            "_cell_angle_gamma                 90.000",
+            f"_cell_angle_alpha                 {alpha:.3f}",
+            f"_cell_angle_beta                  {beta:.3f}",
+            f"_cell_angle_gamma                 {gamma:.3f}",
             f"_cell_volume                     {self.lattice.volume_ang3:.4f}",
             "loop_",
             " _atom_site_label",

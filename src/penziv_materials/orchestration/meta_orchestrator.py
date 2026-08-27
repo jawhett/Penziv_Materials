@@ -72,7 +72,6 @@ class MetaOrchestrator:
         c_pf = np.ones((16, 16)) * 0.5
         eta_pf = np.zeros((16, 16))
         c_pf_new, eta_pf_new = self.phase_field.step_forward_semi_implicit(c_pf, eta_pf, dt=0.01)
-        precipitate_vol_frac = float(np.clip(np.mean(c_pf_new > 0.55), 0.20, 0.75))
 
         meso_state = self.meso_kinetic.execute_mesoscale_evaluation(
             composition=composition,
@@ -81,7 +80,6 @@ class MetaOrchestrator:
         )
 
         # 4. Scale 2: Continuum Homogenization & CPFFT Slip Increment with Hall-Petch Coupling
-        # Hall-Petch grain boundary strengthening: sigma_y = sigma_0 + k_y / sqrt(d) + M * tau_CRSS
         d_grain_um = max(1.0, meso_state.average_grain_size_um)
         hall_petch_bonus_mpa = 150.0 / np.sqrt(d_grain_um)
 
@@ -95,9 +93,14 @@ class MetaOrchestrator:
         cont_state.yield_strength_mpa += hall_petch_bonus_mpa
         cont_state.ultimate_tensile_strength_mpa += hall_petch_bonus_mpa
 
-        # Active CPFFT strain-rate step
+        # Active CPFFT strain-rate step using computed tensors
         strain_tensor = np.diag([0.001, -0.0005, -0.0005])
-        cpfft_res = self.cpfft_solver.step_plastic_slip_and_gnd(strain_tensor, dt_s=0.01)
+        cpfft_res = self.cpfft_solver.step_plastic_slip_and_gnd(
+            applied_strain_rate=strain_tensor,
+            dt_s=0.01,
+            c_voigt_gpa=c_voigt_matrix,
+            crss_gpa=meso_state.crss_basal_gpa,
+        )
 
         # 5. Scale 1: Process Solidification & Synthesizability
         k_bulk, g_shear, e_young, nu_p = self.cont_micro.compute_voigt_reuss_hill_moduli(c_voigt_matrix)

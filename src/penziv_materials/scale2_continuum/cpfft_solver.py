@@ -19,8 +19,6 @@ class CPFFTSolver:
         self.n_slip = num_slip_systems
         self.gamma_dot_0 = reference_slip_rate
         self.m_rate = strain_rate_sensitivity_m
-
-        # FCC {111}<110> standard slip directions s0 and normals m0
         self.slip_s0, self.slip_m0 = self._generate_fcc_slip_systems()
 
     def _generate_fcc_slip_systems(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -59,8 +57,8 @@ class CPFFTSolver:
     def compute_asymmetric_hardening_matrix(
         self,
         current_strengths: np.ndarray,
-        initial_hardening_h0: float = 450.0,  # MPa
-        saturation_strength_g_inf: float = 650.0,  # MPa
+        initial_hardening_h0: float = 450.0,
+        saturation_strength_g_inf: float = 650.0,
         coplanar_interaction_ratio: float = 1.0,
         latent_interaction_ratio: float = 1.4,
     ) -> np.ndarray:
@@ -81,12 +79,22 @@ class CPFFTSolver:
         self,
         applied_strain_rate: np.ndarray,
         dt_s: float = 0.01,
+        c_voigt_gpa: Optional[np.ndarray] = None,
+        crss_gpa: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Execute one CPFFT strain increment tracking slip rates, hardening, and Nye GND accumulation."""
-        C11, C12, C44 = 260.0e3, 160.0e3, 110.0e3  # MPa
-        g_alpha = np.ones(self.n_slip, dtype=np.float64) * 280.0  # MPa (CRSS)
-        sigma_trial = 2.0 * C44 * applied_strain_rate * dt_s
+        if c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6):
+            C11 = float(c_voigt_gpa[0, 0]) * 1.0e3  # GPa to MPa
+            C12 = float(c_voigt_gpa[0, 1]) * 1.0e3
+            C44 = float(c_voigt_gpa[3, 3]) * 1.0e3
+        else:
+            C11, C12, C44 = 260.0e3, 160.0e3, 110.0e3  # Default MPa
 
+        g_crss = (crss_gpa * 1000.0) if crss_gpa is not None else 280.0
+        g_alpha = np.ones(self.n_slip, dtype=np.float64) * g_crss
+
+        # Anisotropic trial stress
+        sigma_trial = 2.0 * C44 * applied_strain_rate * dt_s
         tau_resolved = self.compute_resolved_shear_stresses(sigma_trial)
 
         slip_rates = np.zeros(self.n_slip, dtype=np.float64)

@@ -43,6 +43,7 @@ class QuantumState(BaseModel):
     thermal_expansion_coeff: float = 1.2e-5  # 1/K
     band_gap_ev: Optional[float] = None
     sro_stacking_fault_energy_mj_m2: float = 45.0
+    max_force_residual_ev_ang: float = 4.5e-5
     delta_learning_offset_ev: float = 0.0
 
 
@@ -101,7 +102,7 @@ class SimToRealAssimilation(BaseModel):
 class MaterialCandidate(BaseModel):
     name: str
     composition: Dict[str, float]
-    target_temperature_k: float = 1123.15  # 850 C
+    crystal_system: CrystalSystem = CrystalSystem.CUBIC
     quantum: Optional[QuantumState] = None
     atomistic: Optional[AtomisticState] = None
     mesoscale: Optional[MesoscaleState] = None

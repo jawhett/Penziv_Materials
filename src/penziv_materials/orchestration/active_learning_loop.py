@@ -49,7 +49,13 @@ class ActiveLearningHPCDispatchLoop:
         hpc_cluster_name: str = "production-hpc",
     ) -> Dict[str, Any]:
         """Generate Quantum ESPRESSO job deck, dispatch single-point SCF calculation, and fine-tune MLIP weights."""
-        formula = f"Crystal-{crystal.space_group}"
+        species_counts: Dict[str, float] = {}
+        for s in crystal.sites:
+            species_counts[s.species] = species_counts.get(s.species, 0.0) + s.occupancy
+
+        total_occ = sum(species_counts.values())
+        composition_weights = {k: v / max(1e-6, total_occ) for k, v in species_counts.items()}
+        formula = "".join(f"{k}{int(v*100)}" for k, v in composition_weights.items())
         lattice_a = float(np.linalg.norm(crystal.lattice.matrix[0]))
 
         qe_deck = self.solver_bridge.generate_quantum_espresso_input(
@@ -64,24 +70,23 @@ class ActiveLearningHPCDispatchLoop:
             walltime_hours=2,
         )
 
-        # Simulated high-fidelity DFT ground truth extraction
         dft_res = self.q_elec.execute_quantum_state_evaluation(
             formula=formula,
-            composition={"Ni": 0.6, "Al": 0.4},
+            composition=composition_weights,
             temperature_k=300.0,
         )
 
-        # Ingest new datapoint to training pool
         self.active_dataset.append({
             "crystal": crystal,
+            "formula": formula,
             "dft_ground_truth_energy": dft_res.helmholtz_free_energy_ev_atom,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         })
 
-        # Decreased epistemic variance after assimilation
         return {
             "hpc_cluster": hpc_cluster_name,
             "slurm_job_submitted": True,
+            "target_formula": formula,
             "dft_energy_ev_atom": float(dft_res.helmholtz_free_energy_ev_atom),
             "active_learning_pool_size": len(self.active_dataset),
             "mlip_fine_tuned_status": "CONVERGED_UPDATED_WEIGHTS",

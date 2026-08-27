@@ -154,7 +154,7 @@ class HandshakeGatekeeper:
         receipts = []
 
         if candidate.quantum:
-            receipts.append(cls.validate_force_residual(5.0e-5))
+            receipts.append(cls.validate_force_residual(candidate.quantum.max_force_residual_ev_ang))
             receipts.append(cls.validate_stacking_fault_positivity(candidate.quantum.sro_stacking_fault_energy_mj_m2))
 
         if candidate.atomistic:

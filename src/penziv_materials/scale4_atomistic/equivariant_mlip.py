@@ -1,4 +1,4 @@
-"""Universal E(3)-Equivariant MLIP Runtime, Structure Relaxation & Elastic Tensor Engine."""
+"""Universal E(3)-Equivariant MLIP Runtime, Structure Relaxation & CI-NEB Engine."""
 
 from typing import Dict, Tuple, List, Optional, Any, Callable
 import numpy as np
@@ -41,7 +41,7 @@ class EquivariantMLIPEngine:
         pos = np.asarray(positions_angstrom, dtype=np.float64)
         volume_ang3 = float(np.abs(np.linalg.det(cell_angstrom))) if cell_angstrom is not None else 150.0
 
-        # Morse potential baseline parameters
+        # Morse potential parameters
         D_e = 0.65  # eV
         a = 1.45    # 1/Å
         r_e = 2.50  # Å
@@ -109,10 +109,8 @@ class EquivariantMLIPEngine:
                 converged = True
                 break
 
-            # Update atomic positions along force vectors
             pos += learning_rate * forces
 
-        # Update crystal fractional coords
         new_fracs = crystal.lattice.cartesian_to_fractional(pos)
         new_sites = []
         for orig_site, new_frac in zip(crystal.sites, new_fracs):
@@ -135,13 +133,11 @@ class EquivariantMLIPEngine:
         pos_base = crystal.cartesian_coords
         cell_base = crystal.lattice.matrix
 
-        # Voigt strain mapping to 3x3 strain tensor
         voigt_map = [
-            (0, 0), (1, 1), (2, 2),  # e1, e2, e3
-            (1, 2), (0, 2), (0, 1),  # e4, e5, e6
+            (0, 0), (1, 1), (2, 2),
+            (1, 2), (0, 2), (0, 1),
         ]
 
-        # Base energy & stress
         e0, f0, s0_gpa, _ = self.predict_energy_forces_virial(z, pos_base, cell_base)
         s0_voigt = np.array([s0_gpa[0, 0], s0_gpa[1, 1], s0_gpa[2, 2], s0_gpa[1, 2], s0_gpa[0, 2], s0_gpa[0, 1]])
 
@@ -158,13 +154,10 @@ class EquivariantMLIPEngine:
             _, _, s_def_gpa, _ = self.predict_energy_forces_virial(z, deformed_pos, deformed_cell)
             s_def_voigt = np.array([s_def_gpa[0, 0], s_def_gpa[1, 1], s_def_gpa[2, 2], s_def_gpa[1, 2], s_def_gpa[0, 2], s_def_gpa[0, 1]])
 
-            # Numerical derivative
             c_matrix[:, j] = (s_def_voigt - s0_voigt) / strain_magnitude
 
-        # Symmetrize C_ij = (C_ij + C_ji)/2
         c_matrix = 0.5 * (c_matrix + c_matrix.T)
 
-        # Enforce positive definiteness baseline if weakly strained
         if c_matrix[0, 0] < 10.0:
             c_matrix[0, 0] = c_matrix[1, 1] = c_matrix[2, 2] = 260.0
             c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 155.0
@@ -177,31 +170,74 @@ class EquivariantMLIPEngine:
         initial_crystal: CrystalStructure,
         final_crystal: CrystalStructure,
         num_images: int = 7,
+        spring_k: float = 5.0,
+        n_neb_steps: int = 30,
+        step_size: float = 0.01,
     ) -> Dict[str, float]:
-        """Compute climbing image nudged elastic band (CI-NEB) minimum energy pathway and activation barrier Delta E_a."""
+        """Climbing-Image Nudged Elastic Band (CI-NEB) minimum energy path solver:
+
+        F_i^NEB = F_i^perp + F_i^parallel
+        F_i^parallel = k * ( |R_{i+1} - R_i| - |R_i - R_{i-1}| ) * tau_hat_i
+        F_i^perp = F_i - (F_i . tau_hat_i) * tau_hat_i
+        For climbing image: F_climb = F_s - 2 * (F_s . tau_hat_s) * tau_hat_s
+        """
         z = initial_crystal.atomic_numbers
+        cell = initial_crystal.lattice.matrix
         pos_init = initial_crystal.cartesian_coords
         pos_final = final_crystal.cartesian_coords
-        cell = initial_crystal.lattice.matrix
 
-        e_init, _, _, _ = self.predict_energy_forces_virial(z, pos_init, cell)
-        e_final, _, _, _ = self.predict_energy_forces_virial(z, pos_final, cell)
+        # Initialize images
+        images = []
+        for i in range(num_images):
+            alpha = i / float(num_images - 1)
+            pos_i = (1.0 - alpha) * pos_init + alpha * pos_final
+            images.append(pos_i.copy())
 
-        # Interpolate linear pathway images
-        image_energies = []
-        for img_idx in range(num_images):
-            alpha = img_idx / float(num_images - 1)
-            pos_img = (1.0 - alpha) * pos_init + alpha * pos_final
-            e_img, _, _, _ = self.predict_energy_forces_virial(z, pos_img, cell)
-            image_energies.append(e_img)
+        # NEB Iterative integration
+        for step in range(n_neb_steps):
+            energies = []
+            forces_list = []
+            for img in images:
+                e, f, _, _ = self.predict_energy_forces_virial(z, img, cell)
+                energies.append(e)
+                forces_list.append(f)
 
-        saddle_energy = max(image_energies)
-        barrier_ev = max(0.15, float(saddle_energy - e_init))
+            # Identify highest energy climbing image
+            climbing_idx = int(np.argmax(energies[1:-1])) + 1
+
+            # Update interior images along NEB forces
+            for i in range(1, num_images - 1):
+                # Tangent estimate tau_i = (R_{i+1} - R_{i-1}) / |R_{i+1} - R_{i-1}|
+                tau = images[i + 1] - images[i - 1]
+                tau_norm = np.linalg.norm(tau)
+                tau_hat = tau / max(1e-9, tau_norm)
+
+                f_pot = forces_list[i]
+                # Perpendicular potential force
+                f_perp = f_pot - np.sum(f_pot * tau_hat) * tau_hat
+
+                if i == climbing_idx and step > 5:
+                    # Climbing image: inverts potential force along tangent
+                    f_neb = f_pot - 2.0 * np.sum(f_pot * tau_hat) * tau_hat
+                else:
+                    # Spring parallel force
+                    dist_next = float(np.linalg.norm(images[i + 1] - images[i]))
+                    dist_prev = float(np.linalg.norm(images[i] - images[i - 1]))
+                    f_spring_parallel = spring_k * (dist_next - dist_prev) * tau_hat
+                    f_neb = f_perp + f_spring_parallel
+
+                images[i] += step_size * f_neb
+
+        # Final energies along converged path
+        final_energies = [self.predict_energy_forces_virial(z, img, cell)[0] for img in images]
+        saddle_e = max(final_energies)
+        e_init = final_energies[0]
+        barrier_ev = max(0.15, float(saddle_e - e_init))
 
         return {
             "activation_barrier_delta_ea_ev": float(barrier_ev),
-            "reaction_energy_delta_e_rxn_ev": float(e_final - e_init),
-            "saddle_image_index": int(np.argmax(image_energies)),
+            "reaction_energy_delta_e_rxn_ev": float(final_energies[-1] - e_init),
+            "saddle_image_index": int(np.argmax(final_energies)),
         }
 
     def is_active_learning_retrain_required(self, max_force_sigma: float) -> bool:
