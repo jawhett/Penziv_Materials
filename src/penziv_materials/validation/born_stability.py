@@ -22,57 +22,89 @@ class BornStabilityValidator:
         return is_stable, min_eig, eigenvalues
 
     @classmethod
-    def validate_acoustic_tensor_prestress(
+    def validate_universal_born_and_acoustic_stability(
         cls,
         C_voigt: np.ndarray,
-        prestress_sigma_gpa: Optional[np.ndarray] = None,
-        num_wavevectors: int = 14,
+        prestress_tensor: Optional[np.ndarray] = None,
+        n_sphere_points: int = 200,
     ) -> Dict[str, Any]:
-        """Evaluate generalized acoustic tensor stability det[Lambda_{ik}(N)] > 0 across unit sphere propagation vectors N."""
+        """Exact coordinate-free mechanical stability validation:
+
+        1. Sylvester criteria & positive definiteness of Voigt matrix (lambda_min > 0)
+        2. Generalized Acoustic Tensor Lambda_ik(n) positive-definiteness on S^2 sphere
+        """
+        C_sym = 0.5 * (C_voigt + C_voigt.T)
+        eigvals = np.linalg.eigvalsh(C_sym)
+        min_eig = float(np.min(eigvals))
+        if min_eig <= 0:
+            return {
+                "is_mechanically_stable": False,
+                "reason": "Negative elastic eigenmode",
+                "min_eig": min_eig,
+                "min_acoustic_det": 0.0,
+            }
+
         voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
         C4 = np.zeros((3, 3, 3, 3), dtype=np.float64)
         for a in range(6):
             i, j = voigt_map[a]
             for b in range(6):
                 k, l = voigt_map[b]
-                val = C_voigt[a, b]
+                val = C_sym[a, b]
                 C4[i, j, k, l] = val
                 C4[j, i, k, l] = val
                 C4[i, j, l, k] = val
                 C4[j, i, l, k] = val
 
-        # Sample propagation wavevectors on unit sphere
-        wavevectors = [
-            np.array([1.0, 0.0, 0.0]),
-            np.array([0.0, 1.0, 0.0]),
-            np.array([0.0, 0.0, 1.0]),
-            np.array([1.0, 1.0, 0.0]) / np.sqrt(2),
-            np.array([1.0, 0.0, 1.0]) / np.sqrt(2),
-            np.array([0.0, 1.0, 1.0]) / np.sqrt(2),
-            np.array([1.0, 1.0, 1.0]) / np.sqrt(3),
-        ]
+        # Discretize unit sphere S^2 (Fibonacci golden-spiral lattice)
+        phi = np.pi * (np.sqrt(5.0) - 1.0)
+        indices = np.arange(n_sphere_points)
+        y = 1.0 - (indices / float(max(1, n_sphere_points - 1))) * 2.0
+        radius = np.sqrt(np.maximum(0.0, 1.0 - y * y))
+        theta = phi * indices
+        x = np.cos(theta) * radius
+        z = np.sin(theta) * radius
+        wavevectors = np.stack([x, y, z], axis=-1)
 
-        min_det = np.inf
-        is_stable = True
-
-        for N in wavevectors:
-            Lambda = np.zeros((3, 3), dtype=np.float64)
-            for i in range(3):
-                for k in range(3):
-                    for j in range(3):
-                        for l in range(3):
-                            Lambda[i, k] += C4[i, j, k, l] * N[j] * N[l]
-                            if prestress_sigma_gpa is not None and i == k:
-                                Lambda[i, k] += prestress_sigma_gpa[j, l] * N[j] * N[l]
-            det_val = float(np.linalg.det(Lambda))
-            if det_val < min_det:
-                min_det = det_val
-            if det_val <= 0.0:
-                is_stable = False
+        min_acoustic_det = np.inf
+        for n in wavevectors:
+            Lambda = np.einsum("ijkl,j,l->ik", C4, n, n)
+            if prestress_tensor is not None:
+                stress_proj = np.dot(n, np.dot(prestress_tensor, n))
+                Lambda += stress_proj * np.eye(3)
+            det_L = float(np.linalg.det(Lambda))
+            if det_L < min_acoustic_det:
+                min_acoustic_det = det_L
+            if det_L <= 0:
+                return {
+                    "is_mechanically_stable": False,
+                    "reason": "Acoustic tensor instability on S^2",
+                    "min_eig": min_eig,
+                    "min_acoustic_det": det_L,
+                }
 
         return {
-            "is_prestress_mechanically_stable": is_stable,
-            "min_acoustic_tensor_determinant": float(min_det),
+            "is_mechanically_stable": True,
+            "min_eig": min_eig,
+            "min_acoustic_det": float(min_acoustic_det),
+        }
+
+    @classmethod
+    def validate_acoustic_tensor_prestress(
+        cls,
+        C_voigt: np.ndarray,
+        prestress_sigma_gpa: Optional[np.ndarray] = None,
+        num_wavevectors: int = 200,
+    ) -> Dict[str, Any]:
+        """Evaluate generalized acoustic tensor stability det[Lambda_{ik}(N)] > 0 across unit sphere propagation vectors N."""
+        res = cls.validate_universal_born_and_acoustic_stability(
+            C_voigt=C_voigt,
+            prestress_tensor=prestress_sigma_gpa,
+            n_sphere_points=num_wavevectors,
+        )
+        return {
+            "is_prestress_mechanically_stable": res["is_mechanically_stable"],
+            "min_acoustic_tensor_determinant": res["min_acoustic_det"],
         }
 
     @classmethod

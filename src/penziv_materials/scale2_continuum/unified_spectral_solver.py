@@ -21,17 +21,45 @@ class Unified3DSpectralMultiphysicsSolver:
         self.dx = dx_m
         self.k0 = c0_bulk_gpa * 1.0e9
         self.g0 = c0_shear_gpa * 1.0e9
+        self.mu0 = self.g0
         self.eps0 = eps0_relative * EPSILON_0
         self.kappa0 = kappa0_w_m_k
+        self.kx = 2.0 * np.pi * np.fft.fftfreq(self.nx, d=self.dx)
+        self.ky = 2.0 * np.pi * np.fft.fftfreq(self.ny, d=self.dx)
+        self.kz = 2.0 * np.pi * np.fft.fftfreq(self.nz, d=self.dx)
         self.KX, self.KY, self.KZ, self.K_sq = self._build_k_vectors()
 
     def _build_k_vectors(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        kx = 2.0 * np.pi * np.fft.fftfreq(self.nx, d=self.dx)
-        ky = 2.0 * np.pi * np.fft.fftfreq(self.ny, d=self.dx)
-        kz = 2.0 * np.pi * np.fft.fftfreq(self.nz, d=self.dx)
-        KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing="ij")
+        KX, KY, KZ = np.meshgrid(self.kx, self.ky, self.kz, indexing="ij")
         K_sq = KX**2 + KY**2 + KZ**2
         return KX, KY, KZ, K_sq
+
+    def apply_acoustic_greens_operator(self, tau_hat: np.ndarray) -> np.ndarray:
+        """Apply rank-4 reference Green's operator Gamma^0_ijkl(k) in Fourier space."""
+        K = [self.KX, self.KY, self.KZ]
+        K_sq_safe = self.K_sq.copy()
+        K_sq_safe[0, 0, 0] = 1.0
+
+        k_dot_tau = np.zeros((self.nx, self.ny, self.nz, 3), dtype=np.complex128)
+        for i in range(3):
+            for j in range(3):
+                k_dot_tau[..., i] += K[j] * tau_hat[..., i, j]
+
+        k_tau_k = np.zeros((self.nx, self.ny, self.nz), dtype=np.complex128)
+        for i in range(3):
+            k_tau_k += K[i] * k_dot_tau[..., i]
+
+        eps_hat = np.zeros_like(tau_hat)
+        nu0 = (3.0 * self.k0 - 2.0 * self.mu0) / (2.0 * (3.0 * self.k0 + self.mu0))
+
+        for i in range(3):
+            for j in range(3):
+                term1 = (K[i] * k_dot_tau[..., j] + K[j] * k_dot_tau[..., i]) / (2.0 * self.mu0 * K_sq_safe)
+                term2 = (K[i] * K[j] * k_tau_k) / (2.0 * self.mu0 * (1.0 - nu0) * (K_sq_safe**2))
+                eps_hat[..., i, j] = -(term1 - term2)
+
+        eps_hat[0, 0, 0, :, :] = 0.0
+        return eps_hat
 
     def solve_coupled_state(
         self,
@@ -71,12 +99,25 @@ class Unified3DSpectralMultiphysicsSolver:
             phi_hat[0, 0, 0] = 0.0
             phi = np.real(np.fft.ifftn(phi_hat))
 
-            # 3. Coupled Mechanical Stress
+            # 3. Coupled Mechanical Stress and Lippmann-Schwinger projection
             tr_strain = np.trace(strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
-            stress = strain * 2.0 * self.g0 + tr_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
+            c0_stress = strain * 2.0 * self.g0 + tr_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
 
-            tau = stress - (strain * 2.0 * self.g0 + tr_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0))
-            res = float(np.linalg.norm(tau) / max(1.0, np.linalg.norm(stress)))
+            if stiffness_field_gpa is not None:
+                mod_factor = (stiffness_field_gpa[..., np.newaxis, np.newaxis] * 1.0e9) / max(1.0, self.k0)
+                stress = c0_stress * mod_factor
+            else:
+                stress = c0_stress
+
+            tau = stress - c0_stress
+            tau_hat = np.fft.fftn(tau, axes=(0, 1, 2))
+            gamma_tau_hat = self.apply_acoustic_greens_operator(tau_hat)
+            strain_correction = np.real(np.fft.ifftn(gamma_tau_hat, axes=(0, 1, 2)))
+
+            new_strain = np.tile(macro_strain, (nx, ny, nz, 1, 1)) + strain_correction
+            res = float(np.linalg.norm(new_strain - strain) / max(1.0, np.linalg.norm(strain)))
+            strain = new_strain
+
             if res < tol:
                 converged = True
                 break
