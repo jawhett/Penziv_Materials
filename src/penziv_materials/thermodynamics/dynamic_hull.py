@@ -1,4 +1,4 @@
-"""Universal Thermodynamic Convex Hull & Grand Canonical CALPHAD Solver."""
+"""Universal Thermodynamic Convex Hull & Grand Canonical CALPHAD Solver with CSRO."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -7,7 +7,7 @@ from penziv_materials.core.constants import R_GAS, BOLTZMANN_EV_K
 
 
 class UniversalConvexHullSolver:
-    """Solves thermodynamic phase equilibria and grand canonical chemical potential stability via Linear Programming."""
+    """Solves thermodynamic phase equilibria, non-ideal CSRO mixing, and grand canonical chemical potential stability via Linear Programming."""
 
     @staticmethod
     def compute_temperature_dependent_gibbs_energy(
@@ -17,10 +17,12 @@ class UniversalConvexHullSolver:
         volume_ang3_atom: float = 15.0,
         debye_temperature_k: float = 450.0,
         composition: Optional[Dict[str, float]] = None,
+        warren_cowley_csro_matrix: Optional[np.ndarray] = None,
+        coordination_number_z: float = 12.0,
     ) -> float:
         """Evaluate full temperature and pressure-dependent Gibbs free energy:
 
-        G(x, T, P) = E_DFT + F_vib(T) + F_elec(T) - T * S_conf + P * V
+        G(x, T, P) = E_DFT + F_vib(T) + F_elec(T) - T * (S_ideal + S_CSRO) + P * V
         """
         # 1. Phonon vibrational free energy via Debye model
         if temperature_k > 1.0:
@@ -35,19 +37,31 @@ class UniversalConvexHullSolver:
         gamma_elec = 1.5e-4  # eV / (atom * K^2)
         f_elec = -0.5 * gamma_elec * (temperature_k**2)
 
-        # 3. Configurational entropy S_conf = -k_B sum c_i ln(c_i)
+        # 3. Configurational & Non-ideal CSRO entropy
         s_conf = 0.0
+        s_csro = 0.0
         if composition:
             tot = sum(composition.values())
-            for count in composition.values():
-                c_i = count / max(1e-6, tot)
+            c_vec = np.array([count / max(1e-6, tot) for count in composition.values()])
+            for c_i in c_vec:
                 if c_i > 0:
                     s_conf -= BOLTZMANN_EV_K * c_i * np.log(c_i)
+
+            if warren_cowley_csro_matrix is not None:
+                alpha = np.asarray(warren_cowley_csro_matrix, dtype=np.float64)
+                if alpha.shape == (len(c_vec), len(c_vec)):
+                    for i in range(len(c_vec)):
+                        for j in range(len(c_vec)):
+                            p_ij = c_vec[j] * (1.0 - alpha[i, j])
+                            if p_ij > 1e-9:
+                                s_csro -= 0.5 * coordination_number_z * BOLTZMANN_EV_K * c_vec[i] * p_ij * np.log(p_ij / max(1e-9, c_vec[j]))
+
+        total_entropy = s_conf + s_csro
 
         # 4. Pressure PV work (1 GPa * 1 Å^3 = 0.0062415 eV)
         pv_work_ev = pressure_gpa * volume_ang3_atom * 0.006241509
 
-        g_total = e_dft_ev_atom + f_vib + f_elec - (temperature_k * s_conf) + pv_work_ev
+        g_total = e_dft_ev_atom + f_vib + f_elec - (temperature_k * total_entropy) + pv_work_ev
         return float(g_total)
 
     @classmethod
@@ -70,7 +84,6 @@ class UniversalConvexHullSolver:
         ]
 
         if not subspace_entries:
-            # Fallback based on elemental references
             subspace_entries = [
                 {"composition": {el: 1.0}, "energy_per_atom": 0.0, "formula": el}
                 for el in elements
@@ -98,17 +111,16 @@ class UniversalConvexHullSolver:
             active_phases = [subspace_entries[int(np.argmin(c_energies))].get("formula", "RefPhase")]
         else:
             e_hull_baseline = float(res.fun)
-            active_indices = np.where(res.x > 1e-3)[0]
+            active_indices = np.where(res.x > 1e-4)[0]
             active_phases = [subspace_entries[idx].get("formula", f"Phase_{idx}") for idx in active_indices]
 
-        e_above_hull = max(0.0, target_energy_per_atom - e_hull_baseline)
+        delta_e_hull = float(target_energy_per_atom - e_hull_baseline)
+        is_stable = bool(delta_e_hull <= 0.025)
 
-        # Chemical potential bounds via dual solution if available
         return {
-            "energy_above_hull_ev_atom": float(e_above_hull),
-            "energy_above_hull_mev_atom": float(e_above_hull * 1000.0),
-            "is_thermodynamically_stable": bool(e_above_hull <= 0.035),
-            "decomposition_energy_ev_atom": float(e_hull_baseline),
-            "competing_stable_phases": active_phases,
-            "active_phase_weights": res.x.tolist() if res.success else [],
+            "energy_above_hull_ev_atom": max(0.0, delta_e_hull),
+            "is_thermodynamically_stable": is_stable,
+            "ground_state_hull_energy_ev_atom": float(e_hull_baseline),
+            "decomposition_products": active_phases,
+            "temperature_k": temperature_k,
         }

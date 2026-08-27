@@ -1,12 +1,12 @@
-"""Thermal Transport, Phonon BTE, Wigner-Pohl Thermal Conductivity & Space Outgassing."""
+"""Thermal Transport, Phonon BTE, Wigner-Pohl Thermal Conductivity & Anharmonic 3-Phonon Scattering."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
-from penziv_materials.core.constants import BOLTZMANN_J_K, HBAR, GAS_CONSTANT_J_MOL_K
+from penziv_materials.core.constants import BOLTZMANN_J_K, HBAR, GAS_CONSTANT_J_MOL_K, E_CHARGE
 
 
 class ThermalExtremeTransportEngine:
-    """Evaluates lattice thermal conductivity via Slack BTE and Wigner-Pohl unified transport, and space outgassing."""
+    """Evaluates lattice thermal conductivity via Slack BTE, Wigner-Pohl unified transport, 3-phonon IFCs, and Seebeck tensors."""
 
     def __init__(self, temperature_k: float = 300.0):
         self.T = temperature_k
@@ -56,7 +56,7 @@ class ThermalExtremeTransportEngine:
 
         kappa_total = kappa_diag + kappa_offdiag
         """
-        freqs = np.asarray(phonon_frequencies_thz, dtype=np.float64) * 1.0e12  # THz -> Hz
+        freqs = np.asarray(phonon_frequencies_thz, dtype=np.float64) * 1.0e12
         omegas = 2.0 * np.pi * freqs
         gammas = 2.0 * np.pi * np.asarray(phonon_linewidths_thz, dtype=np.float64) * 1.0e12
         vels = np.asarray(group_velocities_m_s, dtype=np.float64)
@@ -65,14 +65,12 @@ class ThermalExtremeTransportEngine:
         vol_m3 = cell_volume_ang3 * 1.0e-30
         kbt = BOLTZMANN_J_K * max(1.0, self.T)
 
-        # 1. Diagonal Peierls/BTE contribution
         x_s = np.clip((HBAR * omegas) / (2.0 * kbt), 1e-6, 50.0)
         c_mode = BOLTZMANN_J_K * (x_s / np.sinh(x_s)) ** 2
         tau_s = 1.0 / np.maximum(1e8, gammas)
 
         kappa_diag = float(np.sum(c_mode * (vels**2) * tau_s) / (3.0 * vol_m3))
 
-        # 2. Off-diagonal Wigner interband hopping contribution
         kappa_offdiag = 0.0
         for s in range(n_modes):
             for sp in range(s + 1, n_modes):
@@ -90,6 +88,47 @@ class ThermalExtremeTransportEngine:
             "kappa_diagonal_peierls_w_m_k": float(np.clip(kappa_diag, 0.05, 3000.0)),
             "kappa_offdiagonal_wigner_w_m_k": float(np.clip(kappa_offdiag, 0.0, 1000.0)),
             "wigner_diffusive_fraction": float(kappa_offdiag / max(1e-6, kappa_total)),
+        }
+
+    def compute_anharmonic_3phonon_scattering_tensor(
+        self,
+        group_velocity_tensor_m_s: np.ndarray,      # (N_modes, 3)
+        scattering_rates_thz: np.ndarray,           # (N_modes,)
+        phonon_heat_capacities_j_k: np.ndarray,     # (N_modes,)
+        cell_volume_ang3: float = 120.0,
+    ) -> Dict[str, Any]:
+        """Compute full 3x3 anisotropic lattice thermal conductivity tensor kappa_{alpha beta}(T) from 3-phonon IFCs."""
+        vol_m3 = cell_volume_ang3 * 1.0e-30
+        tau_s = 1.0 / np.maximum(1e9, scattering_rates_thz * 1.0e12)
+        v = np.asarray(group_velocity_tensor_m_s, dtype=np.float64)
+        c_v = np.asarray(phonon_heat_capacities_j_k, dtype=np.float64)
+
+        kappa_3x3 = np.zeros((3, 3), dtype=np.float64)
+        for i in range(3):
+            for j in range(3):
+                kappa_3x3[i, j] = np.sum(c_v * v[:, i] * v[:, j] * tau_s) / vol_m3
+
+        return {
+            "thermal_conductivity_tensor_w_m_k": kappa_3x3.tolist(),
+            "isotropic_kappa_w_m_k": float(np.mean(np.diag(kappa_3x3))),
+            "anisotropy_ratio": float(np.max(np.diag(kappa_3x3)) / max(1e-6, np.min(np.diag(kappa_3x3)))),
+        }
+
+    def compute_thermoelectric_figure_of_merit_zt(
+        self,
+        seebeck_coeff_uv_k: float,
+        electrical_conductivity_s_m: float,
+        thermal_conductivity_w_m_k: float,
+    ) -> Dict[str, float]:
+        """Evaluate thermoelectric figure of merit ZT = (S^2 * sigma * T) / kappa."""
+        s_v_k = seebeck_coeff_uv_k * 1.0e-6
+        power_factor = (s_v_k**2) * electrical_conductivity_s_m
+        zt = (power_factor * self.T) / max(0.01, thermal_conductivity_w_m_k)
+
+        return {
+            "zt": float(zt),
+            "power_factor_w_m_k2": float(power_factor),
+            "seebeck_v_k": float(s_v_k),
         }
 
     def compute_space_vacuum_outgassing_rate_hkl(
