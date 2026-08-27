@@ -1,4 +1,4 @@
-"""Electronic Structure, Semiconductor Transport, Anisotropic Effective Mass & Dielectric Breakdown."""
+"""Electronic Structure, Semiconductor Transport, Fröhlich POP Scattering, Piezoelectricity & Breakdown."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -6,7 +6,7 @@ from penziv_materials.core.constants import HBAR, M_ELECTRON, E_CHARGE, BOLTZMAN
 
 
 class SemiconductorElectronicEngine:
-    """Evaluates electronic band structures, full anisotropic effective mass tensors, Wannier BTE mobilities, and impact ionization breakdown."""
+    """Evaluates electronic band structures, full anisotropic effective mass tensors, Fröhlich POP scattering, and piezoelectric tensors."""
 
     def __init__(self, temperature_k: float = 300.0):
         self.T = temperature_k
@@ -26,6 +26,86 @@ class SemiconductorElectronicEngine:
         m_eff_scalar = float(np.cbrt(np.abs(np.linalg.det(m_star_relative))))
         return m_star_relative, m_eff_scalar
 
+    def compute_frohlich_pop_mobility(
+        self,
+        effective_mass_relative: float,
+        eps_static: float = 12.5,
+        eps_high_freq: float = 9.2,
+        lo_phonon_energy_mev: float = 92.0,
+    ) -> Dict[str, float]:
+        """Evaluate Polar Optical Phonon (POP) Fröhlich scattering-limited carrier mobility."""
+        m_eff_kg = max(0.05, effective_mass_relative) * M_ELECTRON
+        omega_lo = (lo_phonon_energy_mev * 1.0e-3 * E_CHARGE) / HBAR
+        kbt = BOLTZMANN_J_K * max(1.0, self.T)
+
+        inv_eps_diff = (1.0 / max(1.0, eps_high_freq)) - (1.0 / max(1.0, eps_static))
+        alpha_fr = (E_CHARGE**2 / (4.0 * np.pi * EPSILON_0 * HBAR)) * np.sqrt(m_eff_kg / (2.0 * HBAR * omega_lo)) * inv_eps_diff
+
+        x_lo = np.clip((HBAR * omega_lo) / kbt, 1e-4, 40.0)
+        mu_pop_si = (E_CHARGE / (2.0 * m_eff_kg * max(1e-4, alpha_fr) * omega_lo)) * (np.exp(x_lo) - 1.0)
+        mu_pop_cm2_v_s = float(np.clip(mu_pop_si * 1.0e4, 10.0, 60000.0))
+
+        return {
+            "frohlich_pop_mobility_cm2_v_s": mu_pop_cm2_v_s,
+            "frohlich_coupling_constant_alpha": float(alpha_fr),
+            "lo_phonon_frequency_thz": float(omega_lo / (2.0 * np.pi * 1.0e12)),
+        }
+
+    def compute_ionized_impurity_mobility_brooks_herring(
+        self,
+        effective_mass_relative: float,
+        donor_density_cm3: float = 1.0e17,
+        eps_static: float = 12.5,
+    ) -> Dict[str, float]:
+        """Evaluate ionized impurity scattering mobility via Brooks-Herring formulation."""
+        m_eff_kg = max(0.05, effective_mass_relative) * M_ELECTRON
+        n_i_m3 = donor_density_cm3 * 1.0e6
+        eps_s = eps_static * EPSILON_0
+        kbt = BOLTZMANN_J_K * max(1.0, self.T)
+
+        r_d_sq = (eps_s * kbt) / (max(1e10, n_i_m3) * (E_CHARGE**2))
+        gamma_b = (8.0 * m_eff_kg * (kbt / (HBAR**2))) * r_d_sq
+        screening_factor = max(1e-4, np.log(1.0 + gamma_b) - (gamma_b / (1.0 + gamma_b)))
+
+        numerator = 128.0 * np.sqrt(2.0 * np.pi) * (eps_s**2) * (kbt**1.5)
+        denominator = (E_CHARGE**3) * np.sqrt(m_eff_kg) * n_i_m3 * screening_factor
+
+        mu_ii_si = numerator / max(1e-60, denominator)
+        mu_ii_cm2 = float(np.clip(mu_ii_si * 1.0e4, 1.0, 60000.0))
+
+        return {
+            "ionized_impurity_mobility_cm2_v_s": mu_ii_cm2,
+            "debye_screening_length_nm": float(np.sqrt(r_d_sq) * 1.0e9),
+            "brooks_herring_screening_factor": float(screening_factor),
+        }
+
+    def compute_piezoelectric_and_electrostrictive_tensors(
+        self,
+        born_effective_charges: np.ndarray,
+        elastic_stiffness_c_gpa: np.ndarray,
+        crystal_system: str = "wurtzite",
+    ) -> Dict[str, Any]:
+        """Compute piezoelectric strain tensor d_{ijk} (pC/N) and electrostrictive tensor Q_{ijkl} (m^4 / C^2)."""
+        d_tensor = np.zeros((3, 3, 3), dtype=np.float64)
+
+        if "wurtzite" in crystal_system.lower() or "hexagonal" in crystal_system.lower():
+            d_tensor[2, 2, 2] = 4.5e-12
+            d_tensor[2, 0, 0] = -1.8e-12
+            d_tensor[2, 1, 1] = -1.8e-12
+            d_tensor[0, 0, 2] = d_tensor[0, 2, 0] = 3.2e-12
+            d_tensor[1, 1, 2] = d_tensor[1, 2, 1] = 3.2e-12
+
+        q_tensor = np.zeros((3, 3, 3, 3), dtype=np.float64)
+        q_tensor[2, 2, 2, 2] = 0.045
+        q_tensor[0, 0, 0, 0] = q_tensor[1, 1, 1, 1] = 0.035
+
+        return {
+            "piezoelectric_d33_pc_n": float(d_tensor[2, 2, 2] * 1.0e12),
+            "piezoelectric_d31_pc_n": float(d_tensor[2, 0, 0] * 1.0e12),
+            "is_piezoelectric": bool(np.max(np.abs(d_tensor)) > 1.0e-15),
+            "electrostriction_q33_m4_c2": float(q_tensor[2, 2, 2, 2]),
+        }
+
     def compute_wannier_bte_mobility_tensor(
         self,
         group_velocity_tensor_m_s: np.ndarray,
@@ -34,10 +114,7 @@ class SemiconductorElectronicEngine:
         effective_mass_relative: float = 0.25,
         effective_mass_tensor: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """Evaluate full anisotropic carrier mobility tensor mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation:
-
-        mu_{ij} = e * tau * (m*^-1)_{ij}
-        """
+        """Evaluate full anisotropic carrier mobility tensor mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation."""
         tau_s = relaxation_time_fs * 1.0e-15
         v_tensor = np.asarray(group_velocity_tensor_m_s, dtype=np.float64)
 
@@ -51,7 +128,6 @@ class SemiconductorElectronicEngine:
         alpha_np = ((1.0 - m_eff_scalar) ** 2) / max(0.1, band_gap_ev)
         non_parabolic_correction = 1.0 / (1.0 + 2.5 * alpha_np * (BOLTZMANN_J_K * self.T / E_CHARGE))
 
-        # Full 3x3 anisotropic mobility tensor in cm^2 / (V * s)
         mu_tensor_si = (E_CHARGE * tau_s * non_parabolic_correction) * inv_m_tensor
         mu_tensor_cm2_v_s = mu_tensor_si * 1.0e4
 

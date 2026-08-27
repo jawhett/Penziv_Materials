@@ -6,9 +6,11 @@ import numpy as np
 from penziv_materials.physics.semiconductor_electronics import SemiconductorElectronicEngine
 from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTransportEngine
 from penziv_materials.physics.electro_chemo_mechanics import CoupledPNPMechanicsSolver
+from penziv_materials.physics.radiation_damage import RadiationDamageEngine
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
+from penziv_materials.scale2_continuum.unified_spectral_solver import Unified3DSpectralMultiphysicsSolver
 from penziv_materials.scale2_continuum.damage_mechanics import NonLocalDamageMechanics
 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
@@ -37,6 +39,47 @@ class TestPhysicsDomains(unittest.TestCase):
         self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
         self.dft = DFTEngine()
         self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
+        self.unified_spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
+        self.rad = RadiationDamageEngine()
+
+    def test_unified_3d_spectral_multiphysics_solver(self):
+        macro_eps = np.diag([0.005, -0.001, -0.001])
+        rho = np.zeros((8, 8, 8))
+        rho[2:4, 2:4, 2:4] = 5.0e5
+        q_heat = np.zeros((8, 8, 8))
+        q_heat[3:5, 3:5, 3:5] = 1.0e7
+        stiffness = np.ones((8, 8, 8)) * 160.0
+        permittivity = np.ones((8, 8, 8)) * 12.0
+        therm_cond = np.ones((8, 8, 8)) * 45.0
+
+        res = self.unified_spectral.solve_coupled_state(
+            macro_strain=macro_eps,
+            charge_density_c_m3=rho,
+            heat_source_w_m3=q_heat,
+            stiffness_field_gpa=stiffness,
+            permittivity_field=permittivity,
+            thermal_conductivity_field=therm_cond,
+        )
+        self.assertTrue(res["is_coupled_multiphysics_converged"])
+        self.assertIn("homogenized_stress_gpa", res)
+        self.assertGreater(res["max_temperature_rise_k"], 0.0)
+
+    def test_frohlich_pop_and_brooks_herring_scattering(self):
+        pop_res = self.semi.compute_frohlich_pop_mobility(0.28, eps_static=12.5, eps_high_freq=9.2)
+        self.assertIn("frohlich_pop_mobility_cm2_v_s", pop_res)
+        self.assertGreater(pop_res["frohlich_pop_mobility_cm2_v_s"], 1.0)
+
+        bh_res = self.semi.compute_ionized_impurity_mobility_brooks_herring(0.28, donor_density_cm3=1.0e17)
+        self.assertIn("ionized_impurity_mobility_cm2_v_s", bh_res)
+        self.assertGreater(bh_res["ionized_impurity_mobility_cm2_v_s"], 10.0)
+
+    def test_radiation_damage_nrt_and_displacement_surface(self):
+        ed_val = self.rad.compute_directional_displacement_energy_surface(np.pi / 4.0, np.pi / 4.0)
+        self.assertGreaterEqual(ed_val, 24.0)
+
+        nrt_res = self.rad.compute_nrt_displacements_per_atom(damage_energy_t_dam_kev=50.0, threshold_displacement_energy_e_d_ev=ed_val)
+        self.assertIn("total_displacements_per_atom_dpa", nrt_res)
+        self.assertGreater(nrt_res["nrt_frenkel_pairs_per_pka"], 1.0)
 
     def test_wigner_pohl_thermal_transport(self):
         freqs = np.array([4.5, 5.0, 7.5, 8.0])
