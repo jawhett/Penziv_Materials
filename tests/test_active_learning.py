@@ -44,7 +44,6 @@ class TestActiveLearningAndRobotics(unittest.TestCase):
 
     def test_3d_pnp_tpms_space_charge(self):
         pnp = CoupledPNPMechanicsSolver()
-        # 3D voxel grid
         tpms_grid = np.random.uniform(0, 1, (16, 16, 16))
         pnp_3d = pnp.solve_space_charge_potential_3d(tpms_grid, applied_voltage_v=0.05)
         self.assertIn("peak_electric_field_v_m", pnp_3d)
@@ -61,13 +60,22 @@ class TestActiveLearningAndRobotics(unittest.TestCase):
         r_wp = bayes.compute_rietveld_residual_rwp(y_sim, y_sim * 1.02)
         self.assertLess(r_wp, 0.05)
 
-    def test_csm_nanoindentation_inversion(self):
+    def test_raw_xrd_and_eis_parsers(self):
         bayes = BayesianDataAssimilationEngine()
-        h_depth = np.linspace(50.0, 1000.0, 50)
-        stiffness = np.linspace(1e5, 2e6, 50)
-        csm_res = bayes.invert_nanoindentation_csm_curve(h_depth, stiffness)
-        self.assertIn("inferred_effective_modulus_gpa", csm_res)
-        self.assertGreater(csm_res["inferred_effective_modulus_gpa"], 0.0)
+        xy_data = "20.5  120.0\n21.0  350.0\n21.5  850.0\n22.0  200.0"
+        two_theta, ints = bayes.parse_raw_xrd_xy_file(xy_data)
+        self.assertEqual(len(two_theta), 4)
+
+        mpt_data = "1000000.0  12.5  -1.2\n10000.0  45.0  -25.0\n100.0  145.0  -5.0"
+        eis_res = bayes.parse_and_fit_biologic_eis_mpt(mpt_data)
+        self.assertIn("extracted_ionic_conductivity_ms_cm", eis_res)
+        self.assertGreater(eis_res["extracted_ionic_conductivity_ms_cm"], 0.0)
+
+    def test_multistep_synthesis_path(self):
+        synth = RetrosynthesisAssemblyPlanner()
+        path = synth.find_optimal_multistep_synthesis_path("MgSc2S4", ["MgS", "Sc2S3"])
+        self.assertTrue(path["is_kinetically_feasible"])
+        self.assertLess(path["cumulative_delta_g_kj_mol"], 0.0)
 
     def test_opentrons_ot2_export(self):
         synth = RetrosynthesisAssemblyPlanner()

@@ -1,5 +1,6 @@
-"""Grand Canonical Thermodynamic Convex Hull & Linear Programming Multi-Phase Decomposition Solver."""
+"""Grand Canonical Thermodynamic Convex Hull, Materials Project REST Bridge & Simplex LP Solver."""
 
+import os
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
 from scipy.optimize import linprog
@@ -26,9 +27,7 @@ class ConvexHullEntry:
 class GrandCanonicalConvexHull:
     """Calculates thermodynamic phase equilibria, grand potential Phi(V), Delta E_hull, and decomposition equations."""
 
-    # 60+ fundamental binary/ternary oxides, sulfides, phosphides, halides, silicates, and superalloy phases
     STANDARD_PHASE_DATABASE: List[Dict[str, Any]] = [
-        # Reference elements (0.0 eV/atom)
         {"formula": "Li", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "Na", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "K",  "energy_ev_atom": 0.0, "is_ref": True},
@@ -60,7 +59,6 @@ class GrandCanonicalConvexHull:
         {"formula": "F2", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "Cl2","energy_ev_atom": 0.0, "is_ref": True},
 
-        # Sulfides and Chalcogenides
         {"formula": "Li2S", "energy_ev_atom": -1.52, "is_ref": False},
         {"formula": "Na2S", "energy_ev_atom": -1.35, "is_ref": False},
         {"formula": "MgS",  "energy_ev_atom": -1.82, "is_ref": False},
@@ -76,7 +74,6 @@ class GrandCanonicalConvexHull:
         {"formula": "P2S5", "energy_ev_atom": -0.85, "is_ref": False},
         {"formula": "SiS2", "energy_ev_atom": -1.05, "is_ref": False},
 
-        # Solid Electrolytes & Ternary Compounds
         {"formula": "Li3PS4", "energy_ev_atom": -1.55, "is_ref": False},
         {"formula": "Na3PS4", "energy_ev_atom": -1.42, "is_ref": False},
         {"formula": "Li10GeP2S12", "energy_ev_atom": -1.62, "is_ref": False},
@@ -85,7 +82,6 @@ class GrandCanonicalConvexHull:
         {"formula": "Na3Zr2(SiO4)2(PO4)", "energy_ev_atom": -2.85, "is_ref": False},
         {"formula": "Li7La3Zr2O12", "energy_ev_atom": -3.15, "is_ref": False},
 
-        # Oxides and Ceramics
         {"formula": "MgO",  "energy_ev_atom": -3.12, "is_ref": False},
         {"formula": "Al2O3","energy_ev_atom": -3.45, "is_ref": False},
         {"formula": "Sc2O3","energy_ev_atom": -3.85, "is_ref": False},
@@ -93,7 +89,6 @@ class GrandCanonicalConvexHull:
         {"formula": "ZrO2", "energy_ev_atom": -3.75, "is_ref": False},
         {"formula": "SiO2", "energy_ev_atom": -3.15, "is_ref": False},
 
-        # Superalloys and Intermetallics
         {"formula": "Ni3Al", "energy_ev_atom": -0.45, "is_ref": False},
         {"formula": "Ni3Ti", "energy_ev_atom": -0.42, "is_ref": False},
         {"formula": "Ni3Nb", "energy_ev_atom": -0.38, "is_ref": False},
@@ -103,7 +98,8 @@ class GrandCanonicalConvexHull:
         {"formula": "Cr23C6","energy_ev_atom": -0.25, "is_ref": False},
     ]
 
-    def __init__(self, target_chemical_system: Optional[List[str]] = None):
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or os.environ.get("MP_API_KEY")
         self.entries: List[ConvexHullEntry] = []
         for d in self.STANDARD_PHASE_DATABASE:
             entry = ConvexHullEntry(
@@ -113,15 +109,31 @@ class GrandCanonicalConvexHull:
             )
             self.entries.append(entry)
 
+    def fetch_live_materials_project_entries(self, chemical_system: List[str]) -> int:
+        """Dynamically fetch all competing thermodynamic phases from the Materials Project REST API."""
+        if not self.api_key:
+            return 0
+        try:
+            from mp_api.client import MPRester
+            with MPRester(self.api_key) as mpr:
+                chemsys_str = "-".join(chemical_system)
+                docs = mpr.thermo.search(chemsys=chemsys_str)
+                count = 0
+                for doc in docs:
+                    form_e = float(doc.formation_energy_per_atom) if doc.formation_energy_per_atom is not None else 0.0
+                    entry = ConvexHullEntry(formula=doc.formula_pretty, formation_energy_per_atom_ev=form_e)
+                    self.entries.append(entry)
+                    count += 1
+                return count
+        except Exception:
+            return 0
+
     def compute_energy_above_convex_hull(
         self,
         candidate_formula: str,
         candidate_energy_per_atom_ev: float,
     ) -> Dict[str, Any]:
-        """Solve multi-component Linear Programming phase equilibrium:
-
-        min_lambda c^T lambda  s.t.  A_eq lambda = b_eq,  lambda >= 0
-        """
+        """Solve multi-component Linear Programming phase equilibrium."""
         cand_mol = parse_chemical_formula(candidate_formula)
         total_atoms = sum(cand_mol.values())
         cand_fracs = {k: v / max(1e-6, total_atoms) for k, v in cand_mol.items()}
@@ -188,8 +200,6 @@ class GrandCanonicalConvexHull:
     ) -> Tuple[float, float]:
         """Compute grand potential electrochemical reduction and oxidation potentials [V_red, V_ox] from Legendre minimization."""
         cand_mol = parse_chemical_formula(candidate_formula)
-        charge_z = 2.0 if reference_metal in ["Mg", "Zn", "Ca"] else 1.0
-
         v_red = 0.05 if ("S" in cand_mol or "P" in cand_mol) else 0.45
         v_ox = 3.45 if ("S" in cand_mol or "P" in cand_mol) else 4.60
 
