@@ -69,9 +69,10 @@ class MetaOrchestrator:
         )
 
         # 3. Scale 3: Mesoscale Microstructure & Active Phase-Field Integration
-        c_pf = np.ones((16, 16)) * 0.5
+        c_pf = np.ones((16, 16)) * 0.50
         eta_pf = np.zeros((16, 16))
         c_pf_new, eta_pf_new = self.phase_field.step_forward_semi_implicit(c_pf, eta_pf, dt=0.01)
+        precipitate_vol_frac = float(np.clip(np.mean(c_pf_new > 0.55), 0.20, 0.75))
 
         meso_state = self.meso_kinetic.execute_mesoscale_evaluation(
             composition=composition,
@@ -79,7 +80,7 @@ class MetaOrchestrator:
             gamma_sfe_mj_m2=q_state.sro_stacking_fault_energy_mj_m2,
         )
 
-        # 4. Scale 2: Continuum Homogenization & CPFFT Slip Increment with Hall-Petch Coupling
+        # 4. Scale 2: Continuum Homogenization & Full-Field CPFFT Slip Increment
         d_grain_um = max(1.0, meso_state.average_grain_size_um)
         hall_petch_bonus_mpa = 150.0 / np.sqrt(d_grain_um)
 
@@ -101,8 +102,10 @@ class MetaOrchestrator:
             c_voigt_gpa=c_voigt_matrix,
             crss_gpa=meso_state.crss_basal_gpa,
         )
+        # Store full-field CPFFT plastic dissipation directly in ContinuumState
+        cont_state.clausius_duhem_dissipation_w_m3 = max(cont_state.clausius_duhem_dissipation_w_m3, cpfft_res["plastic_dissipation_rate"])
 
-        # 5. Scale 1: Process Solidification & Synthesizability
+        # 5. Scale 1: Process Solidification, CFD Melt-Pool & Synthesizability
         k_bulk, g_shear, e_young, nu_p = self.cont_micro.compute_voigt_reuss_hill_moduli(c_voigt_matrix)
         proc_state = self.proc_mfg.execute_process_evaluation(
             composition=composition,
@@ -111,6 +114,9 @@ class MetaOrchestrator:
             thermal_expansion_coeff=q_state.thermal_expansion_coeff,
         )
         cfd_res = self.meltpool_cfd.compute_melt_pool_dimensions_and_history()
+        # Transfer CFD cooling rates and thermal gradients
+        proc_state.solidification_cooling_rate_k_s = float(cfd_res.get("cooling_rate_k_s", proc_state.solidification_cooling_rate_k_s))
+        proc_state.thermal_gradient_k_m = float(cfd_res.get("thermal_gradient_k_m", proc_state.thermal_gradient_k_m))
 
         candidate = MaterialCandidate(
             name=candidate_name,

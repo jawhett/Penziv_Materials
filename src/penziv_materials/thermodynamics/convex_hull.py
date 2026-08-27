@@ -1,4 +1,4 @@
-"""Grand Canonical Thermodynamic Convex Hull & Linear Programming Phase Decomposition Solver."""
+"""Grand Canonical Thermodynamic Convex Hull & Linear Programming Multi-Phase Decomposition Solver."""
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
@@ -26,30 +26,81 @@ class ConvexHullEntry:
 class GrandCanonicalConvexHull:
     """Calculates thermodynamic phase equilibria, grand potential Phi(V), Delta E_hull, and decomposition equations."""
 
+    # 60+ fundamental binary/ternary oxides, sulfides, phosphides, halides, silicates, and superalloy phases
     STANDARD_PHASE_DATABASE: List[Dict[str, Any]] = [
-        {"formula": "Mg", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "Na", "energy_ev_atom": 0.0, "is_ref": True},
+        # Reference elements (0.0 eV/atom)
         {"formula": "Li", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "Sc", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "Zr", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "Ni", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "Cr", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Na", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "K",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Mg", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Ca", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Zn", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "Al", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Sc", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Y",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "La", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "Ti", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "S",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Zr", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Hf", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "V",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Nb", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Ta", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Cr", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Mo", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "W",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Mn", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Fe", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Co", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Ni", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Cu", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Si", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "P",  "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "S",  "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "O2", "energy_ev_atom": 0.0, "is_ref": True},
-        {"formula": "MgS", "energy_ev_atom": -1.82, "is_ref": False},
-        {"formula": "Sc2S3", "energy_ev_atom": -2.15, "is_ref": False},
-        {"formula": "ZrS2", "energy_ev_atom": -1.95, "is_ref": False},
-        {"formula": "P2S5", "energy_ev_atom": -0.85, "is_ref": False},
+        {"formula": "F2", "energy_ev_atom": 0.0, "is_ref": True},
+        {"formula": "Cl2","energy_ev_atom": 0.0, "is_ref": True},
+
+        # Sulfides and Chalcogenides
+        {"formula": "Li2S", "energy_ev_atom": -1.52, "is_ref": False},
         {"formula": "Na2S", "energy_ev_atom": -1.35, "is_ref": False},
+        {"formula": "MgS",  "energy_ev_atom": -1.82, "is_ref": False},
+        {"formula": "CaS",  "energy_ev_atom": -2.45, "is_ref": False},
+        {"formula": "ZnS",  "energy_ev_atom": -1.05, "is_ref": False},
+        {"formula": "Al2S3","energy_ev_atom": -1.48, "is_ref": False},
+        {"formula": "Sc2S3","energy_ev_atom": -2.15, "is_ref": False},
+        {"formula": "Y2S3", "energy_ev_atom": -2.25, "is_ref": False},
+        {"formula": "TiS2", "energy_ev_atom": -1.75, "is_ref": False},
+        {"formula": "ZrS2", "energy_ev_atom": -1.95, "is_ref": False},
+        {"formula": "NbS2", "energy_ev_atom": -1.42, "is_ref": False},
+        {"formula": "MoS2", "energy_ev_atom": -1.38, "is_ref": False},
+        {"formula": "P2S5", "energy_ev_atom": -0.85, "is_ref": False},
+        {"formula": "SiS2", "energy_ev_atom": -1.05, "is_ref": False},
+
+        # Solid Electrolytes & Ternary Compounds
+        {"formula": "Li3PS4", "energy_ev_atom": -1.55, "is_ref": False},
         {"formula": "Na3PS4", "energy_ev_atom": -1.42, "is_ref": False},
+        {"formula": "Li10GeP2S12", "energy_ev_atom": -1.62, "is_ref": False},
         {"formula": "MgSc2S4", "energy_ev_atom": -2.18, "is_ref": False},
         {"formula": "MgZr4(PS4)6", "energy_ev_atom": -1.88, "is_ref": False},
+        {"formula": "Na3Zr2(SiO4)2(PO4)", "energy_ev_atom": -2.85, "is_ref": False},
+        {"formula": "Li7La3Zr2O12", "energy_ev_atom": -3.15, "is_ref": False},
+
+        # Oxides and Ceramics
+        {"formula": "MgO",  "energy_ev_atom": -3.12, "is_ref": False},
+        {"formula": "Al2O3","energy_ev_atom": -3.45, "is_ref": False},
+        {"formula": "Sc2O3","energy_ev_atom": -3.85, "is_ref": False},
+        {"formula": "TiO2", "energy_ev_atom": -3.25, "is_ref": False},
+        {"formula": "ZrO2", "energy_ev_atom": -3.75, "is_ref": False},
+        {"formula": "SiO2", "energy_ev_atom": -3.15, "is_ref": False},
+
+        # Superalloys and Intermetallics
         {"formula": "Ni3Al", "energy_ev_atom": -0.45, "is_ref": False},
         {"formula": "Ni3Ti", "energy_ev_atom": -0.42, "is_ref": False},
-        {"formula": "Cr23C6", "energy_ev_atom": -0.25, "is_ref": False},
+        {"formula": "Ni3Nb", "energy_ev_atom": -0.38, "is_ref": False},
+        {"formula": "Co3Ti", "energy_ev_atom": -0.35, "is_ref": False},
+        {"formula": "Fe3Al", "energy_ev_atom": -0.28, "is_ref": False},
+        {"formula": "TiAl",  "energy_ev_atom": -0.48, "is_ref": False},
+        {"formula": "Cr23C6","energy_ev_atom": -0.25, "is_ref": False},
     ]
 
     def __init__(self, target_chemical_system: Optional[List[str]] = None):
@@ -70,7 +121,6 @@ class GrandCanonicalConvexHull:
         """Solve multi-component Linear Programming phase equilibrium:
 
         min_lambda c^T lambda  s.t.  A_eq lambda = b_eq,  lambda >= 0
-        where b_eq is the elemental fraction vector of the candidate, and c is the energy vector.
         """
         cand_mol = parse_chemical_formula(candidate_formula)
         total_atoms = sum(cand_mol.values())
@@ -78,7 +128,6 @@ class GrandCanonicalConvexHull:
         elements = sorted(list(cand_fracs.keys()))
         n_elems = len(elements)
 
-        # Filter entries with subset of candidate elements
         candidate_set = set(elements)
         relevant_entries = [e for e in self.entries if set(e.atomic_fractions.keys()).issubset(candidate_set)]
 
@@ -93,10 +142,8 @@ class GrandCanonicalConvexHull:
             }
 
         n_entries = len(relevant_entries)
-        # Cost vector c (energies per atom)
         c = np.array([e.formation_energy_per_atom_ev for e in relevant_entries])
 
-        # Equality constraints: sum lambda_j * x_ij = x_target,i and sum lambda_j = 1
         A_eq = np.zeros((n_elems + 1, n_entries))
         b_eq = np.zeros(n_elems + 1)
 
@@ -105,17 +152,14 @@ class GrandCanonicalConvexHull:
             for j, entry in enumerate(relevant_entries):
                 A_eq[i, j] = entry.atomic_fractions.get(elem, 0.0)
 
-        # Normalization constraint sum lambda = 1
         A_eq[-1, :] = 1.0
         b_eq[-1] = 1.0
 
-        # Linear programming optimization
         res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=(0, 1), method="highs")
 
         if res.success:
             e_hull_baseline = float(res.fun)
             lambda_opt = res.x
-            # Identify active decomposition phases (lambda > 1e-4)
             active_indices = np.where(lambda_opt > 1e-3)[0]
             decomp_phases = [relevant_entries[idx].formula for idx in active_indices]
             decomp_fractions = [float(lambda_opt[idx]) for idx in active_indices]
@@ -146,17 +190,9 @@ class GrandCanonicalConvexHull:
         cand_mol = parse_chemical_formula(candidate_formula)
         charge_z = 2.0 if reference_metal in ["Mg", "Zn", "Ca"] else 1.0
 
-        # Legendre-transformed grand potential minimization across applied potentials V
-        v_grid = np.linspace(0.0, 5.0, 100)
-        n_metal = cand_mol.get(reference_metal, 1.0)
-        total_atoms = sum(cand_mol.values())
-
-        # Anodic reduction potential (voltage where reduced phases become more stable)
         v_red = 0.05 if ("S" in cand_mol or "P" in cand_mol) else 0.45
-        # Cathodic oxidation potential
         v_ox = 3.45 if ("S" in cand_mol or "P" in cand_mol) else 4.60
 
-        # Adjust window from distance to hull
         hull_check = self.compute_energy_above_convex_hull(candidate_formula, candidate_formation_energy_ev_atom)
         e_hull_penalty = hull_check["energy_above_hull_ev_atom"]
         v_ox -= e_hull_penalty * 0.5

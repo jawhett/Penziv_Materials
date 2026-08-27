@@ -1,4 +1,4 @@
-"""Unit tests for Active Learning Loop, XRD Rietveld simulation, and Robotic Script Generation."""
+"""Unit tests for Active Learning Loop, 3D TPMS PNP solver, and Robotic Script Generation."""
 
 import unittest
 import numpy as np
@@ -8,6 +8,8 @@ from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEn
 from penziv_materials.orchestration.active_learning_loop import ActiveLearningHPCDispatchLoop
 from penziv_materials.meta_bridge.bayesian_assimilation import BayesianDataAssimilationEngine
 from penziv_materials.synthesis.retrosynthesis_planner import RetrosynthesisAssemblyPlanner
+from penziv_materials.multiphysics.coupled_pnp_mechanics import CoupledPNPMechanicsSolver
+from penziv_materials.adapters.solver_adapters import SolverAdapterBridge
 
 
 class TestActiveLearningAndRobotics(unittest.TestCase):
@@ -25,6 +27,29 @@ class TestActiveLearningAndRobotics(unittest.TestCase):
         res = self.al_loop.evaluate_configuration_uncertainty(self.crystal, self.mlip)
         self.assertIn("max_force_variance_sigma_f", res)
         self.assertIn("status", res)
+
+    def test_automated_dft_dispatch(self):
+        retrain_res = self.al_loop.dispatch_automated_dft_and_retrain(self.crystal, self.mlip)
+        self.assertTrue(retrain_res["slurm_job_submitted"])
+        self.assertTrue(retrain_res["dft_scf_converged"])
+        self.assertGreater(retrain_res["active_learning_pool_size"], 0)
+
+    def test_dynamic_qe_deck_generation(self):
+        bridge = SolverAdapterBridge()
+        qe_deck = bridge.generate_quantum_espresso_input(formula="NiAl", crystal_structure=self.crystal)
+        self.assertIn("ATOMIC_SPECIES", qe_deck)
+        self.assertIn("Ni", qe_deck)
+        self.assertIn("Al", qe_deck)
+        self.assertIn("K_POINTS (automatic)", qe_deck)
+
+    def test_3d_pnp_tpms_space_charge(self):
+        pnp = CoupledPNPMechanicsSolver()
+        # 3D voxel grid
+        tpms_grid = np.random.uniform(0, 1, (16, 16, 16))
+        pnp_3d = pnp.solve_space_charge_potential_3d(tpms_grid, applied_voltage_v=0.05)
+        self.assertIn("peak_electric_field_v_m", pnp_3d)
+        self.assertIn("triple_phase_current_crowding_factor", pnp_3d)
+        self.assertGreater(pnp_3d["peak_electric_field_v_m"], 0.0)
 
     def test_xrd_pseudo_voigt_simulation(self):
         bayes = BayesianDataAssimilationEngine()

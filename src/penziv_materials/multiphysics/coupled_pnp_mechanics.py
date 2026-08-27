@@ -1,108 +1,164 @@
-"""Coupled Poisson-Nernst-Planck (PNP) Electro-Chemo-Mechanics & Butler-Volmer Engine."""
+"""Coupled Poisson-Nernst-Planck (PNP) Space-Charge, 3D TPMS Interfaces & Butler-Volmer Kinetics."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
-from penziv_materials.core.constants import ELEMENTARY_CHARGE_C, BOLTZMANN_J_K, FARADAY_C_MOL, R_GAS
+from penziv_materials.core.constants import ELEMENTARY_CHARGE_C, BOLTZMANN_J_K, FARADAY_C_MOL
 
 
 class CoupledPNPMechanicsSolver:
-    """Solves coupled Poisson-Nernst-Planck (PNP) electro-chemo-mechanics and Butler-Volmer charge transfer."""
+    """Solves 1D/3D coupled Poisson-Nernst-Planck space-charge layers, interfacial Butler-Volmer overpotentials, and chemo-mechanical stresses."""
 
     def __init__(
         self,
-        grid_points: int = 100,
-        domain_length_nm: float = 20.0,
-        dielectric_constant_eps_r: float = 14.0,
         cation_charge_z: int = 2,
+        relative_permittivity_eps_r: float = 25.0,
+        temperature_k: float = 298.15,
+        grid_points: int = 100,
     ):
-        self.nx = grid_points
-        self.l_x = domain_length_nm * 1.0e-9  # m
-        self.dx = self.l_x / max(1, self.nx - 1)
-        self.eps_r = dielectric_constant_eps_r
         self.z = cation_charge_z
-        self.eps_0 = 8.8541878128e-12
+        self.eps_r = relative_permittivity_eps_r
+        self.T = temperature_k
+        self.n_pts = grid_points
+        self.eps_0 = 8.8541878128e-12  # F/m
 
     def solve_space_charge_potential_1d(
         self,
-        cation_concentration_m3: np.ndarray,
-        anion_background_concentration_m3: float,
-        boundary_potential_left_v: float = 0.0,
-        boundary_potential_right_v: float = 0.05,
+        cation_concentration_profile_m3: np.ndarray,
+        anion_fixed_charge_density_m3: float,
+        domain_length_nm: float = 10.0,
     ) -> Tuple[np.ndarray, np.ndarray, float]:
-        """Solve 1D Poisson equation for space-charge electrostatic potential phi(x):
+        """Solve 1D Poisson equation d^2 phi / dx^2 = -rho / (eps_r * eps_0) for space-charge potential."""
+        dx = (domain_length_nm * 1.0e-9) / (self.n_pts - 1)
+        rho = ELEMENTARY_CHARGE_C * (self.z * cation_concentration_profile_m3 - anion_fixed_charge_density_m3)
+        eps = self.eps_r * self.eps_0
 
-        d^2 phi / dx^2 = - rho(x) / (eps_r * eps_0)
-        where rho(x) = z * e * (c_cation(x) - c_anion)
-        """
-        # Net charge density rho (C/m3)
-        rho = self.z * ELEMENTARY_CHARGE_C * (cation_concentration_m3 - anion_background_concentration_m3)
-
-        # Tridiagonal Poisson matrix
-        A = np.zeros((self.nx, self.nx), dtype=np.float64)
-        rhs = np.zeros(self.nx, dtype=np.float64)
-
-        for i in range(1, self.nx - 1):
-            A[i, i - 1] = 1.0 / (self.dx**2)
-            A[i, i] = -2.0 / (self.dx**2)
-            A[i, i + 1] = 1.0 / (self.dx**2)
-            rhs[i] = -rho[i] / (self.eps_r * self.eps_0)
-
-        # Dirichlet boundary conditions
+        diag = -2.0 * np.ones(self.n_pts)
+        off_diag = np.ones(self.n_pts - 1)
+        A = np.diag(diag) + np.diag(off_diag, 1) + np.diag(off_diag, -1)
+        A[0, :] = 0.0
         A[0, 0] = 1.0
-        rhs[0] = boundary_potential_left_v
+        A[-1, :] = 0.0
         A[-1, -1] = 1.0
-        rhs[-1] = boundary_potential_right_v
+
+        rhs = -(dx**2) * rho / eps
+        rhs[0] = 0.0
+        rhs[-1] = 0.0
 
         phi = np.linalg.solve(A, rhs)
-        electric_field = -np.gradient(phi, self.dx)
+        electric_field = -np.gradient(phi, dx)
 
-        # Debye screening length lambda_D = sqrt(eps_r * eps_0 * k_B * T / (2 * z^2 * e^2 * c_0))
-        kbt = BOLTZMANN_J_K * 300.0
-        lambda_debye_nm = 1.0e9 * np.sqrt(
-            (self.eps_r * self.eps_0 * kbt)
-            / (2.0 * (self.z * ELEMENTARY_CHARGE_C) ** 2 * max(1.0, anion_background_concentration_m3))
-        )
+        c_inf = np.median(cation_concentration_profile_m3)
+        lambda_debye_m = np.sqrt((eps * BOLTZMANN_J_K * self.T) / (2.0 * (self.z * ELEMENTARY_CHARGE_C) ** 2 * max(1.0, c_inf)))
+        lambda_debye_nm = lambda_debye_m * 1.0e9
 
         return phi, electric_field, float(lambda_debye_nm)
+
+    def solve_space_charge_potential_3d(
+        self,
+        tpms_phase_grid_3d: np.ndarray,
+        applied_voltage_v: float = 0.10,
+        domain_size_nm: float = 25.0,
+    ) -> Dict[str, Any]:
+        """Solve 3D spectral Poisson space-charge potential on 3D TPMS Gyroid/Diamond voxel grids:
+
+        grad . (eps_r(x) grad phi(x)) = -rho(x) / eps_0
+        """
+        grid = np.asarray(tpms_phase_grid_3d, dtype=np.float64)
+        nx, ny, nz = grid.shape
+        dx = (domain_size_nm * 1.0e-9) / nx
+
+        eps_field = np.where(grid < 0.33, 35.0, np.where(grid < 0.66, 15.0, 8.0)) * self.eps_0
+
+        grad_x, grad_y, grad_z = np.gradient(grid, dx)
+        interface_norm = np.sqrt(grad_x**2 + grad_y**2 + grad_z**2)
+        rho_3d = ELEMENTARY_CHARGE_C * self.z * 1.2e27 * (interface_norm / max(1e-9, np.max(interface_norm)))
+
+        kx = 2.0 * np.pi * np.fft.fftfreq(nx, d=dx)
+        ky = 2.0 * np.pi * np.fft.fftfreq(ny, d=dx)
+        kz = 2.0 * np.pi * np.fft.fftfreq(nz, d=dx)
+        KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing="ij")
+        K_sq = KX**2 + KY**2 + KZ**2
+        K_sq[0, 0, 0] = 1.0
+
+        eps_mean = float(np.mean(eps_field))
+        rho_k = np.fft.fftn(rho_3d)
+        phi_k = rho_k / (eps_mean * K_sq)
+        phi_k[0, 0, 0] = applied_voltage_v
+
+        phi_3d = np.real(np.fft.ifftn(phi_k))
+        efield_x, efield_y, efield_z = np.gradient(-phi_3d, dx)
+        efield_mag = np.sqrt(efield_x**2 + efield_y**2 + efield_z**2)
+
+        peak_efield_v_m = float(np.max(efield_mag))
+        current_crowding_factor = float(np.max(efield_mag) / max(1e-6, np.mean(efield_mag)))
+
+        return {
+            "peak_electric_field_v_m": peak_efield_v_m,
+            "mean_electric_field_v_m": float(np.mean(efield_mag)),
+            "triple_phase_current_crowding_factor": current_crowding_factor,
+            "is_dendrite_suppressed": bool(current_crowding_factor < 4.5),
+        }
 
     def evaluate_butler_volmer_current_density(
         self,
         overpotential_eta_v: float,
-        exchange_current_density_j0_a_m2: float = 10.0,
-        charge_transfer_alpha: float = 0.5,
-        temperature_k: float = 300.0,
+        exchange_current_density_j0_a_m2: float = 12.5,
+        transfer_coeff_alpha: float = 0.5,
     ) -> float:
-        """Evaluate non-linear Butler-Volmer interfacial charge transfer current density:
-
-        J_BV = J_0 * [ exp(alpha * z * F * eta / (R * T)) - exp(-(1 - alpha) * z * F * eta / (R * T)) ]
-        """
-        rt = R_GAS * temperature_k
-        f_factor = (self.z * FARADAY_C_MOL) / rt
-
-        anodic = np.exp(np.clip(charge_transfer_alpha * f_factor * overpotential_eta_v, -40.0, 40.0))
-        cathodic = np.exp(np.clip(-(1.0 - charge_transfer_alpha) * f_factor * overpotential_eta_v, -40.0, 40.0))
-
-        j_bv = exchange_current_density_j0_a_m2 * (anodic - cathodic)
+        """Compute Butler-Volmer interfacial charge transfer flux."""
+        f_over_rt = (FARADAY_C_MOL) / (8.314462618 * self.T)
+        anodic_exp = np.exp(transfer_coeff_alpha * self.z * f_over_rt * overpotential_eta_v)
+        cathodic_exp = np.exp(-(1.0 - transfer_coeff_alpha) * self.z * f_over_rt * overpotential_eta_v)
+        j_bv = exchange_current_density_j0_a_m2 * (anodic_exp - cathodic_exp)
         return float(j_bv)
+
+    def evaluate_chemo_mechanical_interfacial_stress(
+        self,
+        overpotential_eta_v: float,
+        youngs_modulus_gpa: float = 85.0,
+        partial_molar_volume_omega_m3_mol: float = 1.4e-5,
+    ) -> float:
+        """Evaluate chemo-mechanical normal stress generated by localized cation accumulation at the interface."""
+        delta_c_mol_m3 = (FARADAY_C_MOL * overpotential_eta_v) / (8.314 * self.T * 100.0)
+        e_pa = youngs_modulus_gpa * 1.0e9
+        nu = 0.28
+        sigma_pa = (e_pa / (1.0 - nu)) * (partial_molar_volume_omega_m3_mol / 3.0) * delta_c_mol_m3
+        return float(sigma_pa * 1.0e-6)
 
     def compute_chemo_mechanical_stress_coupling(
         self,
-        elastic_strain: np.ndarray,
-        concentration_change_mol_m3: float,
-        electric_field_v_m: float,
-        youngs_modulus_pa: float = 40.0e9,
-        partial_molar_volume_m3_mol: float = 1.2e-5,
-        piezo_coupling_coeff: float = 0.05,
+        elastic_strain: Optional[np.ndarray] = None,
+        concentration_change_mol_m3: float = 100.0,
+        electric_field_v_m: float = 1.0e6,
+        youngs_modulus_gpa: float = 85.0,
+        partial_molar_volume_omega_m3_mol: float = 1.4e-5,
+        applied_overpotential_v: Optional[float] = None,
     ) -> Dict[str, float]:
-        """Coupled stress tensor: sigma = E * eps - (E * Omega / 3) * Delta c - gamma * E_field."""
-        # Vegard chemo-elastic eigenstrain
-        vegard_stress_pa = (youngs_modulus_pa * partial_molar_volume_m3_mol / 3.0) * concentration_change_mol_m3
-        maxwell_stress_pa = piezo_coupling_coeff * electric_field_v_m
-        elastic_stress_pa = youngs_modulus_pa * np.trace(elastic_strain)
+        """Chemo-mechanical stress coupling including elastic, concentration swelling, and electrostatic Maxwell stress."""
+        nu = 0.28
+        e_pa = youngs_modulus_gpa * 1.0e9
 
-        total_stress_pa = elastic_stress_pa - vegard_stress_pa - maxwell_stress_pa
+        # Chemical insertion stress (MPa)
+        sigma_chemo_pa = (e_pa / (1.0 - nu)) * (partial_molar_volume_omega_m3_mol / 3.0) * concentration_change_mol_m3
+        sigma_chemo_mpa = sigma_chemo_pa * 1.0e-6
+
+        # Maxwell electrostatic stress T_E = 0.5 * eps * E^2 (MPa)
+        eps = self.eps_r * self.eps_0
+        sigma_maxwell_pa = 0.5 * eps * (electric_field_v_m**2)
+        sigma_maxwell_mpa = sigma_maxwell_pa * 1.0e-6
+
+        # Elastic strain contribution (MPa)
+        if elastic_strain is not None:
+            eps_norm = float(np.trace(elastic_strain)) if hasattr(elastic_strain, "shape") and elastic_strain.shape == (3, 3) else float(elastic_strain)
+            sigma_elastic_mpa = youngs_modulus_gpa * 1000.0 * eps_norm
+        else:
+            sigma_elastic_mpa = 0.0
+
+        total_stress_mpa = sigma_chemo_mpa + sigma_maxwell_mpa + sigma_elastic_mpa
+
         return {
-            "total_stress_mpa": float(total_stress_pa * 1.0e-6),
-            "vegard_chemo_stress_mpa": float(vegard_stress_pa * 1.0e-6),
-            "electrostatic_coupling_stress_mpa": float(maxwell_stress_pa * 1.0e-6),
+            "total_stress_mpa": float(total_stress_mpa),
+            "chemo_stress_mpa": float(sigma_chemo_mpa),
+            "maxwell_stress_mpa": float(sigma_maxwell_mpa),
+            "elastic_stress_mpa": float(sigma_elastic_mpa),
         }

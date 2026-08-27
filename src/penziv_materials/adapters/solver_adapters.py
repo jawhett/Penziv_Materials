@@ -1,4 +1,4 @@
-"""Commercial & Open-Source Solver Adapters with Subprocess Runners & Output Log Ingestion."""
+"""Commercial & Open-Source Solver Adapters with Dynamic Multi-Species Input Generators & Output Log Ingestion."""
 
 import os
 import re
@@ -6,9 +6,12 @@ import subprocess
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 
+from penziv_materials.core.formula_parser import STANDARD_ATOMIC_WEIGHTS, parse_chemical_formula
+from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+
 
 class SolverAdapterBridge:
-    """Translates scale-bridging data packets into native solver inputs, executes cluster jobs, and parses output logs."""
+    """Translates crystallographic and multiscale data into native solver inputs, executes HPC cluster jobs, and parses output logs."""
 
     def __init__(self):
         self.supported_solvers = [
@@ -25,41 +28,94 @@ class SolverAdapterBridge:
     def generate_quantum_espresso_input(
         self,
         formula: str,
-        lattice_parameter_angstrom: float,
+        lattice_parameter_angstrom: Optional[float] = None,
+        crystal_structure: Optional[CrystalStructure] = None,
         ecutwfc_ry: float = 80.0,
+        ecutrho_ry: float = 640.0,
+        k_spacing: float = 0.04,
     ) -> str:
-        """Generate formatted pw.x input card for Quantum ESPRESSO self-consistent DFT."""
-        qe_input = f"""&CONTROL
+        """Generate dynamic multi-species pw.x input card for Quantum ESPRESSO self-consistent DFT from a CrystalStructure or formula."""
+        if crystal_structure is not None:
+            lattice = crystal_structure.lattice
+            a, b, c = lattice.a, lattice.b, lattice.c
+            alpha, beta, gamma = lattice.angles
+            sites = crystal_structure.sites
+            unique_species = sorted(list(set(s.species for s in sites)))
+            nat = len(sites)
+            ntyp = len(unique_species)
+            celldm1 = a * 1.8897259886  # Angstrom to bohr
+            cosab = np.cos(np.radians(alpha))
+            cosbc = np.cos(np.radians(beta))
+            cosac = np.cos(np.radians(gamma))
+
+            # Atomic positions block
+            pos_lines = []
+            for s in sites:
+                fx, fy, fz = s.fractional_coords
+                pos_lines.append(f"  {s.species:<4} {fx:12.8f} {fy:12.8f} {fz:12.8f}")
+            positions_str = "\n".join(pos_lines)
+        else:
+            mol_counts = parse_chemical_formula(formula)
+            unique_species = sorted(list(mol_counts.keys()))
+            nat = int(sum(mol_counts.values()))
+            ntyp = len(unique_species)
+            a_val = lattice_parameter_angstrom if lattice_parameter_angstrom is not None else 5.20
+            celldm1 = a_val * 1.8897259886
+            cosbc = cosac = cosab = 0.0
+            pos_lines = []
+            idx = 0
+            for sp, count in mol_counts.items():
+                for c_idx in range(int(count)):
+                    fx = (idx * 0.25) % 1.0
+                    fy = (idx * 0.50) % 1.0
+                    fz = (idx * 0.75) % 1.0
+                    pos_lines.append(f"  {sp:<4} {fx:12.8f} {fy:12.8f} {fz:12.8f}")
+                    idx += 1
+            positions_str = "\n".join(pos_lines)
+
+        # Atomic species lines with standard PBE PAW pseudopotentials
+        species_lines = []
+        for sp in unique_species:
+            mass = STANDARD_ATOMIC_WEIGHTS.get(sp, 50.0)
+            pseudo_file = f"{sp}.pbe-n-kjpaw_psl.1.0.0.UPF"
+            species_lines.append(f"  {sp:<4} {mass:10.4f}  {pseudo_file}")
+        species_str = "\n".join(species_lines)
+
+        qe_card = f"""&CONTROL
   calculation = 'scf',
   restart_mode = 'from_scratch',
   prefix = '{formula}',
   pseudo_dir = './pseudo',
   outdir = './tmp',
   tstress = .true.,
-  tprnfor = .true.
+  tprnfor = .true.,
+  disk_io = 'low'
 /
 &SYSTEM
-  ibrav = 2,
-  celldm(1) = {lattice_parameter_angstrom * 1.8897259886:.6f},
-  nat = 1,
-  ntyp = 1,
+  ibrav = 0,
+  nat = {nat},
+  ntyp = {ntyp},
   ecutwfc = {ecutwfc_ry:.1f},
+  ecutrho = {ecutrho_ry:.1f},
   occupations = 'smearing',
-  smearing = 'm-p',
+  smearing = 'marzari-vanderbilt',
   degauss = 0.02
 /
 &ELECTRONS
   conv_thr = 1.0d-8,
-  mixing_beta = 0.7
+  mixing_beta = 0.7,
+  diagonalization = 'david'
 /
 ATOMIC_SPECIES
-  Ni  58.6934  Ni.pbe-n-kjpaw_psl.1.0.0.UPF
+{species_str}
+
 ATOMIC_POSITIONS (crystal)
-  Ni 0.00 0.00 0.00
+{positions_str}
+
 K_POINTS (automatic)
-  16 16 16 0 0 0
+  8 8 8 0 0 0
 """
-        return qe_input
+        return qe_card
 
     def generate_lammps_neb_script(
         self,

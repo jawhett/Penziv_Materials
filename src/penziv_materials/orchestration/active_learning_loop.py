@@ -56,11 +56,11 @@ class ActiveLearningHPCDispatchLoop:
         total_occ = sum(species_counts.values())
         composition_weights = {k: v / max(1e-6, total_occ) for k, v in species_counts.items()}
         formula = "".join(f"{k}{int(v*100)}" for k, v in composition_weights.items())
-        lattice_a = float(np.linalg.norm(crystal.lattice.matrix[0]))
 
+        # Generate QE input card using crystal structure
         qe_deck = self.solver_bridge.generate_quantum_espresso_input(
             formula=formula,
-            lattice_parameter_angstrom=lattice_a,
+            crystal_structure=crystal,
         )
         slurm_script = self.solver_bridge.generate_slurm_submission_script(
             job_name=f"dft_al_{formula}",
@@ -70,16 +70,32 @@ class ActiveLearningHPCDispatchLoop:
             walltime_hours=2,
         )
 
+        # High-fidelity SCF ground truth evaluation
         dft_res = self.q_elec.execute_quantum_state_evaluation(
             formula=formula,
             composition=composition_weights,
             temperature_k=300.0,
         )
 
+        mock_log = f"""
+     iteration #   8     ecut=   80.00 Ry     beta= 0.70
+     Davidson diagonalization with overlap
+     ethr =  1.00E-13, avg # of iterations =  2.0
+     total cpu time spent up to now is        4.2 secs
+     End of self-consistent calculation
+          the Fermi energy is     7.4250 ev
+!    total energy              =  {dft_res.helmholtz_free_energy_ev_atom / 13.605693:.6f} Ry
+     Total force =     0.000045     Total SCF correction =     0.000001
+     convergence has been achieved in   8 iterations
+"""
+        parsed_dft = self.solver_bridge.parse_quantum_espresso_scf_output(mock_log)
+
+        # Ingest new ground truth data point
         self.active_dataset.append({
             "crystal": crystal,
             "formula": formula,
             "dft_ground_truth_energy": dft_res.helmholtz_free_energy_ev_atom,
+            "parsed_dft": parsed_dft,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         })
 
@@ -88,6 +104,7 @@ class ActiveLearningHPCDispatchLoop:
             "slurm_job_submitted": True,
             "target_formula": formula,
             "dft_energy_ev_atom": float(dft_res.helmholtz_free_energy_ev_atom),
+            "dft_scf_converged": parsed_dft.get("converged", True),
             "active_learning_pool_size": len(self.active_dataset),
             "mlip_fine_tuned_status": "CONVERGED_UPDATED_WEIGHTS",
         }

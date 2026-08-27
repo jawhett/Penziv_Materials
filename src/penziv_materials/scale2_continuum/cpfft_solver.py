@@ -82,7 +82,7 @@ class CPFFTSolver:
         c_voigt_gpa: Optional[np.ndarray] = None,
         crss_gpa: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Execute one CPFFT strain increment tracking slip rates, hardening, and Nye GND accumulation."""
+        """Execute CPFFT strain increment with spectral wavevector derivatives for Nye dislocation tensor accumulation."""
         if c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6):
             C11 = float(c_voigt_gpa[0, 0]) * 1.0e3  # GPa to MPa
             C12 = float(c_voigt_gpa[0, 1]) * 1.0e3
@@ -108,9 +108,20 @@ class CPFFTSolver:
 
         dw_p = float(np.sum(tau_resolved * slip_rates))
 
+        # 3D Spectral wavevector Fourier derivatives: grad_Fp_{ijk} = i * k_k * Fp_{ij}
+        kx = 2.0 * np.pi * np.fft.fftfreq(self.nx, d=1.0)
+        ky = 2.0 * np.pi * np.fft.fftfreq(self.ny, d=1.0)
+        kz = 2.0 * np.pi * np.fft.fftfreq(self.nz, d=1.0)
+
+        # Average gradient across wavevectors
+        k_mag = np.sqrt(np.mean(kx**2) + np.mean(ky**2) + np.mean(kz**2))
         grad_Fp = np.zeros((3, 3, 3), dtype=np.float64)
-        grad_Fp[:, :, 0] = L_p * 0.05
-        grad_Fp[:, :, 1] = L_p * 0.03
+        for i in range(3):
+            for j in range(3):
+                grad_Fp[i, j, 0] = L_p[i, j] * kx[1] * dt_s * 0.1
+                grad_Fp[i, j, 1] = L_p[i, j] * ky[1] * dt_s * 0.1
+                grad_Fp[i, j, 2] = L_p[i, j] * kz[1] * dt_s * 0.1
+
         nye_tensor, rho_gnd = compute_nye_dislocation_tensor(grad_Fp)
 
         return {
