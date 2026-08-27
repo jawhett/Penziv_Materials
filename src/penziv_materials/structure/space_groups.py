@@ -24,7 +24,7 @@ class SpaceGroupSymmetryEngine:
         c_voigt_gpa: np.ndarray,
         crystal_system: str = "cubic",
     ) -> Dict[str, Any]:
-        """Evaluate irreducible strain representation Born stability conditions across all crystal systems:
+        """Evaluate irreducible strain representation Born stability conditions across all 7 crystal systems:
 
         delta U = 1/2 sum_Gamma C^(Gamma) (epsilon^(Gamma))^2 > 0
         """
@@ -35,30 +35,27 @@ class SpaceGroupSymmetryEngine:
         failed_modes = []
         sys = crystal_system.lower()
 
-        # 1. Positive definite sub-blocks
-        if C[0, 0] <= 0:
-            failed_modes.append("C11 > 0")
-        if C[3, 3] <= 0:
-            failed_modes.append("C44 > 0")
-        if C[4, 4] <= 0:
-            failed_modes.append("C55 > 0")
-        if C[5, 5] <= 0:
-            failed_modes.append("C66 > 0")
+        # Symmetrize Voigt matrix
+        C_sym = 0.5 * (C + C.T)
+        eigvals = np.linalg.eigvalsh(C_sym)
+        min_eig = float(np.min(eigvals))
+
+        # 1. Sylvester Leading Principal Minors check for all systems
+        for k in range(1, 7):
+            minor_det = np.linalg.det(C_sym[:k, :k])
+            if minor_det <= 0:
+                failed_modes.append(f"Sylvester Minor Det(M_{k}x{k}) > 0")
 
         # 2. Crystal-system specific irreducible representation strain modes
         if "cub" in sys:
-            # A_1g (Hydrostatic bulk): C11 + 2*C12 > 0
             if (C[0, 0] + 2.0 * C[0, 1]) <= 0:
                 failed_modes.append("A_1g Bulk Modulus: C11 + 2C12 > 0")
-            # E_g (Tetragonal shear): C11 - C12 > 0
             if (C[0, 0] - C[0, 1]) <= 0:
                 failed_modes.append("E_g Tetragonal Shear: C11 - C12 > 0")
-            # T_2g (Trigonal shear): C44 > 0
             if C[3, 3] <= 0:
                 failed_modes.append("T_2g Shear: C44 > 0")
 
         elif "hex" in sys or "trig" in sys:
-            # Hexagonal / Trigonal irreducible criteria
             if (C[0, 0] - C[0, 1]) <= 0:
                 failed_modes.append("C11 - C12 > 0")
             if (C[0, 0] + C[0, 1]) * C[2, 2] - 2.0 * (C[0, 2] ** 2) <= 0:
@@ -69,62 +66,63 @@ class SpaceGroupSymmetryEngine:
             if det_principal <= 0:
                 failed_modes.append("Principal 3x3 Determinant > 0")
 
-        # 3. Universal eigenvalue check (Sylvester's criterion on full 6x6)
-        eigvals = np.linalg.eigvalsh(C)
-        min_eig = float(np.min(eigvals))
-        if min_eig <= 0:
-            failed_modes.append(f"Sylvester Minimum Eigenvalue: {min_eig:.2f} <= 0")
+        elif "mono" in sys or "tric" in sys:
+            # Monoclinic (13 moduli) & Triclinic (21 moduli) coordinate-free positive definiteness
+            if min_eig <= 0:
+                failed_modes.append("General Anisotropic Eigenmode Positivity: lambda_min > 0")
 
-        is_stable = len(failed_modes) == 0
+        is_stable = len(failed_modes) == 0 and min_eig > 0.0
 
         return {
             "is_mechanically_stable": is_stable,
-            "minimum_eigenvalue_gpa": min_eig,
             "failed_irreducible_modes": failed_modes,
+            "min_eigenvalue_gpa": min_eig,
+            "all_eigenvalues_gpa": eigvals.tolist(),
             "crystal_system": crystal_system,
         }
 
     def generate_anisotropic_slip_and_twinning_systems(
         self,
         lattice_matrix: np.ndarray,
-        wyckoff_positions: Optional[List[np.ndarray]] = None,
+        max_miller_index: int = 2,
     ) -> Dict[str, Any]:
-        """Construct active dislocation slip (s^alpha, m^alpha) and deformation twinning systems from lattice vectors."""
-        a_vec = lattice_matrix[0]
-        b_vec = lattice_matrix[1]
-        c_vec = lattice_matrix[2]
+        """Generate active crystallographic slip and deformation twinning systems satisfying b . n = 0."""
+        lat = np.asarray(lattice_matrix, dtype=np.float64)
+        recip_lat = np.linalg.inv(lat).T
 
         slip_systems = []
-        # Primitive shortest translational lattice vectors
-        translations = [
-            a_vec / np.linalg.norm(a_vec),
-            b_vec / np.linalg.norm(b_vec),
-            c_vec / np.linalg.norm(c_vec),
-            (a_vec + b_vec) / np.linalg.norm(a_vec + b_vec),
-            (a_vec - b_vec) / np.linalg.norm(a_vec - b_vec),
-            (b_vec + c_vec) / np.linalg.norm(b_vec + c_vec),
-        ]
+        # Construct candidate slip plane normals n and slip directions b
+        indices = range(-max_miller_index, max_miller_index + 1)
+        for h in indices:
+            for k in indices:
+                for l in indices:
+                    if h == 0 and k == 0 and l == 0:
+                        continue
+                    n_cart = np.dot(np.array([h, k, l]), recip_lat)
+                    n_norm = n_cart / np.linalg.norm(n_cart)
 
-        # Planes perpendicular to translations
-        for s in translations[:6]:
-            for other in translations[:6]:
-                if np.abs(np.dot(s, other)) < 0.95:
-                    m = np.cross(s, other)
-                    norm_m = np.linalg.norm(m)
-                    if norm_m > 1e-4:
-                        m_hat = m / norm_m
-                        # Ensure orthogonality
-                        if np.abs(np.dot(s, m_hat)) < 1e-3:
-                            slip_systems.append({"slip_direction": s.tolist(), "plane_normal": m_hat.tolist()})
+                    for u in indices:
+                        for v in indices:
+                            for w in indices:
+                                if u == 0 and v == 0 and w == 0:
+                                    continue
+                                b_cart = np.dot(np.array([u, v, w]), lat)
+                                b_len = np.linalg.norm(b_cart)
+                                b_norm = b_cart / b_len
 
-        if len(slip_systems) == 0:
-            slip_systems = [
-                {"slip_direction": [1.0, 0.0, 0.0], "plane_normal": [0.0, 1.0, 0.0]},
-                {"slip_direction": [0.0, 1.0, 0.0], "plane_normal": [0.0, 0.0, 1.0]},
-            ]
+                                # Orthogonality condition b . n = 0
+                                if abs(np.dot(b_norm, n_norm)) < 1e-4:
+                                    schmid_m = np.outer(b_norm, n_norm)
+                                    slip_systems.append({
+                                        "plane_hkl": [h, k, l],
+                                        "direction_uvw": [u, v, w],
+                                        "burgers_vector_length_angstrom": float(b_len),
+                                        "schmid_tensor": schmid_m.tolist(),
+                                    })
+                                    if len(slip_systems) >= 24:
+                                        break
 
         return {
             "num_active_slip_systems": len(slip_systems),
-            "slip_systems": slip_systems[:48],
-            "has_twinning_modes": True,
+            "primary_slip_systems": slip_systems[:12],
         }

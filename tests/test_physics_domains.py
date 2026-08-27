@@ -11,13 +11,15 @@ from penziv_materials.generative.crystal_generator import GenerativeCrystalSynth
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
 from penziv_materials.scale2_continuum.unified_spectral_solver import Unified3DSpectralMultiphysicsSolver
+from penziv_materials.scale2_continuum.spectral_multiphase_homogenizer import SpectralMultiphaseHomogenizer
 from penziv_materials.scale2_continuum.damage_mechanics import NonLocalDamageMechanics
 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
 from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
+from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
-from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine
+from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine, AmorphousMeltQuenchEngine
 from penziv_materials.scale3_mesoscale.multiphase_grand_potential import MultiPhaseGrandPotentialEngine
 from penziv_materials.scale1_process.multimodal_synthesizability import MultiModalSynthesizabilityEngine
 from penziv_materials.thermodynamics.dynamic_hull import UniversalConvexHullSolver
@@ -32,15 +34,40 @@ class TestPhysicsDomains(unittest.TestCase):
         self.cont = ContMicroAgent()
         self.sg_engine = SpaceGroupSymmetryEngine()
         self.amorphous = AmorphousTopologyEngine()
+        self.melt_quench = AmorphousMeltQuenchEngine()
         self.multiphase = MultiPhaseGrandPotentialEngine(num_phases=3, grid_shape=(16, 16))
         self.proc = MultiModalSynthesizabilityEngine()
         self.ls_solver = LippmannSchwinger3DSolver(grid_shape=(8, 8, 8))
+        self.homogenizer = SpectralMultiphaseHomogenizer(grid_shape=(8, 8, 8))
         self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
         self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
         self.dft = DFTEngine()
         self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
         self.unified_spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
         self.rad = RadiationDamageEngine()
+
+    def test_universal_230_space_groups_and_wyckoff(self):
+        # Monoclinic P2_1/c (14), Orthorhombic Pnma (62), Cubic Fm-3m (225)
+        for sg in [2, 14, 62, 141, 194, 225, 227]:
+            ops = UniversalSymmetryEngine.get_seitz_matrices(sg)
+            self.assertGreaterEqual(len(ops), 1)
+
+        lat = np.eye(3) * 4.0
+        asym = [("Ni", np.array([0.0, 0.0, 0.0]))]
+        sites = UniversalSymmetryEngine.apply_wyckoff_expansion(lat, 225, asym)
+        self.assertGreaterEqual(len(sites), 4)
+
+    def test_spectral_multiphase_homogenizer(self):
+        cond_field = np.ones((8, 8, 8)) * 30.0
+        cond_field[2:6, 2:6, 2:6] = 120.0
+        res = self.homogenizer.homogenize_conductivity_tensor(cond_field)
+        self.assertIn("effective_conductivity_w_m_k", res)
+        self.assertGreater(res["isotropic_effective_conductivity"], 30.0)
+
+    def test_amorphous_melt_quench_glass(self):
+        glass_res = self.melt_quench.generate_melt_quenched_glass(num_atoms=32, t_melt_k=2400.0)
+        self.assertTrue(glass_res["is_amorphous_glass"])
+        self.assertEqual(len(glass_res["vitrified_coordinates_angstrom"]), 32)
 
     def test_unified_3d_spectral_multiphysics_solver(self):
         macro_eps = np.diag([0.005, -0.001, -0.001])
@@ -226,6 +253,13 @@ class TestPhysicsDomains(unittest.TestCase):
         c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 60.0
         born_res = self.sg_engine.evaluate_irreducible_born_stability(c_matrix, crystal_system="cubic")
         self.assertTrue(born_res["is_mechanically_stable"])
+
+        # Monoclinic stability test
+        c_mono = np.eye(6) * 120.0
+        c_mono[0, 1] = c_mono[1, 0] = 40.0
+        c_mono[0, 5] = c_mono[5, 0] = 10.0
+        born_mono = self.sg_engine.evaluate_irreducible_born_stability(c_mono, crystal_system="monoclinic")
+        self.assertTrue(born_mono["is_mechanically_stable"])
 
         lattice = np.eye(3) * 4.0
         slip_res = self.sg_engine.generate_anisotropic_slip_and_twinning_systems(lattice)
