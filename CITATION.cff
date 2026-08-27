@@ -4,7 +4,7 @@ authors:
   - family-names: "Jawhett"
     given-names: "Penziv Team"
 title: "Penziv Materials: Autonomous Multiscale First-Principles Materials Property Prediction & Inverse Discovery Framework"
-version: 3.2.0
+version: 3.5.0
 date-released: 2026-08-27
 url: "https://github.com/jawhett/Penziv_Materials"
 license: Apache-2.0
@@ -14,3 +14,6 @@ keywords:
   - "density functional theory"
   - "crystal plasticity"
   - "materials discovery"
+  - "active learning"
+  - "calphad"
+  - "quality diversity"
