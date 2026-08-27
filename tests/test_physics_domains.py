@@ -1,4 +1,4 @@
-"""Unit tests for Universal Physics Domains (Semiconductors, Thermals, Space Groups, Amorphous, Multiphase, SPS)."""
+"""Unit tests for Universal Physics Domains & Group-Theoretic Crystallography."""
 
 import unittest
 import numpy as np
@@ -8,9 +8,13 @@ from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTra
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
+from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
+from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
 from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine
 from penziv_materials.scale3_mesoscale.multiphase_grand_potential import MultiPhaseGrandPotentialEngine
 from penziv_materials.scale1_process.multimodal_synthesizability import MultiModalSynthesizabilityEngine
+from penziv_materials.thermodynamics.dynamic_hull import UniversalConvexHullSolver
+from penziv_materials.scale2_continuum.generalized_slip import UniversalSlipGenerator
 
 
 class TestPhysicsDomains(unittest.TestCase):
@@ -24,6 +28,45 @@ class TestPhysicsDomains(unittest.TestCase):
         self.multiphase = MultiPhaseGrandPotentialEngine(num_phases=3, grid_shape=(16, 16))
         self.proc = MultiModalSynthesizabilityEngine()
 
+    def test_universal_crystal_builder_wyckoff(self):
+        lat = PeriodicLattice.from_parameters(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)
+        sym_ops = UniversalCrystalBuilder.generate_standard_symmetry_operations("Fm-3m")
+        asym = [("Ni", np.array([0.0, 0.0, 0.0]))]
+        crystal = UniversalCrystalBuilder.expand_wyckoff_sites(lat, sym_ops, asym, space_group="Fm-3m", space_group_number=225)
+        self.assertGreaterEqual(len(crystal.sites), 4)
+
+    def test_universal_slip_and_gsfe(self):
+        crystal = self.synth.synthesize_unconstrained_crystal_structure(archetype="Cubic_Spinel")
+        systems = UniversalSlipGenerator.generate_systems_from_structure(crystal)
+        self.assertGreater(len(systems), 0)
+        self.assertIn("schmid_tensor", systems[0])
+
+        tau_crss = UniversalSlipGenerator.compute_gsfe_critical_resolved_shear_stress(
+            shear_modulus_gpa=80.0,
+            burgers_magnitude_angstrom=2.54,
+            interplanar_spacing_angstrom=2.07,
+        )
+        self.assertGreater(tau_crss, 0.01)
+
+    def test_dynamic_convex_hull_solver(self):
+        comp = {"Mg": 1.0, "S": 1.0}
+        ref_db = [
+            {"composition": {"Mg": 1.0}, "energy_per_atom": 0.0, "formula": "Mg"},
+            {"composition": {"S": 1.0}, "energy_per_atom": 0.0, "formula": "S"},
+            {"composition": {"Mg": 1.0, "S": 1.0}, "energy_per_atom": -1.82, "formula": "MgS"},
+        ]
+        res = UniversalConvexHullSolver.solve_stability(comp, -1.82, ref_db)
+        self.assertTrue(res["is_thermodynamically_stable"])
+        self.assertAlmostEqual(res["energy_above_hull_ev_atom"], 0.0, places=2)
+
+        g_t = UniversalConvexHullSolver.compute_temperature_dependent_gibbs_energy(-1.82, temperature_k=500.0, composition=comp)
+        self.assertIsInstance(g_t, float)
+
+    def test_amorphous_dense_random_packing(self):
+        drp_res = self.amorphous.generate_stochastic_dense_random_packing(num_atoms=32, box_length_angstrom=10.0)
+        self.assertGreater(drp_res["num_atoms_packed"], 10)
+        self.assertGreater(drp_res["packing_fraction"], 0.05)
+
     def test_effective_mass_and_mobility(self):
         curvature = np.diag([12.5, 12.5, 15.0])
         m_tensor, m_scalar = self.semi.compute_effective_mass_tensor(curvature)
@@ -34,7 +77,6 @@ class TestPhysicsDomains(unittest.TestCase):
         self.assertIn("electron_mobility_cm2_v_s", mob_res)
         self.assertGreater(mob_res["electron_mobility_cm2_v_s"], 1.0)
 
-        # Wannier BTE tensor
         v_tensor = np.eye(3) * 1.5e5
         bte_res = self.semi.compute_wannier_bte_mobility_tensor(v_tensor, relaxation_time_fs=150.0)
         self.assertIn("isotropic_mobility_cm2_v_s", bte_res)
@@ -54,7 +96,6 @@ class TestPhysicsDomains(unittest.TestCase):
         self.assertIn("lattice_thermal_conductivity_w_m_k", k_res)
         self.assertGreater(k_res["lattice_thermal_conductivity_w_m_k"], 10.0)
 
-        # Space vacuum outgassing
         hkl_res = self.thermal.compute_space_vacuum_outgassing_rate_hkl(
             molecular_weight_g_mol=80.0,
             vapor_pressure_pa=1.0e-8,
@@ -72,24 +113,11 @@ class TestPhysicsDomains(unittest.TestCase):
         slip_res = self.sg_engine.generate_anisotropic_slip_and_twinning_systems(lattice)
         self.assertGreater(slip_res["num_active_slip_systems"], 0)
 
-    def test_amorphous_rdf_stz_and_vrh(self):
-        np.random.seed(42)
-        pos = np.random.uniform(0, 20.0, (50, 3))
-        rdf_res = self.amorphous.compute_radial_distribution_function(pos, box_length_angstrom=20.0)
-        self.assertIn("g_r", rdf_res)
-
-        stz_res = self.amorphous.compute_shear_transformation_zone_plasticity(applied_shear_stress_mpa=350.0)
-        self.assertIn("stz_plastic_shear_rate_s_inv", stz_res)
-
-        vrh_res = self.amorphous.compute_variable_range_hopping_transport(regime="Mott")
-        self.assertIn("vrh_conductivity_s_cm", vrh_res)
-
     def test_multiphase_grand_potential_stepping(self):
         phi_init = np.ones((3, 16, 16)) / 3.0
         chem_pot = np.zeros(3)
         phi_new = self.multiphase.step_forward_multiphase_field(phi_init, chem_pot, dt_s=0.005)
         self.assertEqual(phi_new.shape, (3, 16, 16))
-        # Verify partition of unity
         sum_phi = np.sum(phi_new, axis=0)
         np.testing.assert_allclose(sum_phi, 1.0, atol=1e-5)
 

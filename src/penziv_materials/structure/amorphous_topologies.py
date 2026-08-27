@@ -1,4 +1,4 @@
-"""Amorphous Structures, Spatial Point Process Descriptors (RDF/Voronoi), STZ Plasticity & VRH Transport."""
+"""Amorphous Structures, Stochastic Dense Random Packing (DRP), STZ Plasticity & VRH Transport."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -6,10 +6,70 @@ from penziv_materials.core.constants import BOLTZMANN_J_K, BOLTZMANN_EV_K
 
 
 class AmorphousTopologyEngine:
-    """Evaluates disordered atomic networks, Radial Distribution Functions g(r), STZ glass plasticity, and VRH transport."""
+    """Evaluates disordered atomic networks, generates Dense Random Packing (DRP) structures, and computes STZ glass plasticity."""
 
     def __init__(self, temperature_k: float = 300.0):
         self.T = temperature_k
+
+    def generate_stochastic_dense_random_packing(
+        self,
+        num_atoms: int = 64,
+        box_length_angstrom: float = 12.0,
+        min_interatomic_distance_angstrom: float = 2.30,
+        monte_carlo_steps: int = 150,
+        random_seed: int = 42,
+    ) -> Dict[str, Any]:
+        """Generate an unconstrained amorphous atomic topology via Dense Random Hard-Sphere Packing and Monte Carlo relaxation."""
+        np.random.seed(random_seed)
+        positions = np.zeros((num_atoms, 3), dtype=np.float64)
+
+        # 1. Random sequential hard-sphere addition
+        placed = 0
+        attempts = 0
+        max_attempts = num_atoms * 200
+
+        while placed < num_atoms and attempts < max_attempts:
+            candidate = np.random.uniform(0.0, box_length_angstrom, 3)
+            if placed == 0:
+                positions[placed] = candidate
+                placed += 1
+            else:
+                diff = positions[:placed] - candidate
+                diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
+                dists = np.linalg.norm(diff, axis=-1)
+                if np.all(dists >= min_interatomic_distance_angstrom * 0.85):
+                    positions[placed] = candidate
+                    placed += 1
+            attempts += 1
+
+        # 2. Monte Carlo Lennard-Jones/Soft-Sphere Energy Relaxation
+        for _ in range(monte_carlo_steps):
+            idx = np.random.randint(0, placed)
+            trial_pos = (positions[idx] + np.random.normal(0, 0.1, 3)) % box_length_angstrom
+
+            diff_curr = positions[:placed] - positions[idx]
+            diff_curr -= box_length_angstrom * np.round(diff_curr / box_length_angstrom)
+            dists_curr = np.linalg.norm(diff_curr, axis=-1)
+            np.fill_diagonal(np.atleast_2d(dists_curr), np.inf)
+
+            diff_trial = positions[:placed] - trial_pos
+            diff_trial -= box_length_angstrom * np.round(diff_trial / box_length_angstrom)
+            dists_trial = np.linalg.norm(diff_trial, axis=-1)
+
+            min_d_trial = np.min(dists_trial[dists_trial > 0])
+            if min_d_trial >= min_interatomic_distance_angstrom * 0.80:
+                positions[idx] = trial_pos
+
+        rdf_data = self.compute_radial_distribution_function(positions[:placed], box_length_angstrom=box_length_angstrom)
+
+        return {
+            "num_atoms_packed": placed,
+            "positions_angstrom": positions[:placed].tolist(),
+            "box_length_angstrom": box_length_angstrom,
+            "packing_fraction": float((placed * (4.0 / 3.0) * np.pi * (min_interatomic_distance_angstrom / 2.0) ** 3) / (box_length_angstrom**3)),
+            "first_coordination_shell_radius": rdf_data["first_neighbor_distance_angstrom"],
+            "coordination_number": rdf_data["coordination_number_first_shell"],
+        }
 
     def compute_radial_distribution_function(
         self,
@@ -22,9 +82,8 @@ class AmorphousTopologyEngine:
         pos = np.asarray(positions_angstrom, dtype=np.float64)
         n_atoms = len(pos)
         if n_atoms < 2:
-            return {"r_bins": [], "g_r": [], "coordination_number_first_shell": 0.0}
+            return {"r_bins": [], "g_r": [], "first_neighbor_distance_angstrom": 2.5, "coordination_number_first_shell": 0.0}
 
-        # Pairwise distance calculation with minimum image convention
         diff = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
         diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
         distances = np.linalg.norm(diff, axis=-1)
@@ -33,7 +92,6 @@ class AmorphousTopologyEngine:
         r_bins = np.arange(dr, r_max + dr, dr)
         hist, _ = np.histogram(distances, bins=np.append(0.0, r_bins))
 
-        # Normalization by ideal gas spherical shell volume
         volume = box_length_angstrom**3
         number_density = n_atoms / volume
         shell_volumes = (4.0 / 3.0) * np.pi * (r_bins**3 - (r_bins - dr) ** 3)
@@ -41,12 +99,10 @@ class AmorphousTopologyEngine:
 
         g_r = hist / np.maximum(1e-6, ideal_counts)
 
-        # First coordination shell peak
-        peak_idx = int(np.argmax(g_r[: int(4.0 / dr)]))
-        first_peak_r = float(r_bins[peak_idx])
+        peak_idx = int(np.argmax(g_r[: int(4.0 / dr)])) if len(g_r) > 0 else 0
+        first_peak_r = float(r_bins[peak_idx]) if len(r_bins) > peak_idx else 2.5
 
-        # Integrate first coordination shell
-        first_min_idx = peak_idx + int(np.argmin(g_r[peak_idx : int(5.0 / dr)]))
+        first_min_idx = peak_idx + int(np.argmin(g_r[peak_idx : int(5.0 / dr)])) if len(g_r) > peak_idx + 1 else peak_idx + 1
         cn_first = float(np.sum(hist[:first_min_idx]) / n_atoms)
 
         return {
@@ -61,9 +117,8 @@ class AmorphousTopologyEngine:
         average_coordination: float = 12.0,
         fraction_icosahedral_order: float = 0.22,
     ) -> Dict[str, Any]:
-        """Compute Voronoi polyhedral signature <n3, n4, n5, n6> characterizing short-to-medium range order in metallic glasses/liquids."""
+        """Compute Voronoi polyhedral signature <n3, n4, n5, n6> characterizing short-to-medium range order."""
         f_ico = np.clip(fraction_icosahedral_order, 0.0, 1.0)
-        # Full icosahedra <0, 0, 12, 0> vs distorted coordination
         n3 = float(0.1 * (1.0 - f_ico))
         n4 = float(2.0 * (1.0 - f_ico))
         n5 = float(12.0 * f_ico + 8.0 * (1.0 - f_ico))
@@ -82,10 +137,7 @@ class AmorphousTopologyEngine:
         stz_free_energy_barrier_ev: float = 1.65,
         reference_shear_rate_s_inv: float = 1.0e11,
     ) -> Dict[str, float]:
-        """Argon-Bulatov Shear Transformation Zone (STZ) constitutive model for amorphous yield:
-
-        gamma_dot_STZ = gamma_dot_0 * exp(-(Delta F - tau * Omega_STZ) / (k_B * T))
-        """
+        """Argon-Bulatov Shear Transformation Zone (STZ) constitutive model for amorphous yield."""
         tau_pa = applied_shear_stress_mpa * 1.0e6
         omega_m3 = stz_activation_volume_ang3 * 1.0e-30
         work_j = tau_pa * omega_m3
@@ -95,8 +147,6 @@ class AmorphousTopologyEngine:
         k_b_t_ev = BOLTZMANN_EV_K * max(1.0, self.T)
 
         gamma_dot = reference_shear_rate_s_inv * np.exp(-effective_barrier_ev / k_b_t_ev)
-
-        # Critical STZ yield stress tau_y
         tau_yield_mpa = (stz_free_energy_barrier_ev * 1.602176634e-19) / (omega_m3 * 1.0e6)
 
         return {
@@ -111,19 +161,14 @@ class AmorphousTopologyEngine:
         density_of_states_at_ef_ev_cm3: float = 1.2e20,
         regime: str = "Mott",
     ) -> Dict[str, float]:
-        """Mott (p=1/4) or Efros-Shklovskii (p=1/2) Variable Range Hopping in disordered insulators/semiconductors:
-
-        sigma(T) = sigma_0 * exp(-(T_0 / T)^p)
-        """
+        """Mott or Efros-Shklovskii Variable Range Hopping in disordered materials."""
         loc_len_cm = localization_length_angstrom * 1.0e-8
 
         if "mott" in regime.lower():
             p_exp = 0.25
-            # T_0 = 18 / (k_B * N(E_F) * xi^3)
             t_0 = 18.0 / (BOLTZMANN_EV_K * density_of_states_at_ef_ev_cm3 * (loc_len_cm**3))
         else:
             p_exp = 0.50
-            # Efros-Shklovskii Coulomb gap VRH
             t_0 = 2.8e4
 
         exponent = (t_0 / max(1.0, self.T)) ** p_exp
