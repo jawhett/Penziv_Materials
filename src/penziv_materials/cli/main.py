@@ -12,18 +12,25 @@ if hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 
+import json
+from typing import Optional, List, Dict, Tuple
 import click
 import numpy as np
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 
 from penziv_materials import __version__
 from penziv_materials.core.models import CrystalSystem, ValidationStatus
 from penziv_materials.validation.born_stability import BornStabilityValidator
 from penziv_materials.validation.handshake_gates import HandshakeGatekeeper
 from penziv_materials.orchestration.meta_orchestrator import MetaOrchestrator
+from penziv_materials.orchestration.discovery_engine import (
+    AlloyDiscoveryEngine,
+    DiscoveryTargetConstraints,
+)
 from penziv_materials.governance.citation_engine import CitationEngine
 from penziv_materials.io.tiered_storage import TieredStorageManager
 
@@ -99,7 +106,6 @@ def predict_forward(material: str, temp_k: float):
     """Run full forward multiscale prediction across all 5 physical scales."""
     console.print(f"\n[bold cyan]Executing Multiscale Discovery Loop for: {material} at {temp_k} K ({temp_k-273.15:.1f} deg C)...[/bold cyan]\n")
 
-    # Sample composition
     composition = {"Ni": 0.53, "Cr": 0.18, "Fe": 0.14, "Nb": 0.05, "Mo": 0.03, "Ti": 0.01, "Al": 0.06}
 
     orchestrator = MetaOrchestrator()
@@ -109,7 +115,6 @@ def predict_forward(material: str, temp_k: float):
         target_temperature_k=temp_k,
     )
 
-    # Display Multiscale Properties Table
     prop_table = Table(title=f"Multiscale Property Predictions: {material}", border_style="cyan")
     prop_table.add_column("Physical Scale", style="bold cyan")
     prop_table.add_column("Property / Observable", style="bold")
@@ -135,7 +140,6 @@ def predict_forward(material: str, temp_k: float):
 
     console.print(prop_table)
 
-    # Display Validation Receipts Table
     val_table = Table(title="Bidirectional Scale Handshake Validation Receipts", border_style="green")
     val_table.add_column("Validation Gate", style="bold")
     val_table.add_column("Metric Value", justify="right")
@@ -148,10 +152,117 @@ def predict_forward(material: str, temp_k: float):
 
     console.print(val_table)
 
-    # Serialize Checkpoint
     storage = TieredStorageManager()
     chk_path = storage.serialize_candidate_checkpoint(candidate)
     console.print(f"\n[bold green]✔ Multiscale state successfully checkpointed to:[/bold green] [dim]{chk_path}[/dim]\n")
+
+
+@main.command()
+@click.option("--elements", type=str, default="Ni,Cr,Al,Ti,Nb,Mo,W,B", help="Comma-separated elemental alloy system")
+@click.option("--samples", type=int, default=30, help="Number of candidate compositions to explore")
+@click.option("--temp-k", type=float, default=1123.15, help="Target operating temperature in Kelvin (850°C)")
+@click.option("--min-yield", type=float, default=1000.0, help="Minimum yield strength target (MPa)")
+@click.option("--max-creep", type=float, default=1.0e-12, help="Maximum allowable steady-state creep rate (1/s)")
+@click.option("--max-exergy", type=float, default=80.0, help="Maximum crustal extraction exergy bound (MJ/kg)")
+@click.option("--output-json", type=str, default=None, help="Optional output JSON path for discovery results")
+def discover_alloy(
+    elements: str,
+    samples: int,
+    temp_k: float,
+    min_yield: float,
+    max_creep: float,
+    max_exergy: float,
+    output_json: Optional[str],
+):
+    """Run Autonomous Inverse Design & Multi-Objective Pareto Discovery Search."""
+    base_elements = [e.strip() for e in elements.split(",") if e.strip()]
+
+    constraints = DiscoveryTargetConstraints(
+        min_yield_strength_mpa=min_yield,
+        max_steady_state_creep_rate_s_inv=max_creep,
+        min_fracture_toughness_k_ic=60.0,
+        max_crustal_exergy_mj_kg=max_exergy,
+        target_temperature_k=temp_k,
+    )
+
+    header = f"""[bold cyan]Autonomous Pareto Alloy Discovery Engine[/bold cyan]
+[dim]Multiscale Inverse Search across {len(base_elements)}-Element Composition Space: {', '.join(base_elements)}[/dim]
+
+[bold]Design Objectives & Target Bounds at {temp_k:.1f} K ({temp_k-273.15:.1f} deg C):[/bold]
+ * Min Yield Strength: [bold green]> {min_yield:.0f} MPa[/bold green]
+ * Max Creep Rate: [bold green]< {max_creep:.1e} 1/s[/bold green] (at 250 MPa)
+ * Max Crustal Exergy: [bold green]< {max_exergy:.1f} MJ/kg[/bold green]
+ * Number of Candidates Sampled: [bold]{samples}[/bold]"""
+    console.print(Panel(header, border_style="cyan"))
+
+    engine = AlloyDiscoveryEngine()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Screening multiscale pyramid & physics gates...", total=samples)
+        result = engine.discover_optimal_alloys(
+            base_elements=base_elements,
+            constraints=constraints,
+            n_samples=samples,
+            prefix_name="Penziv-Alloy",
+        )
+        progress.update(task, completed=samples)
+
+    console.print(f"\n[bold]Discovery Summary:[/bold] Screened {result.total_screened} compositions | [green]{result.physically_stable_count} Physically Stable & Validated[/green] | [cyan]{len(result.pareto_optimal_candidates)} Pareto-Optimal Solutions[/cyan]\n")
+
+    if not result.pareto_optimal_candidates:
+        console.print("[bold yellow]No sampled candidates met all strict constraints. Try expanding element space or relaxing exergy bounds.[/bold yellow]")
+        return
+
+    pareto_table = Table(title="Pareto-Optimal Alloy Frontier Leaderboard", border_style="cyan")
+    pareto_table.add_column("Rank", justify="center", style="bold")
+    pareto_table.add_column("Candidate ID", style="bold cyan")
+    pareto_table.add_column("Composition (wt fraction)", style="dim")
+    pareto_table.add_column("Yield Strength", justify="right", style="green")
+    pareto_table.add_column("Creep Rate (1/s)", justify="right", style="magenta")
+    pareto_table.add_column("Fracture K_Ic", justify="right")
+    pareto_table.add_column("Exergy (MJ/kg)", justify="right", style="yellow")
+    pareto_table.add_column("Status", justify="center")
+
+    for rank, cand in enumerate(result.pareto_optimal_candidates[:8], 1):
+        comp_items = sorted(cand.composition.items(), key=lambda x: x[1], reverse=True)
+        comp_str = ", ".join(f"{k}:{v:.2f}" for k, v in comp_items[:4])
+        if len(comp_items) > 4:
+            comp_str += "..."
+
+        ys = f"{cand.continuum.yield_strength_mpa:.1f} MPa" if cand.continuum else "N/A"
+        creep = f"{cand.continuum.steady_state_creep_rate_s_inv:.2e}" if cand.continuum else "N/A"
+        k_ic = f"{cand.continuum.fracture_toughness_k_ic_mpa_sqrt_m:.1f}" if cand.continuum else "N/A"
+        exergy = f"{cand.process.min_ore_extraction_exergy_mj_kg:.1f}" if cand.process else "N/A"
+
+        pareto_table.add_row(f"#{rank}", cand.name, comp_str, ys, creep, k_ic, exergy, "[green]OPTIMAL[/green]")
+
+    console.print(pareto_table)
+
+    top = result.top_candidate
+    if top:
+        comp_full = ", ".join(f"[bold]{k}[/bold]: {v*100:.1f}%" for k, v in top.composition.items())
+        top_panel = f"""[bold green]Top Pareto Recommended Solution: {top.name}[/bold green]
+[dim]Composition:[/dim] {comp_full}
+
+[bold]Key Performance Indicators:[/bold]
+ * [bold]Yield Strength:[/bold] {top.continuum.yield_strength_mpa:.1f} MPa (Homogenized Taylor Crystal Plasticity)
+ * [bold]Steady-State Creep Rate:[/bold] {top.continuum.steady_state_creep_rate_s_inv:.2e} 1/s (at {constraints.applied_creep_stress_mpa} MPa, {temp_k-273.15:.0f} deg C)
+ * [bold]Fracture Toughness K_Ic:[/bold] {top.continuum.fracture_toughness_k_ic_mpa_sqrt_m:.1f} MPa*sqrt(m)
+ * [bold]Minimum Extraction Exergy:[/bold] {top.process.min_ore_extraction_exergy_mj_kg:.1f} MJ/kg (Sustainable crustal footprint)
+ * [bold]Synthesizability Index:[/bold] {top.process.synthesizability_score*100:.1f}% (LPBF Process Feasible)"""
+        console.print(Panel(top_panel, title="[bold]Design Recommendation[/bold]", border_style="green"))
+
+    if output_json:
+        result_dict = result.model_dump()
+        with open(output_json, "w", encoding="utf-8") as f:
+            json.dump(result_dict, f, indent=2)
+        console.print(f"\n[dim]Full discovery dataset exported to: {output_json}[/dim]")
 
 
 @main.command()
