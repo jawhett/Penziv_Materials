@@ -6,13 +6,17 @@ import numpy as np
 HBAR = 1.054571817e-34  # Reduced Planck constant (J·s)
 H_PLANCK = 6.62607015e-34  # Planck constant (J·s)
 E_CHARGE = 1.602176634e-19  # Elementary charge (C)
+ELEMENTARY_CHARGE_C = E_CHARGE
 M_ELECTRON = 9.1093837015e-31  # Electron rest mass (kg)
 SPEED_OF_LIGHT = 299792458.0  # Speed of light in vacuum (m/s)
 EPSILON_0 = 8.8541878128e-12  # Vacuum permittivity (F/m)
 KB = 1.380649e-23  # Boltzmann constant (J/K)
+BOLTZMANN_J_K = KB
 KB_EV = KB / E_CHARGE  # Boltzmann constant (eV/K) ~ 8.617333262e-5 eV/K
 R_GAS = 8.314462618  # Universal gas constant (J/(mol·K))
 AVOGADRO = 6.02214076e23  # Avogadro constant (mol^-1)
+AVOGADRO_N_A = AVOGADRO
+FARADAY_C_MOL = E_CHARGE * AVOGADRO  # Faraday constant ~ 96485.3321 C/mol
 
 # Atomic & Length Scales
 BOHR_TO_ANGSTROM = 0.529177210903
