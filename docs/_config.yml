@@ -1,0 +1,9 @@
+theme: jekyll-theme-cayman
+title: Penziv Materials
+description: Autonomous Multiscale First-Principles Materials Property Prediction & Inverse Discovery Framework
+show_downloads: true
+google_analytics:
+markdown: kramdown
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag

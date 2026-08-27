@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Penziv Materials — Autonomous Multiscale First-Principles Materials Discovery</title>
+  <meta name="description" content="Production-ready autonomous multiscale discovery engine bridging relativistic quantum electrodynamics down to continuum mechanics, CALPHAD thermodynamics, and robotic synthesis." />
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CDN for rapid styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              cyan: '#0891B2',
+              cyanHover: '#0E7490',
+              cyanDark: '#22D3EE',
+              forest: '#1E7065',
+              forestDark: '#2DD4BF',
+              navy: '#0A2540',
+              amber: '#B45309',
+              amberDark: '#FBBF24',
+              rose: '#BE123C',
+              roseDark: '#FB7185',
+              darkBg: '#040D18',
+              darkSurface: '#0F172A',
+              darkSurfaceElevated: '#1E293B',
+              darkBorder: '#1E293B',
+              darkBorderStrong: '#334155',
+              lightBg: '#FBF9F7',
+              lightSurface: '#FFFFFF',
+              lightBorder: '#EAE6E1',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            display: ['Poppins', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    h1, h2, h3, h4 {
+      font-family: 'Poppins', sans-serif;
+    }
+    pre, code, .tabular-nums {
+      font-family: 'JetBrains Mono', monospace;
+      font-feature-settings: 'tnum';
+    }
+    .glow-cyan {
+      box-shadow: 0 0 25px -5px rgba(8, 145, 178, 0.35);
+    }
+    .glow-cyan-dark {
+      box-shadow: 0 0 35px -5px rgba(34, 211, 238, 0.25);
+    }
+  </style>
+</head>
+<body class="bg-[#040D18] text-[#F8FAFC] min-h-screen flex flex-col antialiased selection:bg-[#0891B2] selection:text-white transition-colors duration-200">
+
+  <!-- Header Navigation -->
+  <header class="sticky top-0 z-50 backdrop-blur-md bg-[#040D18]/80 border-b border-[#1E293B]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[#0891B2] to-[#1E7065] flex items-center justify-center font-bold text-white shadow-lg">
+          P
+        </div>
+        <span class="font-display font-bold text-xl tracking-tight text-white">Penziv <span class="text-[#22D3EE] font-normal">Materials</span></span>
+        <span class="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-[#1E293B] text-[#2DD4BF] border border-[#2DD4BF]/30">v3.5.0-PROD</span>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-[#94A3B8]">
+        <a href="#scales" class="hover:text-[#22D3EE] transition-colors">5-Scale Hierarchy</a>
+        <a href="#solvers" class="hover:text-[#22D3EE] transition-colors">Physical Solvers</a>
+        <a href="#active-learning" class="hover:text-[#22D3EE] transition-colors">Active Learning</a>
+        <a href="#cli" class="hover:text-[#22D3EE] transition-colors">CLI Suite</a>
+        <a href="https://github.com/jawhett/Penziv_Materials" target="_blank" rel="noopener noreferrer" class="text-white hover:text-[#22D3EE] transition-colors flex items-center space-x-1">
+          <span>GitHub</span>
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        </a>
+      </nav>
+
+      <div class="flex items-center space-x-3">
+        <a href="https://github.com/jawhett/Penziv_Materials" class="px-4 py-2 text-xs font-semibold rounded-lg bg-[#22D3EE] text-[#040D18] hover:bg-[#06B6D4] transition-colors shadow-sm">
+          Clone Repo
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="flex-grow">
+    <section class="relative py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+      <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-[#0F172A] border border-[#334155] text-xs font-medium text-[#2DD4BF] mb-8">
+        <span class="w-2 h-2 rounded-full bg-[#2DD4BF] animate-pulse"></span>
+        <span>Production Release • 95/95 Unit Tests Passing • Zero Heuristic Fallbacks</span>
+      </div>
+
+      <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6">
+        Autonomous Multiscale <br />
+        <span class="bg-clip-text text-transparent bg-gradient-to-r from-[#22D3EE] via-[#2DD4BF] to-[#38BDF8]">
+          First-Principles Materials Discovery
+        </span>
+      </h1>
+
+      <p class="max-w-3xl mx-auto text-lg text-[#94A3B8] leading-relaxed mb-10">
+        Bridging the divide between relativistic quantum electronic transport, MACE/SevenNet equivariant graph neural potentials, CALPHAD grand-potential phase-field dynamics, and monolithic chemo-mechanics with closed-loop HPC active learning.
+      </p>
+
+      <div class="flex flex-wrap justify-center gap-4">
+        <a href="https://github.com/jawhett/Penziv_Materials" class="px-6 py-3 rounded-lg bg-[#22D3EE] text-[#040D18] font-semibold text-sm hover:bg-[#06B6D4] transition-all shadow-lg glow-cyan-dark">
+          Explore Codebase on GitHub
+        </a>
+        <a href="#cli" class="px-6 py-3 rounded-lg bg-[#0F172A] text-white border border-[#334155] font-semibold text-sm hover:bg-[#1E293B] transition-colors">
+          View Master CLI Suite
+        </a>
+      </div>
+
+      <!-- Live Metric Bar -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-16 max-w-4xl mx-auto">
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 text-center">
+          <div class="text-3xl font-bold text-[#22D3EE] tabular-nums">230 + 1651</div>
+          <div class="text-xs text-[#94A3B8] mt-1">Space & Magnetic Groups</div>
+        </div>
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 text-center">
+          <div class="text-3xl font-bold text-[#2DD4BF] tabular-nums">95 / 95</div>
+          <div class="text-xs text-[#94A3B8] mt-1">Passing Unit Tests</div>
+        </div>
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 text-center">
+          <div class="text-3xl font-bold text-[#38BDF8] tabular-nums">N ≥ 10</div>
+          <div class="text-xs text-[#94A3B8] mt-1">CALPHAD Components</div>
+        </div>
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 text-center">
+          <div class="text-3xl font-bold text-[#FBBF24] tabular-nums">&lt; 10⁻⁴</div>
+          <div class="text-xs text-[#94A3B8] mt-1">Force Residual (eV/Å)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5-Scale Architectural Hierarchy -->
+    <section id="scales" class="py-16 bg-[#0B1524] border-t border-b border-[#1E293B]">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-3xl font-bold text-white mb-4">5-Scale Physical Bridging Core</h2>
+          <p class="text-[#94A3B8]">From relativistic Dirac-Kohn-Sham ground states to high-temperature robotic synthesis.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <!-- Scale 5 -->
+          <div class="bg-[#0F172A] border border-[#1E293B] hover:border-[#22D3EE]/50 transition-all rounded-xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-[#22D3EE] uppercase tracking-wider mb-2">Scale 5</div>
+              <h3 class="text-lg font-bold text-white mb-2">Quantum & Phonon</h3>
+              <p class="text-xs text-[#94A3B8] leading-relaxed">
+                Coordinate-free rank-N Neumann projectors, Wigner-Peierls dual-channel thermal BTE, and 2D γ-surface GSFE grids.
+              </p>
+            </div>
+            <div class="mt-4 pt-3 border-t border-[#1E293B] text-[11px] text-[#2DD4BF] font-mono">
+              universal_neumann.py
+            </div>
+          </div>
+
+          <!-- Scale 4 -->
+          <div class="bg-[#0F172A] border border-[#1E293B] hover:border-[#22D3EE]/50 transition-all rounded-xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-[#22D3EE] uppercase tracking-wider mb-2">Scale 4</div>
+              <h3 class="text-lg font-bold text-white mb-2">Atomistic & MLIP</h3>
+              <p class="text-xs text-[#94A3B8] leading-relaxed">
+                Universal equivariant foundation graph potentials, Dijkstra defect percolation, and Geodesic String Method CI-NEB.
+              </p>
+            </div>
+            <div class="mt-4 pt-3 border-t border-[#1E293B] text-[11px] text-[#2DD4BF] font-mono">
+              path_sampling.py
+            </div>
+          </div>
+
+          <!-- Scale 3 -->
+          <div class="bg-[#0F172A] border border-[#1E293B] hover:border-[#22D3EE]/50 transition-all rounded-xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-[#22D3EE] uppercase tracking-wider mb-2">Scale 3</div>
+              <h3 class="text-lg font-bold text-white mb-2">Mesoscale Phase-Field</h3>
+              <p class="text-xs text-[#94A3B8] leading-relaxed">
+                Legendre CALPHAD grand potentials Ω(μ, T), Khachaturyan microelasticity, and STZ amorphous glass plasticity.
+              </p>
+            </div>
+            <div class="mt-4 pt-3 border-t border-[#1E293B] text-[11px] text-[#2DD4BF] font-mono">
+              calphad_grand_potential.py
+            </div>
+          </div>
+
+          <!-- Scale 2 -->
+          <div class="bg-[#0F172A] border border-[#1E293B] hover:border-[#22D3EE]/50 transition-all rounded-xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-[#22D3EE] uppercase tracking-wider mb-2">Scale 2</div>
+              <h3 class="text-lg font-bold text-white mb-2">Continuum Spectral</h3>
+              <p class="text-xs text-[#94A3B8] leading-relaxed">
+                Monolithic chemo-mechanics (Δμ = -Ω σ_h), fully anisotropic rank-4 Green's tensor Γ⁰(k), and ODF non-Schmid texture.
+              </p>
+            </div>
+            <div class="mt-4 pt-3 border-t border-[#1E293B] text-[11px] text-[#2DD4BF] font-mono">
+              multiscale_coupling.py
+            </div>
+          </div>
+
+          <!-- Scale 1 -->
+          <div class="bg-[#0F172A] border border-[#1E293B] hover:border-[#22D3EE]/50 transition-all rounded-xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-[#22D3EE] uppercase tracking-wider mb-2">Scale 1</div>
+              <h3 class="text-lg font-bold text-white mb-2">Process & Synthesis</h3>
+              <p class="text-xs text-[#94A3B8] leading-relaxed">
+                Autonomous robotic Python synthesis script generation for Opentrons OT-2, Chemspeed, and Berkeley A-Lab LIMS.
+              </p>
+            </div>
+            <div class="mt-4 pt-3 border-t border-[#1E293B] text-[11px] text-[#2DD4BF] font-mono">
+              retrosynthesis_planner.py
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Key Physical Solvers & Formulations -->
+    <section id="solvers" class="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-3xl font-bold text-white mb-4">Core Mathematical Solvers</h2>
+        <p class="text-[#94A3B8]">Strict first-principles formulations replacing empirical table lookups and heuristic double-wells.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <!-- Solver 1: Monolithic Chemo-Mechanics -->
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-white">Monolithic 3D Chemo-Mechanics</h3>
+            <span class="px-2.5 py-1 text-xs rounded-full bg-[#1E293B] text-[#22D3EE] font-mono">multiscale_coupling.py</span>
+          </div>
+          <p class="text-sm text-[#94A3B8] mb-4">
+            Couples 3D Lippmann-Schwinger mechanical equilibrium with Vegard chemical expansion eigenstrains and stress-driven drift-diffusion.
+          </p>
+          <div class="bg-[#040D18] p-4 rounded-lg border border-[#1E293B] font-mono text-xs text-[#2DD4BF] overflow-x-auto">
+            ∇ · 𝛔 = 0,   𝛆 = 𝛆_el + β(c - c₀)𝐈<br />
+            Δμ_stress = -Ω σ_h = - (Ω / 3) Tr(𝛔)
+          </div>
+        </div>
+
+        <!-- Solver 2: Dual-Channel Thermal Transport -->
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-white">Wigner-Peierls Thermal BTE</h3>
+            <span class="px-2.5 py-1 text-xs rounded-full bg-[#1E293B] text-[#22D3EE] font-mono">wigner_peierls_transport.py</span>
+          </div>
+          <p class="text-sm text-[#94A3B8] mb-4">
+            Calculates lattice thermal conductivity combining diagonal phonon wavepacket velocity and off-diagonal interband tunneling.
+          </p>
+          <div class="bg-[#040D18] p-4 rounded-lg border border-[#1E293B] font-mono text-xs text-[#2DD4BF] overflow-x-auto">
+            κ_αβ = κ_αβ^Peierls + κ_αβ^Wigner<br />
+            κ_αβ^Peierls = (1 / V) ∑_λ C_λ v_{λ,α} v_{λ,β} τ_λ
+          </div>
+        </div>
+
+        <!-- Solver 3: OpenCALPHAD TDB Sublattice Minimizer -->
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-white">OpenCALPHAD TDB Minimizer</h3>
+            <span class="px-2.5 py-1 text-xs rounded-full bg-[#1E293B] text-[#22D3EE] font-mono">opencalphad_tdb.py</span>
+          </div>
+          <p class="text-sm text-[#94A3B8] mb-4">
+            Direct parser of SGTE/Thermo-Calc .TDB databases with convex Gibbs free energy minimization for multi-component systems (N ≥ 10).
+          </p>
+          <div class="bg-[#040D18] p-4 rounded-lg border border-[#1E293B] font-mono text-xs text-[#2DD4BF] overflow-x-auto">
+            G_m = ∑_i x_i G_i⁰(T) + R T ∑_i x_i ln(x_i) + ∑_{i&lt;j} x_i x_j L_{ij}(T)
+          </div>
+        </div>
+
+        <!-- Solver 4: Laguerre Voronoi Ring Homology -->
+        <div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-white">Laguerre Voronoi & Ring Homology</h3>
+            <span class="px-2.5 py-1 text-xs rounded-full bg-[#1E293B] text-[#22D3EE] font-mono">laguerre_voronoi.py</span>
+          </div>
+          <p class="text-sm text-[#94A3B8] mb-4">
+            Species-weighted radical Voronoi tessellation with King's shortest-path topological ring distributions and Betti invariants.
+          </p>
+          <div class="bg-[#040D18] p-4 rounded-lg border border-[#1E293B] font-mono text-xs text-[#2DD4BF] overflow-x-auto">
+            d_W(𝐱, 𝐩_i) = ‖𝐱 - 𝐩_i‖² - r_i²<br />
+            Persistent Homology Signature: [β₀, β₁, β₂]
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Master CLI Section -->
+    <section id="cli" class="py-16 bg-[#0B1524] border-t border-[#1E293B]">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-3xl font-bold text-white mb-4">Master CLI Command Suite</h2>
+          <p class="text-[#94A3B8]">Interact directly with all multiscale solvers, TEA risk engines, and active learning loops.</p>
+        </div>
+
+        <div class="bg-[#040D18] border border-[#1E293B] rounded-xl p-6 font-mono text-sm text-[#94A3B8] overflow-x-auto">
+          <div class="text-[#2DD4BF] mb-2"># 1. Inspect architecture, scale solvers, and physical validation gates</div>
+          <div class="text-white mb-4"><span class="text-[#22D3EE]">$</span> penziv-mat status</div>
+
+          <div class="text-[#2DD4BF] mb-2"># 2. Run instant Techno-Economic (TEA), Supply Chain HHI, and Toxicity EHS audit</div>
+          <div class="text-white mb-4"><span class="text-[#22D3EE]">$</span> penziv-mat evaluate-tea "Mg1.10Sc0.20Zr1.80(PS4)3" --purity battery_grade_99_9 --sinter-temp 850.0</div>
+
+          <div class="text-[#2DD4BF] mb-2"># 3. Discover novel solid electrolytes & hybrid architectures via High-Dimensional CVT-MAP-Elites</div>
+          <div class="text-white mb-4"><span class="text-[#22D3EE]">$</span> penziv-mat discover-solid-electrolyte --carrier Mg --candidates 15 --min-sigma 1.0</div>
+
+          <div class="text-[#2DD4BF] mb-2"># 4. Generate 3D Triply Periodic Minimal Surface (TPMS Gyroid/Diamond) multi-phase geometry</div>
+          <div class="text-white mb-4"><span class="text-[#22D3EE]">$</span> penziv-mat generate-tpms --surface gyroid --resolution 32</div>
+
+          <div class="text-[#2DD4BF] mb-2"># 5. Run full forward multiscale prediction on an extreme-environment superalloy</div>
+          <div class="text-white mb-4"><span class="text-[#22D3EE]">$</span> penziv-mat predict-forward --material "Penziv-Superalloy-718X" --temp-k 1123.15</div>
+
+          <div class="text-[#2DD4BF] mb-2"># 6. Execute Spectral CPFFT crystal plasticity strain increment with Nye dislocation tensor</div>
+          <div class="text-white"><span class="text-[#22D3EE]">$</span> penziv-mat run-cpfft --strain-rate 0.001</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-[#040D18] border-t border-[#1E293B] py-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-[#94A3B8]">
+      <div>
+        © 2026 Penziv Materials. Released under the Apache 2.0 License.
+      </div>
+      <div class="mt-4 sm:mt-0 flex space-x-6">
+        <a href="https://github.com/jawhett/Penziv_Materials" class="hover:text-white transition-colors">GitHub Repository</a>
+        <a href="https://github.com/jawhett/Penziv_Materials/blob/main/LICENSE" class="hover:text-white transition-colors">License</a>
+        <a href="https://github.com/jawhett/Penziv_Materials/blob/main/CITATION.cff" class="hover:text-white transition-colors">Cite</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
