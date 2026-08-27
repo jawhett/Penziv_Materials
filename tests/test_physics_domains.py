@@ -1,4 +1,4 @@
-"""Unit tests for Universal Physics Domains & Group-Theoretic Crystallography."""
+"""Unit tests for Universal Physics Domains, Lippmann-Schwinger 3D, and Seitz Symmetry."""
 
 import unittest
 import numpy as np
@@ -7,6 +7,8 @@ from penziv_materials.physics.semiconductor_electronics import SemiconductorElec
 from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTransportEngine
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
+from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
+from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
 from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
@@ -27,6 +29,31 @@ class TestPhysicsDomains(unittest.TestCase):
         self.amorphous = AmorphousTopologyEngine()
         self.multiphase = MultiPhaseGrandPotentialEngine(num_phases=3, grid_shape=(16, 16))
         self.proc = MultiModalSynthesizabilityEngine()
+        self.ls_solver = LippmannSchwinger3DSolver(grid_shape=(8, 8, 8))
+        self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
+
+    def test_lippmann_schwinger_3d_solver(self):
+        stiffness_field = np.ones((8, 8, 8)) * 160.0
+        stiffness_field[2:6, 2:6, 2:6] = 240.0  # Hard inclusion
+        macro_eps = np.diag([0.01, -0.003, -0.003])
+        res = self.ls_solver.solve_heterogeneous_elastic_equilibrium(stiffness_field, macro_eps, max_iter=15)
+        self.assertIn("homogenized_stress_gpa", res)
+        self.assertGreater(res["max_von_mises_stress_gpa"], 0.0)
+
+    def test_3d_phase_field_stepping(self):
+        c_init = np.ones((8, 8, 8)) * 0.50
+        eta_init = np.zeros((8, 8, 8))
+        eta_init[3:5, 3:5, 3:5] = 1.0
+        c_new, eta_new = self.pf_3d.step_forward_semi_implicit(c_init, eta_init, dt=0.01, n_steps=2)
+        self.assertEqual(c_new.shape, (8, 8, 8))
+        self.assertEqual(eta_new.shape, (8, 8, 8))
+
+    def test_seitz_screw_and_glide_operations(self):
+        ops_screw = UniversalCrystalBuilder.generate_standard_symmetry_operations("P2_1/c")
+        self.assertGreaterEqual(len(ops_screw), 2)
+        # Check non-zero translation in screw axis
+        translations = [t for R, t in ops_screw if np.linalg.norm(t) > 0]
+        self.assertGreater(len(translations), 0)
 
     def test_universal_crystal_builder_wyckoff(self):
         lat = PeriodicLattice.from_parameters(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)
