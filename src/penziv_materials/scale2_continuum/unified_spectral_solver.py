@@ -35,29 +35,52 @@ class Unified3DSpectralMultiphysicsSolver:
         K_sq = KX**2 + KY**2 + KZ**2
         return KX, KY, KZ, K_sq
 
-    def apply_acoustic_greens_operator(self, tau_hat: np.ndarray) -> np.ndarray:
-        """Apply rank-4 reference Green's operator Gamma^0_ijkl(k) in Fourier space."""
+    def apply_acoustic_greens_operator(
+        self,
+        tau_hat: np.ndarray,
+        c0_anisotropic_rank4: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Apply rank-4 reference Green's operator Gamma^0_ijkl(k) in Fourier space (isotropic or fully anisotropic)."""
         K = [self.KX, self.KY, self.KZ]
         K_sq_safe = self.K_sq.copy()
         K_sq_safe[0, 0, 0] = 1.0
 
-        k_dot_tau = np.zeros((self.nx, self.ny, self.nz, 3), dtype=np.complex128)
-        for i in range(3):
-            for j in range(3):
-                k_dot_tau[..., i] += K[j] * tau_hat[..., i, j]
+        if c0_anisotropic_rank4 is None:
+            # Standard reference isotropic Green's operator
+            k_dot_tau = np.zeros((self.nx, self.ny, self.nz, 3), dtype=np.complex128)
+            for i in range(3):
+                for j in range(3):
+                    k_dot_tau[..., i] += K[j] * tau_hat[..., i, j]
 
-        k_tau_k = np.zeros((self.nx, self.ny, self.nz), dtype=np.complex128)
-        for i in range(3):
-            k_tau_k += K[i] * k_dot_tau[..., i]
+            k_tau_k = np.zeros((self.nx, self.ny, self.nz), dtype=np.complex128)
+            for i in range(3):
+                k_tau_k += K[i] * k_dot_tau[..., i]
 
-        eps_hat = np.zeros_like(tau_hat)
-        nu0 = (3.0 * self.k0 - 2.0 * self.mu0) / (2.0 * (3.0 * self.k0 + self.mu0))
+            eps_hat = np.zeros_like(tau_hat)
+            nu0 = (3.0 * self.k0 - 2.0 * self.mu0) / (2.0 * (3.0 * self.k0 + self.mu0))
 
-        for i in range(3):
-            for j in range(3):
-                term1 = (K[i] * k_dot_tau[..., j] + K[j] * k_dot_tau[..., i]) / (2.0 * self.mu0 * K_sq_safe)
-                term2 = (K[i] * K[j] * k_tau_k) / (2.0 * self.mu0 * (1.0 - nu0) * (K_sq_safe**2))
-                eps_hat[..., i, j] = -(term1 - term2)
+            for i in range(3):
+                for j in range(3):
+                    term1 = (K[i] * k_dot_tau[..., j] + K[j] * k_dot_tau[..., i]) / (2.0 * self.mu0 * K_sq_safe)
+                    term2 = (K[i] * K[j] * k_tau_k) / (2.0 * self.mu0 * (1.0 - nu0) * (K_sq_safe**2))
+                    eps_hat[..., i, j] = -(term1 - term2)
+        else:
+            # Exact anisotropic Green's operator: Gamma_ik^0(k) = [K_j C^0_jikl K_l]^-1
+            eps_hat = np.zeros_like(tau_hat)
+            # Flatten grid for tensor inversion
+            K_vec = np.stack(K, axis=-1)  # (nx, ny, nz, 3)
+            # Acoustic tensor: A_ik(k) = K_j C^0_jikl K_l
+            A_matrix = np.einsum("...j,jikl,...l->...ik", K_vec, c0_anisotropic_rank4, K_vec)
+            # Add identity on [0,0,0] to prevent singular inversion
+            A_matrix[0, 0, 0] = np.eye(3) * self.k0
+            A_inv = np.linalg.pinv(A_matrix)
+
+            # Tau divergence: div_tau_k = K_l * tau_hat_kl
+            div_tau = np.einsum("...l,...kl->...k", K_vec, tau_hat)
+            # u_hat_i = - A_inv_ik * div_tau_k
+            u_hat = - np.einsum("...ik,...k->...i", A_inv, div_tau)
+            # eps_hat_ij = 0.5 * (u_hat_i K_j + u_hat_j K_i)
+            eps_hat = 0.5 * (np.einsum("...i,...j->...ij", u_hat, K_vec) + np.einsum("...j,...i->...ij", u_hat, K_vec))
 
         eps_hat[0, 0, 0, :, :] = 0.0
         return eps_hat
@@ -72,6 +95,7 @@ class Unified3DSpectralMultiphysicsSolver:
         permittivity_field: Optional[np.ndarray] = None, # (nx, ny, nz)
         thermal_conductivity_field: Optional[np.ndarray] = None, # (nx, ny, nz)
         piezoelectric_tensor_field: Optional[np.ndarray] = None,
+        thermal_expansion_tensor: Optional[np.ndarray] = None,   # (3, 3) or scalar
         max_iter: int = 50,
         tol: float = 1.0e-5,
     ) -> Dict[str, Any]:
@@ -83,6 +107,15 @@ class Unified3DSpectralMultiphysicsSolver:
         strain = np.tile(macro_strain, (nx, ny, nz, 1, 1))
         phi = np.zeros((nx, ny, nz), dtype=np.float64)
         T_field = np.ones((nx, ny, nz), dtype=np.float64) * 300.0
+
+        # Anisotropic thermal expansion tensor
+        if thermal_expansion_tensor is not None:
+            if isinstance(thermal_expansion_tensor, (float, int)):
+                alpha_tensor = np.eye(3) * float(thermal_expansion_tensor)
+            else:
+                alpha_tensor = np.asarray(thermal_expansion_tensor, dtype=np.float64)
+        else:
+            alpha_tensor = np.eye(3) * 1.2e-5
 
         converged = False
         res = 0.0
@@ -103,12 +136,9 @@ class Unified3DSpectralMultiphysicsSolver:
             # Electric field E = -grad(phi)
             E_field = -np.stack(np.gradient(phi, self.dx_m), axis=-1)
 
-            # 3. Two-Way Coupled Multi-Field Polarization Stress
+            # 3. Two-Way Coupled Multi-Field Polarization Stress with Anisotropic Thermal Expansion
             delta_T = T_field - 300.0
-            thermal_expansion_coeff = 1.2e-5
-            eps_eigen = np.zeros((nx, ny, nz, 3, 3), dtype=np.float64)
-            for i in range(3):
-                eps_eigen[..., i, i] += thermal_expansion_coeff * delta_T
+            eps_eigen = delta_T[..., np.newaxis, np.newaxis] * alpha_tensor
 
             elastic_strain = strain - eps_eigen
             tr_elastic_strain = np.trace(elastic_strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]

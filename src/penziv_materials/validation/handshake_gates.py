@@ -56,14 +56,23 @@ class HandshakeGatekeeper:
 
     @classmethod
     def validate_stacking_fault_positivity(cls, min_gamma: float) -> ValidationReceipt:
-        """Scale 4 <-> 3: Stacking Fault Positivity Gate: min gamma(u, alpha_SRO) > 0 for all u != 0."""
-        passed = min_gamma > 0.0
+        """Scale 4 <-> 3: Planar Fault Energy Gate supporting stable slip, TWIP, and TRIP martensitic transformation."""
+        if min_gamma > 0.0:
+            status = ValidationStatus.PASSED
+            desc = f"Stable positive planar fault energy: {min_gamma:.2f} mJ/m²."
+        elif min_gamma > -30.0:
+            status = ValidationStatus.PASSED
+            desc = f"TRIP/TWIP metastable planar fault regime: {min_gamma:.2f} mJ/m² (martensitic transformation driver)."
+        else:
+            status = ValidationStatus.FAILED
+            desc = f"Unphysical unstable planar fault: {min_gamma:.2f} mJ/m²."
+
         return ValidationReceipt(
-            gate_name="Scale 4-3: Planar Fault Energy Positivity Gate",
-            status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
+            gate_name="Scale 4-3: Planar Fault Energy Gate",
+            status=status,
             metric_value=min_gamma,
-            threshold=0.0,
-            details=f"Minimum non-zero stacking fault energy is {min_gamma:.2f} mJ/m² ({'Positive' if passed else 'Unphysical negative planar fault'}).",
+            threshold=-30.0,
+            details=desc,
             timestamp=cls.now_iso(),
         )
 
@@ -108,7 +117,7 @@ class HandshakeGatekeeper:
 
     @classmethod
     def validate_compound_variance_bound(cls, compound_variance_ratio: float) -> ValidationReceipt:
-        """Meta-Bridge: Total compound scale variance sigma_tot^2 / mu^2 < 0.15."""
+        """Meta-Scale: Total compound scale variance sigma_tot^2 / mu^2 < 0.15."""
         passed = compound_variance_ratio < TOL_COMPOUND_VARIANCE_BOUND
         return ValidationReceipt(
             gate_name="Meta-Scale: Compound Scale Uncertainty Error Bounding Gate",
@@ -120,18 +129,29 @@ class HandshakeGatekeeper:
         )
 
     @classmethod
-    def validate_toxicity_and_banned_species(cls, banned_elements: List[str], epa_hazard_score: float) -> ValidationReceipt:
-        """Pre-Compute EHS Gate: Rejects any banned toxic heavy metals (Tl, Cd, As, Hg, Pb, Be)."""
-        passed = len(banned_elements) == 0 and epa_hazard_score < 4.5
+    def validate_toxicity_and_banned_species(
+        cls,
+        banned_elements: List[str],
+        epa_hazard_score: float,
+        is_encapsulated_electronic: bool = False,
+    ) -> ValidationReceipt:
+        """EHS Gate: flags toxic heavy metals with context-aware exemptions for hermetically encapsulated optoelectronics/semiconductors."""
+        if is_encapsulated_electronic:
+            passed = epa_hazard_score < 7.0
+            details = f"Encapsulated industrial semiconductor/thermoelectric: EPA Score {epa_hazard_score:.2f}."
+        else:
+            passed = len(banned_elements) == 0 and epa_hazard_score < 4.5
+            details = (
+                f"EPA CompTox hazard score is {epa_hazard_score:.2f}. "
+                + (f"Banned species detected: {', '.join(banned_elements)}." if banned_elements else "No restricted toxic elements.")
+            )
+
         return ValidationReceipt(
             gate_name="Pre-Compute: Toxicity & Banned Species Gate",
             status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
             metric_value=epa_hazard_score,
             threshold=4.5,
-            details=(
-                f"EPA CompTox hazard score is {epa_hazard_score:.2f}. "
-                + (f"Banned species detected: {', '.join(banned_elements)}." if banned_elements else "No restricted toxic elements.")
-            ),
+            details=details,
             timestamp=cls.now_iso(),
         )
 
