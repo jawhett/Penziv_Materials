@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use Penziv Materials in your research, please cite it as below."
+authors:
+  - family-names: "Jawhett"
+    given-names: "Penziv Team"
+title: "Penziv Materials: Autonomous Multiscale First-Principles Materials Property Prediction & Inverse Discovery Framework"
+version: 3.2.0
+date-released: 2026-08-27
+url: "https://github.com/jawhett/Penziv_Materials"
+license: Apache-2.0
+keywords:
+  - "multiscale modeling"
+  - "first principles"
+  - "density functional theory"
+  - "crystal plasticity"
+  - "materials discovery"
