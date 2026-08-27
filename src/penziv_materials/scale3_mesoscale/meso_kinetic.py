@@ -59,17 +59,20 @@ class MesoKineticAgent:
 
     def execute_mesoscale_evaluation(
         self,
-        composition: Dict[str, float],
+        composition: Optional[Dict[str, float]] = None,
         tau_p_gpa: float = 0.05,
         gamma_sfe_mj_m2: float = 45.0,
         precipitate_vol_frac: Optional[float] = None,
         precipitate_radius_nm: Optional[float] = None,
+        temperature_k: float = 300.0,
+        c_voigt_gpa: Optional[np.ndarray] = None,
     ) -> MesoscaleState:
         """Execute Scale 3 mesoscale evaluation directly incorporating Phase-Field microstructure morphology."""
         f_p = precipitate_vol_frac if precipitate_vol_frac is not None else 0.55
         r_p = precipitate_radius_nm if precipitate_radius_nm is not None else 35.0
 
-        tau_precip = self.compute_precipitate_strengthening(f_p=f_p, r_p_nm=r_p)
+        g_shear = float(c_voigt_gpa[3, 3]) if c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6) else 80.0
+        tau_precip = self.compute_precipitate_strengthening(f_p=f_p, r_p_nm=r_p, shear_modulus_gpa=g_shear)
         tau_crss_total = tau_p_gpa + tau_precip
 
         k_solute = self.compute_continuous_growth_solute_trapping(solidification_velocity_m_s=0.025)
@@ -83,3 +86,6 @@ class MesoKineticAgent:
             rve_mesh_convergence_error=0.008,
             void_volume_fraction=0.0001,
         )
+
+
+MesoDislocAgent = MesoKineticAgent

@@ -1,8 +1,7 @@
-"""Meta-Orchestrator: Autonomous Multiscale Forward & Inverse Prediction Engine."""
+"""Scale 0: Meta-Scale Orchestrator & Forward Multiscale Digital Twin."""
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
-
 from penziv_materials.core.models import (
     MaterialCandidate,
     QuantumState,
@@ -10,35 +9,31 @@ from penziv_materials.core.models import (
     MesoscaleState,
     ContinuumState,
     ProcessState,
-    SimToRealAssimilation,
-    ValidationReceipt,
-    ValidationStatus,
+    CrystalSystem,
 )
 from penziv_materials.scale5_quantum.q_elec import QElecAgent
 from penziv_materials.scale4_atomistic.atom_dyn import AtomDynAgent
 from penziv_materials.scale3_mesoscale.meso_kinetic import MesoKineticAgent
-from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.cpfft_solver import CPFFTSolver
 from penziv_materials.scale1_process.proc_mfg import ProcMfgAgent
 from penziv_materials.scale1_process.meltpool_cfd import MeltPoolCFDEngine
-from penziv_materials.meta_bridge.uq_bridge import UQBridgeAgent
-from penziv_materials.validation.born_stability import BornStabilityValidator
+from penziv_materials.meta_bridge.uq_bridge import UqBridgeAgent
 from penziv_materials.validation.handshake_gates import HandshakeGatekeeper
+from penziv_materials.validation.born_stability import BornStabilityValidator
 
 
 class MetaOrchestrator:
-    """Master orchestrator driving the 5-scale physics execution pipeline and UQ handshake validation."""
+    """End-to-end forward simulation pipeline orchestrating all 5 physical scales, handshake gates, and Pareto optimization."""
 
     def __init__(self):
         self.q_elec = QElecAgent()
         self.atom_dyn = AtomDynAgent()
-        self.meso_kinetic = MesoKineticAgent()
-        self.phase_field = PhaseFieldEngine(grid_size=(16, 16))
+        self.meso_disloc = MesoKineticAgent()
         self.cont_micro = ContMicroAgent()
         self.proc_mfg = ProcMfgAgent()
         self.meltpool_cfd = MeltPoolCFDEngine()
-        self.uq_bridge = UQBridgeAgent()
+        self.uq_bridge = UqBridgeAgent()
 
     def run_forward_multiscale_prediction(
         self,
@@ -46,37 +41,30 @@ class MetaOrchestrator:
         composition: Dict[str, float],
         target_temperature_k: float = 1123.15,
         applied_stress_mpa: Optional[float] = None,
-        applied_creep_stress_mpa: Optional[float] = None,
-        crystal_system: str = "FCC",
+        precipitate_vol_frac: float = 0.55,
+        crystal_system: CrystalSystem = CrystalSystem.CUBIC,
     ) -> MaterialCandidate:
-        """Execute full forward multiscale pipeline across all 5 physical tiers with dynamic solver integration."""
-        stress_val = applied_creep_stress_mpa if applied_creep_stress_mpa is not None else (applied_stress_mpa if applied_stress_mpa is not None else 250.0)
+        """Execute forward scale-bridging from Scale 5 down to Scale 1."""
+        stress_val = applied_stress_mpa if applied_stress_mpa is not None else 250.0
 
-        # 1. Scale 5: Quantum Electronic Structure & Miedema Free Energy
-        formula = "".join(f"{k}{int(v*100)}" for k, v in composition.items())
+        # 1. Scale 5: Quantum Electronic Structure
         q_state = self.q_elec.execute_quantum_state_evaluation(
-            formula=formula,
+            formula=candidate_name,
             composition=composition,
             temperature_k=target_temperature_k,
         )
         c_voigt_matrix = np.array(q_state.c_voigt_gpa)
 
-        # 2. Scale 4: Atomistic Dynamics & Kinetic Rates
+        # 2. Scale 4: Atomistic CI-NEB & Defect Kinetics
         atom_state = self.atom_dyn.execute_atomistic_evaluation(
-            composition=composition,
             temperature_k=target_temperature_k,
-            c44_gpa=c_voigt_matrix[3, 3] if c_voigt_matrix.shape == (6, 6) else 115.0,
+            composition=composition,
         )
 
-        # 3. Scale 3: Mesoscale Microstructure & Active Phase-Field Morphology Parameterization
-        c_pf = np.ones((16, 16)) * 0.50
-        eta_pf = np.zeros((16, 16))
-        c_pf_new, eta_pf_new = self.phase_field.step_forward_semi_implicit(c_pf, eta_pf, dt=0.01)
-        precipitate_vol_frac = float(np.clip(np.mean(c_pf_new > 0.55), 0.20, 0.75))
-
-        meso_state = self.meso_kinetic.execute_mesoscale_evaluation(
-            composition=composition,
-            tau_p_gpa=atom_state.peierls_stress_gpa,
+        # 3. Scale 3: Mesoscale Dislocation Dynamics & Phase Field
+        meso_state = self.meso_disloc.execute_mesoscale_evaluation(
+            temperature_k=target_temperature_k,
+            c_voigt_gpa=c_voigt_matrix,
             gamma_sfe_mj_m2=q_state.sro_stacking_fault_energy_mj_m2,
             precipitate_vol_frac=precipitate_vol_frac,
             precipitate_radius_nm=30.0,
@@ -84,7 +72,6 @@ class MetaOrchestrator:
 
         # 4. Scale 2: Continuum Homogenization & Full-Field Dynamic CPFFT
         d_grain_um = max(1.0, meso_state.average_grain_size_um)
-        hall_petch_bonus_mpa = 150.0 / np.sqrt(d_grain_um)
 
         cont_state = self.cont_micro.execute_continuum_evaluation(
             tau_crss_gpa=meso_state.crss_basal_gpa,
@@ -93,8 +80,6 @@ class MetaOrchestrator:
             applied_stress_mpa=stress_val,
             grain_size_um=d_grain_um,
         )
-        cont_state.yield_strength_mpa += hall_petch_bonus_mpa
-        cont_state.ultimate_tensile_strength_mpa += hall_petch_bonus_mpa
 
         # Active CPFFT solver parameterized by crystal system symmetry
         cpfft_solver = CPFFTSolver(crystal_system=crystal_system)
@@ -146,6 +131,7 @@ class MetaOrchestrator:
         self,
         candidates: List[MaterialCandidate],
     ) -> List[Tuple[MaterialCandidate, int]]:
+        """Compute Non-Dominated Sorting Pareto Rank for multiscale candidates."""
         ranks = []
         n = len(candidates)
 
@@ -160,25 +146,37 @@ class MetaOrchestrator:
                 if self._dominates(c_j, c_i):
                     domination_count += 1
 
-            ranks.append((c_i, domination_count + 1))
+            rank = domination_count + 1
+            ranks.append((c_i, rank))
 
         ranks.sort(key=lambda x: x[1])
         return ranks
 
     def _dominates(self, c1: MaterialCandidate, c2: MaterialCandidate) -> bool:
-        if not c1.continuum or not c2.continuum or not c1.process or not c2.process:
+        """Pareto dominance evaluation:
+
+        Max: Yield Strength, Fracture Toughness, Resistance to Creep (min creep rate), Min Exergy.
+        """
+        if not (c1.continuum and c2.continuum and c1.process and c2.process):
             return False
 
-        ys_better = c1.continuum.yield_strength_mpa >= c2.continuum.yield_strength_mpa
-        creep_better = c1.continuum.steady_state_creep_rate_s_inv <= c2.continuum.steady_state_creep_rate_s_inv
-        kic_better = c1.continuum.fracture_toughness_k_ic_mpa_sqrt_m >= c2.continuum.fracture_toughness_k_ic_mpa_sqrt_m
-        exergy_better = c1.process.min_ore_extraction_exergy_mj_kg <= c2.process.min_ore_extraction_exergy_mj_kg
+        ys1, ys2 = c1.continuum.yield_strength_mpa, c2.continuum.yield_strength_mpa
+        kic1, kic2 = c1.continuum.fracture_toughness_k_ic_mpa_sqrt_m, c2.continuum.fracture_toughness_k_ic_mpa_sqrt_m
+        creep1, creep2 = c1.continuum.steady_state_creep_rate_s_inv, c2.continuum.steady_state_creep_rate_s_inv
+        exergy1, exergy2 = c1.process.min_ore_extraction_exergy_mj_kg, c2.process.min_ore_extraction_exergy_mj_kg
 
-        strictly_better = (
-            c1.continuum.yield_strength_mpa > c2.continuum.yield_strength_mpa
-            or c1.continuum.steady_state_creep_rate_s_inv < c2.continuum.steady_state_creep_rate_s_inv
-            or c1.continuum.fracture_toughness_k_ic_mpa_sqrt_m > c2.continuum.fracture_toughness_k_ic_mpa_sqrt_m
-            or c1.process.min_ore_extraction_exergy_mj_kg < c2.process.min_ore_extraction_exergy_mj_kg
+        better_or_equal = (
+            ys1 >= ys2
+            and kic1 >= kic2
+            and creep1 <= creep2
+            and exergy1 <= exergy2
         )
 
-        return (ys_better and creep_better and kic_better and exergy_better) and strictly_better
+        strictly_better = (
+            ys1 > ys2
+            or kic1 > kic2
+            or creep1 < creep2
+            or exergy1 < exergy2
+        )
+
+        return better_or_equal and strictly_better

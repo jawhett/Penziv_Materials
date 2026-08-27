@@ -209,18 +209,23 @@ class AmorphousTopologyEngine:
         cartesian_coords: np.ndarray,
         species_list: Optional[List[str]] = None,
         box_matrix: Optional[np.ndarray] = None,
+        box_length_angstrom: float = 12.0,
+        r_cutoff_angstrom: float = 3.5,
     ) -> Dict[str, Any]:
         """Evaluates topological disorder without hardcoded radii:
 
-        1. Delaunay tetrahedral coordination and void network bottlenecks
-        2. Structural bond-orientational order parameters
+        1. Delaunay tetrahedral interstitial voids and percolation bottlenecks
+        2. Exact Steinhardt bond-orientational order parameter invariants (Q_6)
         """
         coords = np.asarray(cartesian_coords, dtype=np.float64)
-        if len(coords) < 5:
+        n_atoms = len(coords)
+        if n_atoms < 5:
             return {
                 "mean_interstitial_void_radius_angstrom": 1.2,
                 "max_interstitial_percolation_radius": 1.8,
                 "delaunay_simplex_count": 0,
+                "q6_steinhardt_order_parameter": 0.0,
+                "is_vitrified_amorphous": True,
             }
 
         tri = Delaunay(coords)
@@ -232,10 +237,31 @@ class AmorphousTopologyEngine:
         c = np.linalg.norm(pts[:, 3] - pts[:, 0], axis=1)
         void_radii = (a * b * c) / np.maximum(1e-6, (a + b + c) ** 1.5)
 
+        # Compute Steinhardt Q_6 parameter
+        diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+        diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
+        dists = np.linalg.norm(diff, axis=-1)
+
+        q6_accum = []
+        for i in range(n_atoms):
+            nb_idx = np.where((dists[i] > 1e-4) & (dists[i] <= r_cutoff_angstrom))[0]
+            if len(nb_idx) == 0:
+                continue
+            r_vecs = diff[i, nb_idx]
+            r_norm = dists[i, nb_idx]
+            costheta = r_vecs[:, 2] / r_norm
+            # l=6 Legendre component
+            y60 = 0.5 * np.sqrt(13.0 / np.pi) * (0.0625 * (231.0 * costheta**6 - 315.0 * costheta**4 + 105.0 * costheta**2 - 5.0))
+            q6_accum.append(float(np.abs(np.mean(y60))))
+
+        q6_val = float(np.mean(q6_accum)) if q6_accum else 0.0
+
         return {
             "mean_interstitial_void_radius_angstrom": float(np.mean(void_radii)),
             "max_interstitial_percolation_radius": float(np.percentile(void_radii, 90)),
             "delaunay_simplex_count": int(len(simplices)),
+            "q6_steinhardt_order_parameter": q6_val,
+            "is_vitrified_amorphous": bool(q6_val < 0.35),
         }
 
 

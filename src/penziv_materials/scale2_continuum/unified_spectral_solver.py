@@ -19,6 +19,7 @@ class Unified3DSpectralMultiphysicsSolver:
     ):
         self.nx, self.ny, self.nz = grid_shape
         self.dx = dx_m
+        self.dx_m = dx_m
         self.k0 = c0_bulk_gpa * 1.0e9
         self.g0 = c0_shear_gpa * 1.0e9
         self.mu0 = self.g0
@@ -74,7 +75,7 @@ class Unified3DSpectralMultiphysicsSolver:
         max_iter: int = 50,
         tol: float = 1.0e-5,
     ) -> Dict[str, Any]:
-        """Execute coupled Lippmann-Schwinger spectral iterations with two-way polarization updating."""
+        """Execute coupled Lippmann-Schwinger spectral iterations with two-way multi-field polarization updating."""
         nx, ny, nz = self.nx, self.ny, self.nz
         K_sq_safe = self.K_sq.copy()
         K_sq_safe[0, 0, 0] = 1.0
@@ -99,17 +100,37 @@ class Unified3DSpectralMultiphysicsSolver:
             phi_hat[0, 0, 0] = 0.0
             phi = np.real(np.fft.ifftn(phi_hat))
 
-            # 3. Coupled Mechanical Stress and Lippmann-Schwinger projection
-            tr_strain = np.trace(strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
-            c0_stress = strain * 2.0 * self.g0 + tr_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
+            # Electric field E = -grad(phi)
+            E_field = -np.stack(np.gradient(phi, self.dx_m), axis=-1)
 
+            # 3. Two-Way Coupled Multi-Field Polarization Stress
+            delta_T = T_field - 300.0
+            thermal_expansion_coeff = 1.2e-5
+            eps_eigen = np.zeros((nx, ny, nz, 3, 3), dtype=np.float64)
+            for i in range(3):
+                eps_eigen[..., i, i] += thermal_expansion_coeff * delta_T
+
+            elastic_strain = strain - eps_eigen
+            tr_elastic_strain = np.trace(elastic_strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
+
+            c0_stress = elastic_strain * 2.0 * self.g0 + tr_elastic_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
             if stiffness_field_gpa is not None:
                 mod_factor = (stiffness_field_gpa[..., np.newaxis, np.newaxis] * 1.0e9) / max(1.0, self.k0)
                 stress = c0_stress * mod_factor
             else:
                 stress = c0_stress
 
-            tau = stress - c0_stress
+            # Piezoelectric coupling: sigma_pz = - e_kij * E_k
+            if piezoelectric_tensor_field is not None:
+                pz_stress = -np.einsum("...kij,...k->...ij", piezoelectric_tensor_field, E_field)
+                stress += pz_stress
+
+            # Electrostatic Maxwell Stress Tensor: T_ij = eps * (E_i E_j - 0.5 * |E|^2 delta_ij)
+            E_sq = np.sum(E_field**2, axis=-1, keepdims=True)
+            maxwell_stress = self.eps0 * (np.einsum("...i,...j->...ij", E_field, E_field) - 0.5 * E_sq[..., np.newaxis] * np.eye(3))
+            stress += maxwell_stress
+
+            tau = stress - (strain * 2.0 * self.g0 + np.trace(strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis] * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0))
             tau_hat = np.fft.fftn(tau, axes=(0, 1, 2))
             gamma_tau_hat = self.apply_acoustic_greens_operator(tau_hat)
             strain_correction = np.real(np.fft.ifftn(gamma_tau_hat, axes=(0, 1, 2)))

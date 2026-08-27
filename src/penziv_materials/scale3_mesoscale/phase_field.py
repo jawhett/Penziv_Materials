@@ -90,13 +90,26 @@ class PhaseFieldEngine:
         eta_field: np.ndarray,
         dt: float = 0.01,
         n_steps: int = 1,
+        elastic_strain_field: Optional[np.ndarray] = None,
+        eigenstrain_tensors: Optional[List[np.ndarray]] = None,
+        stiffness_tensors: Optional[List[np.ndarray]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Execute semi-implicit temporal update for coupled Cahn-Hilliard and Allen-Cahn equations."""
+        """Execute semi-implicit temporal update for coupled Cahn-Hilliard, Allen-Cahn, and Khachaturyan microelasticity."""
         c = c_field.copy()
         eta = eta_field.copy()
 
         for _ in range(n_steps):
             df_dc, df_deta = self.compute_chemical_free_energy_derivative(c, eta)
+
+            if elastic_strain_field is not None and eigenstrain_tensors is not None and stiffness_tensors is not None:
+                phi_stack = np.stack([1.0 - eta, eta], axis=0)
+                dF_elast = self.compute_khachaturyan_elastic_driving_force(
+                    strain_field=elastic_strain_field,
+                    eigenstrain_tensors=eigenstrain_tensors,
+                    stiffness_tensors=stiffness_tensors,
+                    phi_fields=phi_stack,
+                )
+                df_deta += (dF_elast[1] - dF_elast[0])
 
             lap_c = self.compute_laplacian(c)
             mu_chem = df_dc - self.kappa_c * lap_c
