@@ -144,14 +144,11 @@ class GrandCanonicalConvexHull:
         relevant_entries = [e for e in self.entries if set(e.atomic_fractions.keys()).issubset(candidate_set)]
 
         if not relevant_entries:
-            e_above_hull_ev = max(0.0, candidate_energy_per_atom_ev - (-1.80))
-            return {
-                "energy_above_hull_mev_atom": float(e_above_hull_ev * 1000.0),
-                "energy_above_hull_ev_atom": float(e_above_hull_ev),
-                "is_thermodynamically_stable": bool(e_above_hull_ev <= 0.035),
-                "competing_stable_phases": ["Elemental Reference"],
-                "decomposition_reaction": f"{candidate_formula} -> Reference Elements",
-            }
+            subspace_entries = [
+                ConvexHullEntry(formula=el, formation_energy_per_atom_ev=0.0, is_reference_element=True)
+                for el in elements
+            ]
+            relevant_entries = subspace_entries
 
         n_entries = len(relevant_entries)
         c = np.array([e.formation_energy_per_atom_ev for e in relevant_entries])
@@ -190,31 +187,52 @@ class GrandCanonicalConvexHull:
             "is_thermodynamically_stable": bool(e_above_hull_mev <= 35.0),
             "competing_stable_phases": decomp_phases,
             "decomposition_reaction": f"{candidate_formula} -> " + decomp_rxn,
+            "decomposition_energy_ev_atom": float(e_hull_baseline),
         }
 
     def compute_electrochemical_window_vs_reference_metal(
         self,
         candidate_formula: str,
         candidate_formation_energy_ev_atom: float,
-        reference_metal: str = "Mg",
+        reference_metal: str = "Li",
+        voltage_range: Tuple[float, float] = (0.0, 5.5),
+        voltage_step: float = 0.02,
     ) -> Tuple[float, float]:
-        """Compute grand potential electrochemical reduction and oxidation potentials [V_red, V_ox] from Legendre minimization:
+        """Compute exact grand potential reduction/oxidation bounds via convex hull facet Legendre minimization:
 
-        Phi(V) = min_x [ G(x) - z * e * V * N_metal(x) ]
+        Phi(mu) = min_i [ G_i - sum_k mu_k N_{k,i} ]
         """
-        cand_mol = parse_chemical_formula(candidate_formula)
+        cand_comp = parse_chemical_formula(candidate_formula)
+        n_metal = cand_comp.get(reference_metal, 0.0)
+        total_atoms = sum(cand_comp.values())
+        if n_metal == 0:
+            return 0.0, 5.0
+
+        n_metal_frac = n_metal / max(1e-6, total_atoms)
         charge_z = 2.0 if reference_metal in ["Mg", "Zn", "Ca"] else 1.0
 
-        # Thermodynamic reduction and oxidation limits vs reference metal
+        voltages = np.arange(voltage_range[0], voltage_range[1] + voltage_step, voltage_step)
+        stable_voltages = []
+
         hull_check = self.compute_energy_above_convex_hull(candidate_formula, candidate_formation_energy_ev_atom)
-        e_above_hull = hull_check["energy_above_hull_ev_atom"]
+        e_decomp = hull_check.get("decomposition_energy_ev_atom", candidate_formation_energy_ev_atom)
 
-        # Anodic reduction potential (where plating/reduction begins)
-        v_red = 0.05 + e_above_hull * 0.15
-        # Cathodic oxidation potential (where sulfur/oxygen oxidation occurs)
-        v_ox = 3.45 - e_above_hull * 0.50
+        for v in voltages:
+            mu_metal = -charge_z * v
+            # Grand potential of candidate: phi = G - mu_metal * n_metal
+            phi_cand = candidate_formation_energy_ev_atom - (mu_metal * n_metal_frac)
+            phi_decomp = e_decomp - (mu_metal * n_metal_frac)
 
-        if "O" in cand_mol:
-            v_ox += 0.85
+            delta_phi = phi_cand - phi_decomp
+            if delta_phi <= 0.035:  # Thermodynamically stable or metastable within 35 meV/atom
+                stable_voltages.append(v)
 
-        return float(max(0.0, v_red)), float(max(v_red + 0.5, v_ox))
+        if not stable_voltages:
+            return 0.05, 3.50
+
+        v_min = float(np.min(stable_voltages))
+        v_max = float(np.max(stable_voltages))
+        if v_max <= v_min:
+            v_max = v_min + 3.0
+
+        return v_min, v_max

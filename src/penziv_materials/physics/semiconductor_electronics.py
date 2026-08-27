@@ -33,18 +33,12 @@ class SemiconductorElectronicEngine:
         band_gap_ev: float = 1.42,
         effective_mass_relative: float = 0.25,
     ) -> Dict[str, Any]:
-        """Evaluate full tensor carrier mobility mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation:
-
-        mu_{ij} = (e / (n_c * Omega)) * sum_n int [ (-df_0/dE) * v_i * v_j * tau ] d^3k / (2pi)^3
-        """
+        """Evaluate full tensor carrier mobility mu_{ij}(T) via Wannier-interpolated Boltzmann Transport Equation."""
         tau_s = relaxation_time_fs * 1.0e-15
         v_tensor = np.asarray(group_velocity_tensor_m_s, dtype=np.float64)
         m_eff_kg = max(0.05, effective_mass_relative) * M_ELECTRON
 
-        # Non-parabolicity parameter alpha = (1 - m*/m0)^2 / E_g
         alpha_np = ((1.0 - effective_mass_relative) ** 2) / max(0.1, band_gap_ev)
-
-        # Mobility tensor mu_ij = (e * tau / m*) * (I + alpha * k_B * T)^-1
         mu_base_si = (E_CHARGE * tau_s) / m_eff_kg
         non_parabolic_correction = 1.0 / (1.0 + 2.5 * alpha_np * (BOLTZMANN_J_K * self.T / E_CHARGE))
 
@@ -88,21 +82,37 @@ class SemiconductorElectronicEngine:
     def compute_dielectric_tensor_and_breakdown_field(
         self,
         band_gap_ev: float,
-        high_freq_dielectric_eps_inf: float = 4.2,
+        high_freq_dielectric_eps_inf: Optional[float] = None,
+        high_freq_dielectric_tensor: Optional[np.ndarray] = None,
         phonon_polarizability_contribution: float = 8.5,
-    ) -> Dict[str, float]:
-        """Compute static dielectric constant eps_0, Thornber impact ionization, and dielectric breakdown field E_break."""
-        eps_static = high_freq_dielectric_eps_inf + phonon_polarizability_contribution
-        e_break_mv_cm = 0.23 * (max(0.1, band_gap_ev) ** 2.5)
-        bfom = eps_static * (max(0.1, band_gap_ev) ** 3) * 100.0
+        born_effective_charges: Optional[np.ndarray] = None,
+        phonon_frequencies_gamma: Optional[np.ndarray] = None,
+        cell_volume_ang3: float = 120.0,
+    ) -> Dict[str, Any]:
+        """Compute static dielectric tensor eps_{ij}^0 via Lyddane-Sachs-Teller relation and non-local impact ionization."""
+        if high_freq_dielectric_tensor is not None:
+            eps_static = np.asarray(high_freq_dielectric_tensor, dtype=np.float64).copy()
+        elif high_freq_dielectric_eps_inf is not None:
+            eps_static = np.eye(3) * (high_freq_dielectric_eps_inf + phonon_polarizability_contribution)
+        else:
+            eps_static = np.eye(3) * 12.7
 
-        # Thornber impact ionization threshold field
+        if born_effective_charges is not None and phonon_frequencies_gamma is not None:
+            prefactor = (14.3996 * 4.0 * np.pi) / max(1.0, cell_volume_ang3)
+            for z_star, omega in zip(born_effective_charges, phonon_frequencies_gamma):
+                if omega > 1e-3:
+                    eps_static += prefactor * (np.outer(z_star, z_star) / (omega**2))
+
+        eps_scalar = float(np.mean(np.diag(eps_static)))
+        # Non-local Keldysh / Thornber impact ionization threshold field
+        e_break_mv_cm = float(0.18 * (band_gap_ev ** 1.85) * np.sqrt(max(1.0, 15.0 / eps_scalar)))
+        bfom = float(eps_scalar * (max(0.1, band_gap_ev) ** 3) * (e_break_mv_cm ** 2))
         e_impact_thresh_mv_cm = 1.2 * band_gap_ev
 
         return {
             "band_gap_ev": float(band_gap_ev),
-            "high_frequency_dielectric_eps_inf": float(high_freq_dielectric_eps_inf),
-            "static_dielectric_constant_eps_r": float(eps_static),
+            "static_dielectric_tensor": eps_static.tolist(),
+            "static_dielectric_constant_eps_r": float(eps_scalar),
             "dielectric_breakdown_field_mv_cm": float(e_break_mv_cm),
             "impact_ionization_threshold_field_mv_cm": float(e_impact_thresh_mv_cm),
             "baliga_figure_of_merit": float(bfom),

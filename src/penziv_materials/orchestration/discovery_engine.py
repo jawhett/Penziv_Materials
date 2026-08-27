@@ -43,29 +43,35 @@ class AlloyDiscoveryEngine:
         self,
         base_elements: List[str],
         n_samples: int = 30,
-        primary_element: str = "Ni",
+        primary_element: Optional[str] = None,
+        concentration_bounds: Optional[Dict[str, Tuple[float, float]]] = None,
         random_seed: Optional[int] = 42,
     ) -> List[Dict[str, float]]:
-        """Generate physically reasonable alloy composition vectors normalized to sum to 1.0."""
+        """Sample unconstrained composition space using Dirichlet distributions and explicit bounds."""
         if random_seed is not None:
             np.random.seed(random_seed)
 
         compositions = []
+        n_elems = len(base_elements)
+
         for _ in range(n_samples):
-            # Dirichlet-distributed random fractions
-            raw_weights = np.random.dirichlet(np.ones(len(base_elements)) * 1.2)
+            # Sample across simplex without single-element bias
+            raw_weights = np.random.dirichlet(np.ones(n_elems) * 1.0)
             comp_dict = {elem: float(w) for elem, w in zip(base_elements, raw_weights)}
 
-            # Ensure primary matrix element has minimum threshold (e.g. Ni >= 45%)
-            if primary_element in comp_dict and comp_dict[primary_element] < 0.45:
-                deficit = 0.50 - comp_dict[primary_element]
+            if primary_element and primary_element in comp_dict and comp_dict[primary_element] < 0.45:
                 comp_dict[primary_element] = 0.50
-                # Rescale other elements
                 other_sum = sum(w for k, w in comp_dict.items() if k != primary_element)
                 if other_sum > 0:
                     for k in comp_dict:
                         if k != primary_element:
                             comp_dict[k] = (comp_dict[k] / other_sum) * (1.0 - 0.50)
+
+            # Apply custom concentration bounds if supplied
+            if concentration_bounds:
+                for elem, (min_c, max_c) in concentration_bounds.items():
+                    if elem in comp_dict:
+                        comp_dict[elem] = float(np.clip(comp_dict[elem], min_c, max_c))
 
             # Round and normalize
             total = sum(comp_dict.values())

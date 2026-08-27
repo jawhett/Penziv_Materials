@@ -23,29 +23,29 @@ class MultiPhaseGrandPotentialEngine:
         self,
         phi_fields: np.ndarray,
         chemical_potentials_ev: np.ndarray,
+        free_energy_densities: Optional[np.ndarray] = None,
         dt_s: float = 0.005,
     ) -> np.ndarray:
-        """Step forward multi-phase order parameters:
+        """Step forward multi-phase order parameters coupled to thermodynamic driving forces:
 
-        d phi_alpha / dt = - sum_beta L_alphabeta [ (delta F / delta phi_alpha) - (delta F / delta phi_beta) ]
+        d phi_alpha / dt = - sum_beta (L_{alpha beta} / N) [ delta F / delta phi_alpha - delta F / delta phi_beta ]
         with Lagrange constraint sum_alpha phi_alpha = 1.
         """
         phi = np.asarray(phi_fields, dtype=np.float64)  # Shape (num_phases, nx, ny)
         n_p, nx, ny = phi.shape
+        f_bulk = free_energy_densities if free_energy_densities is not None else np.zeros(n_p)
 
         new_phi = phi.copy()
 
         for a in range(n_p):
-            # Compute Laplacian nabla^2 phi_alpha
             lap_phi_a = (
                 np.roll(phi[a], 1, axis=0) + np.roll(phi[a], -1, axis=0)
                 + np.roll(phi[a], 1, axis=1) + np.roll(phi[a], -1, axis=1)
                 - 4.0 * phi[a]
             )
 
-            # Variational derivative delta F / delta phi_alpha
-            # Bulk multi-well obstacle potential
-            dF_dphi_a = 4.0 * phi[a] * (1.0 - phi[a]) * (1.0 - 2.0 * phi[a]) - self.kappa_grad * lap_phi_a
+            d_barrier_a = 4.0 * phi[a] * (1.0 - phi[a]) * (1.0 - 2.0 * phi[a])
+            dF_dphi_a = d_barrier_a + f_bulk[a] - self.kappa_grad * lap_phi_a
 
             dphi_dt = np.zeros((nx, ny))
             for b in range(n_p):
@@ -56,7 +56,8 @@ class MultiPhaseGrandPotentialEngine:
                     + np.roll(phi[b], 1, axis=1) + np.roll(phi[b], -1, axis=1)
                     - 4.0 * phi[b]
                 )
-                dF_dphi_b = 4.0 * phi[b] * (1.0 - phi[b]) * (1.0 - 2.0 * phi[b]) - self.kappa_grad * lap_phi_b
+                d_barrier_b = 4.0 * phi[b] * (1.0 - phi[b]) * (1.0 - 2.0 * phi[b])
+                dF_dphi_b = d_barrier_b + f_bulk[b] - self.kappa_grad * lap_phi_b
                 dphi_dt -= (self.L_mob / n_p) * (dF_dphi_a - dF_dphi_b)
 
             new_phi[a] += dt_s * dphi_dt
@@ -74,10 +75,7 @@ class MultiPhaseGrandPotentialEngine:
         sigma_max_j_m2: float = 0.85,
         theta_limit_deg: float = 15.0,
     ) -> float:
-        """Read-Shockley dislocation model for low-angle grain boundary energy sigma_GB(theta):
-
-        sigma_GB(theta) = sigma_0 * (theta / theta_m) * (1 - ln(theta / theta_m))  for theta <= theta_m
-        """
+        """Read-Shockley dislocation model for low-angle grain boundary energy sigma_GB(theta)."""
         theta = max(0.01, misorientation_angle_deg)
         theta_m = theta_limit_deg
 

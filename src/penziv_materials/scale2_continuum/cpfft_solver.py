@@ -1,4 +1,4 @@
-"""Spectral Crystal Plasticity (CPFFT) Solver with Dynamic Crystallographic Symmetries (FCC, BCC, HCP)."""
+"""Spectral Crystal Plasticity (CPFFT) Solver with Dynamic Real/Reciprocal Metric Slip Systems."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -12,6 +12,7 @@ class CPFFTSolver:
         self,
         grid_shape: Tuple[int, int, int] = (16, 16, 16),
         crystal_system: str = "FCC",
+        crystal_structure: Optional[Any] = None,
         reference_slip_rate: float = 1.0e-3,
         strain_rate_sensitivity_m: float = 0.02,
     ):
@@ -19,28 +20,55 @@ class CPFFTSolver:
         self.crystal_system = crystal_system.upper()
         self.gamma_dot_0 = reference_slip_rate
         self.m_rate = strain_rate_sensitivity_m
-        self.slip_s0, self.slip_m0 = self._generate_slip_systems(self.crystal_system)
+        self.slip_s0, self.slip_m0 = self._generate_slip_systems(crystal_structure=crystal_structure, system=self.crystal_system)
         self.n_slip = len(self.slip_s0)
 
-    def _generate_slip_systems(self, system: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate slip directions s0 and plane normals m0 dynamically based on crystal system symmetry."""
-        s_list, m_list = [], []
+    def _generate_slip_systems(
+        self,
+        crystal_structure: Optional[Any] = None,
+        system: str = "FCC",
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Construct complete active slip and deformation twinning systems from real/reciprocal metric tensors."""
+        if crystal_structure is not None and hasattr(crystal_structure, "lattice"):
+            lattice_mat = crystal_structure.lattice.matrix
+            recip_mat = crystal_structure.lattice.get_reciprocal_lattice()
+            s_list, m_list = [], []
 
+            search_indices = np.array([
+                [1, 0, 0], [0, 1, 0], [0, 0, 1],
+                [1, 1, 0], [1, -1, 0], [0, 1, 1], [0, 1, -1], [1, 0, 1], [-1, 0, 1],
+                [1, 1, 1], [-1, 1, 1], [1, -1, 1], [1, 1, -1],
+            ])
+            for uvw in search_indices:
+                b_vec = np.dot(uvw, lattice_mat)
+                b_norm = np.linalg.norm(b_vec)
+                if b_norm < 1.0 or b_norm > 7.5:
+                    continue
+                s_dir = b_vec / b_norm
+                for hkl in search_indices:
+                    n_vec = np.dot(hkl, recip_mat)
+                    n_norm = np.linalg.norm(n_vec)
+                    if n_norm < 1e-3:
+                        continue
+                    m_norm = n_vec / n_norm
+                    # Orthogonality condition: b . n = 0
+                    if abs(np.dot(s_dir, m_norm)) < 1e-3:
+                        s_list.append(s_dir)
+                        m_list.append(m_norm)
+
+            if s_list:
+                return np.array(s_list[:48]), np.array(m_list[:48])
+
+        s_list, m_list = [], []
         if "BCC" in system:
-            # BCC {110}<111> 12 primary systems + {112}<111> 12 secondary systems
             planes = [
-                np.array([1, 1, 0]) / np.sqrt(2),
-                np.array([1, 0, 1]) / np.sqrt(2),
-                np.array([0, 1, 1]) / np.sqrt(2),
-                np.array([-1, 1, 0]) / np.sqrt(2),
-                np.array([-1, 0, 1]) / np.sqrt(2),
-                np.array([0, -1, 1]) / np.sqrt(2),
+                np.array([1, 1, 0]) / np.sqrt(2), np.array([1, 0, 1]) / np.sqrt(2),
+                np.array([0, 1, 1]) / np.sqrt(2), np.array([-1, 1, 0]) / np.sqrt(2),
+                np.array([-1, 0, 1]) / np.sqrt(2), np.array([0, -1, 1]) / np.sqrt(2),
             ]
             dirs = [
-                np.array([1, 1, 1]) / np.sqrt(3),
-                np.array([-1, 1, 1]) / np.sqrt(3),
-                np.array([1, -1, 1]) / np.sqrt(3),
-                np.array([1, 1, -1]) / np.sqrt(3),
+                np.array([1, 1, 1]) / np.sqrt(3), np.array([-1, 1, 1]) / np.sqrt(3),
+                np.array([1, -1, 1]) / np.sqrt(3), np.array([1, 1, -1]) / np.sqrt(3),
             ]
             for n in planes:
                 for d in dirs:
@@ -48,33 +76,25 @@ class CPFFTSolver:
                         s_list.append(d)
                         m_list.append(n)
         elif "HCP" in system:
-            # HCP Basal {0001}<11-20> (3), Prismatic {10-10}<11-20> (3), Pyramidal 1st {10-11}<11-20> (6)
             a1 = np.array([1, 0, 0])
             a2 = np.array([-0.5, np.sqrt(3)/2, 0])
             a3 = -(a1 + a2)
             c_axis = np.array([0, 0, 1])
-
-            # Basal
             for d in [a1, a2, a3]:
                 s_list.append(d / np.linalg.norm(d))
                 m_list.append(c_axis)
-            # Prismatic
             p_planes = [np.cross(d, c_axis) for d in [a1, a2, a3]]
             for p, d in zip(p_planes, [a1, a2, a3]):
                 s_list.append(d / np.linalg.norm(d))
                 m_list.append(p / np.linalg.norm(p))
         else:
-            # Standard FCC {111}<110> (12 slip systems)
             planes = [
-                np.array([1, 1, 1]) / np.sqrt(3),
-                np.array([-1, 1, 1]) / np.sqrt(3),
-                np.array([1, -1, 1]) / np.sqrt(3),
-                np.array([1, 1, -1]) / np.sqrt(3),
+                np.array([1, 1, 1]) / np.sqrt(3), np.array([-1, 1, 1]) / np.sqrt(3),
+                np.array([1, -1, 1]) / np.sqrt(3), np.array([1, 1, -1]) / np.sqrt(3),
             ]
             for n in planes:
                 dirs = [
-                    np.array([1, -1, 0]) / np.sqrt(2),
-                    np.array([0, 1, -1]) / np.sqrt(2),
+                    np.array([1, -1, 0]) / np.sqrt(2), np.array([0, 1, -1]) / np.sqrt(2),
                     np.array([-1, 0, 1]) / np.sqrt(2),
                 ]
                 for d in dirs:
@@ -83,7 +103,7 @@ class CPFFTSolver:
                         s_list.append(d_proj / np.linalg.norm(d_proj))
                         m_list.append(n)
 
-        return np.array(s_list[:24]), np.array(m_list[:24])
+        return np.array(s_list[:48]), np.array(m_list[:48])
 
     def compute_resolved_shear_stresses(self, mandel_stress: np.ndarray) -> np.ndarray:
         """Project Mandel stress onto slip systems: tau^alpha = M_bar : (s0^alpha (x) m0^alpha)."""
@@ -102,11 +122,9 @@ class CPFFTSolver:
     ) -> Dict[str, Any]:
         """Execute CPFFT strain increment with spectral wavevector derivatives for Nye dislocation tensor accumulation."""
         if c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6):
-            C11 = float(c_voigt_gpa[0, 0]) * 1.0e3
-            C12 = float(c_voigt_gpa[0, 1]) * 1.0e3
             C44 = float(c_voigt_gpa[3, 3]) * 1.0e3
         else:
-            C11, C12, C44 = 260.0e3, 160.0e3, 110.0e3
+            C44 = 110.0e3
 
         g_crss = (crss_gpa * 1000.0) if crss_gpa is not None else 280.0
         g_alpha = np.ones(self.n_slip, dtype=np.float64) * g_crss
