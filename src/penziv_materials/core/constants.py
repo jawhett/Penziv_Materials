@@ -9,6 +9,7 @@ R_GAS = 8.314462618                  # J / (mol * K)
 AVOGADRO_NUMBER = 6.02214076e23      # mol^-1
 AVOGADRO_N_A = 6.02214076e23         # mol^-1
 FARADAY_C_MOL = 96485.33212          # C / mol
+FARADAY_CONSTANT = 96485.33212       # C / mol
 PLANCK_CONSTANT = 6.62607015e-34     # J * s
 PLANCK_EV_S = 4.135667696e-15        # eV * s
 HBAR = 1.054571817e-34               # J * s
