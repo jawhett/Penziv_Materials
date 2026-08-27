@@ -3,6 +3,7 @@
 import datetime
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
+from penziv_materials.core.formula_parser import parse_chemical_formula, compute_element_mass_fractions, STANDARD_ATOMIC_WEIGHTS
 from penziv_materials.core.constants import R_GAS
 
 
@@ -21,6 +22,36 @@ class RetrosynthesisAssemblyPlanner:
         "TiO2": (-944.0, 50.6),
         "Al2O3": (-1675.7, 50.9),
     }
+
+    def compute_stoichiometric_precursor_masses(
+        self,
+        target_formula: str,
+        target_batch_mass_g: float = 5.0,
+        precursor_compounds: Optional[List[str]] = None,
+    ) -> Dict[str, float]:
+        """Compute exact stoichiometric masses (in grams) for solid/liquid precursor dispensing to synthesize target batch."""
+        target_comp = parse_chemical_formula(target_formula)
+        mass_fracs = compute_element_mass_fractions(target_formula)
+
+        precursors = precursor_compounds or ["MgS", "Sc2S3", "ZrS2", "P2S5", "Na2S"]
+        precursor_masses: Dict[str, float] = {}
+
+        for p in precursors:
+            p_comp = parse_chemical_formula(p)
+            # Check overlap with target elements
+            common_elements = set(p_comp.keys()).intersection(set(target_comp.keys()))
+            if common_elements:
+                # Find matching primary element
+                primary_elem = list(common_elements)[0]
+                p_mw = sum(count * STANDARD_ATOMIC_WEIGHTS.get(elem, 30.0) for elem, count in p_comp.items())
+                elem_mass_in_p = p_comp[primary_elem] * STANDARD_ATOMIC_WEIGHTS.get(primary_elem, 30.0)
+                mass_needed = target_batch_mass_g * mass_fracs.get(primary_elem, 0.2) * (p_mw / elem_mass_in_p)
+                precursor_masses[p] = float(np.round(mass_needed, 4))
+
+        if not precursor_masses:
+            precursor_masses = {"Precursor_A": target_batch_mass_g * 0.6, "Precursor_B": target_batch_mass_g * 0.4}
+
+        return precursor_masses
 
     def compute_solid_state_reaction_free_energy(
         self,

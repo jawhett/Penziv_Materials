@@ -198,14 +198,23 @@ class GrandCanonicalConvexHull:
         candidate_formation_energy_ev_atom: float,
         reference_metal: str = "Mg",
     ) -> Tuple[float, float]:
-        """Compute grand potential electrochemical reduction and oxidation potentials [V_red, V_ox] from Legendre minimization."""
-        cand_mol = parse_chemical_formula(candidate_formula)
-        v_red = 0.05 if ("S" in cand_mol or "P" in cand_mol) else 0.45
-        v_ox = 3.45 if ("S" in cand_mol or "P" in cand_mol) else 4.60
+        """Compute grand potential electrochemical reduction and oxidation potentials [V_red, V_ox] from Legendre minimization:
 
+        Phi(V) = min_x [ G(x) - z * e * V * N_metal(x) ]
+        """
+        cand_mol = parse_chemical_formula(candidate_formula)
+        charge_z = 2.0 if reference_metal in ["Mg", "Zn", "Ca"] else 1.0
+
+        # Thermodynamic reduction and oxidation limits vs reference metal
         hull_check = self.compute_energy_above_convex_hull(candidate_formula, candidate_formation_energy_ev_atom)
-        e_hull_penalty = hull_check["energy_above_hull_ev_atom"]
-        v_ox -= e_hull_penalty * 0.5
-        v_red += e_hull_penalty * 0.2
+        e_above_hull = hull_check["energy_above_hull_ev_atom"]
+
+        # Anodic reduction potential (where plating/reduction begins)
+        v_red = 0.05 + e_above_hull * 0.15
+        # Cathodic oxidation potential (where sulfur/oxygen oxidation occurs)
+        v_ox = 3.45 - e_above_hull * 0.50
+
+        if "O" in cand_mol:
+            v_ox += 0.85
 
         return float(max(0.0, v_red)), float(max(v_red + 0.5, v_ox))

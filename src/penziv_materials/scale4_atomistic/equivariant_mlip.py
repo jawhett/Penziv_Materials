@@ -1,4 +1,4 @@
-"""Universal E(3)-Equivariant Foundation MLIP Runtime, ASE Calculator Bindings & CI-NEB."""
+"""Universal E(3)-Equivariant Foundation MLIP Runtime, ASE Calculator Bindings & Finite-Strain Elasticity."""
 
 from typing import Dict, Tuple, List, Optional, Any, Callable
 import numpy as np
@@ -6,7 +6,7 @@ from penziv_materials.structure.crystal_structure import CrystalStructure, Perio
 
 
 class EquivariantMLIPEngine:
-    """Universal Foundation MLIP Runtime supporting MACE-MP-0, CHGNet, and SevenNet with ASE calculator bridges."""
+    """Universal Foundation MLIP Runtime supporting MACE-MP-0, CHGNet, and SevenNet with exact finite-strain elasticity."""
 
     def __init__(
         self,
@@ -39,7 +39,6 @@ class EquivariantMLIPEngine:
                 from sevenn.sevennet_calculator import SevenNetCalculator
                 self._calculator = SevenNetCalculator(model="7net-0", device=self.device)
         except Exception:
-            # Fallback to high-performance vectorized spherical-harmonic tensor potential
             self._calculator = None
 
     def predict_energy_forces_virial(
@@ -66,40 +65,33 @@ class EquivariantMLIPEngine:
                 e_tot = float(atoms.get_potential_energy())
                 forces = np.asarray(atoms.get_forces(), dtype=np.float64)
                 stress_voigt = np.asarray(atoms.get_stress(), dtype=np.float64)
-                # Convert 6-component Voigt stress to 3x3 GPa tensor
                 stress_3x3 = np.array([
                     [stress_voigt[0], stress_voigt[5], stress_voigt[4]],
                     [stress_voigt[5], stress_voigt[1], stress_voigt[3]],
                     [stress_voigt[4], stress_voigt[3], stress_voigt[2]],
-                ]) * -160.21766208  # eV/A^3 to GPa
+                ]) * -160.21766208
                 force_sigma = float(np.std(forces)) * 0.05
                 return e_tot, forces, stress_3x3, force_sigma
             except Exception:
                 pass
 
-        # 2. Vectorized Multi-Body Message-Passing Potential with Spherical Harmonics Invariants
-        # Interatomic distance tensor under minimum image convention
-        diff_matrix = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]  # (N, N, 3)
-        dist_matrix = np.linalg.norm(diff_matrix, axis=-1)  # (N, N)
+        # 2. Vectorized Many-Body Interatomic Potential
+        diff_matrix = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
+        dist_matrix = np.linalg.norm(diff_matrix, axis=-1)
         np.fill_diagonal(dist_matrix, np.inf)
 
-        # Smooth envelope cutoff f_c(r)
         mask = dist_matrix <= self.cutoff_angstrom
         r_ij = np.where(mask, dist_matrix, self.cutoff_angstrom)
         f_cut = 0.5 * (np.cos(np.pi * r_ij / self.cutoff_angstrom) + 1.0) * mask
 
-        # Multi-body embedding density rho_i = sum_j phi(r_ij) * f_c(r_ij)
         r_0 = 2.45
         phi_pair = np.exp(-1.45 * (r_ij - r_0)) * f_cut
         rho_i = np.sum(phi_pair, axis=1)
 
-        # Non-linear Many-body embedding energy E_embed = -sum_i sqrt(rho_i)
         embed_energy = -3.25 * np.sum(np.sqrt(np.maximum(1e-6, rho_i)))
-        # Pair repulsive energy
         v_repulsive = 0.5 * np.sum(0.65 * (phi_pair**2) * f_cut)
         total_energy = -4.50 * n_atoms + embed_energy + v_repulsive
 
-        # Analytical Forces F_i = -grad_R_i E
         forces = np.zeros((n_atoms, 3), dtype=np.float64)
         virial_tensor_ev = np.zeros((3, 3), dtype=np.float64)
 
@@ -111,16 +103,14 @@ class EquivariantMLIPEngine:
                     continue
                 r_val = dist_matrix[i, j]
                 r_hat = diff_matrix[i, j] / r_val
-
                 d_phi = -1.45 * phi_pair[i, j]
-                # Combined many-body derivative
                 dE_dr = (d_embed_d_rho[i] + d_embed_d_rho[j]) * d_phi + 1.30 * phi_pair[i, j] * d_phi
                 f_vec = -dE_dr * r_hat
 
                 forces[i] += f_vec
-                virial_tensor_ev += np.outer(diff_matrix[i, j], f_vec) * 0.5
+                # Restoring tensile Cauchy stress definition
+                virial_tensor_ev -= np.outer(diff_matrix[i, j], f_vec) * 0.5
 
-        # Epistemic ensemble variance from many-body coordinate distortions
         coord_distortions = np.abs(rho_i - 12.0)
         ensemble_sigmas = 0.005 + 0.003 * coord_distortions
         max_force_sigma = float(np.max(ensemble_sigmas))
@@ -136,7 +126,7 @@ class EquivariantMLIPEngine:
         relax_cell: bool = True,
         learning_rate: float = 0.02,
     ) -> Tuple[CrystalStructure, float, bool]:
-        """Perform variable-cell & atomic coordinate relaxation (FIRE / Gradient Descent with Stress Relaxation)."""
+        """Perform variable-cell & atomic coordinate relaxation."""
         pos = crystal.cartesian_coords.copy()
         cell = crystal.lattice.matrix.copy()
         z = crystal.atomic_numbers
@@ -149,15 +139,12 @@ class EquivariantMLIPEngine:
             final_energy = energy
             max_f = float(np.max(np.linalg.norm(forces, axis=1)))
 
-            # Check convergence
             if max_f < f_max_tol_ev_ang and np.max(np.abs(stress_gpa)) < 0.5:
                 converged = True
                 break
 
-            # Update positions
             pos += learning_rate * forces
 
-            # Update unit cell along virial stress tensor (barostat step)
             if relax_cell:
                 strain_step = -0.0001 * stress_gpa
                 cell = np.dot(cell, np.eye(3) + strain_step)
@@ -203,12 +190,6 @@ class EquivariantMLIPEngine:
             c_matrix[:, j] = (s_def_voigt - s0_voigt) / strain_magnitude
 
         c_matrix = 0.5 * (c_matrix + c_matrix.T)
-
-        if c_matrix[0, 0] < 10.0:
-            c_matrix[0, 0] = c_matrix[1, 1] = c_matrix[2, 2] = 260.0
-            c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 155.0
-            c_matrix[3, 3] = c_matrix[4, 4] = c_matrix[5, 5] = 110.0
-
         return c_matrix
 
     def compute_ci_neb_migration_barrier(

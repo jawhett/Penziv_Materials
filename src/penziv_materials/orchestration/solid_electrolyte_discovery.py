@@ -62,23 +62,24 @@ class SolidElectrolyteDiscoveryOrchestrator:
             # 2. Hard Pre-Compute EHS / Toxicity & Regulatory Gate
             ehs_res = evaluate_toxicity_and_regulations(formula)
             if not ehs_res["is_regulatory_compliant"]:
-                continue  # Discard banned/toxic heavy metals immediately
+                continue
 
             # 3. Supply Chain Risk & Commodity Spot Pricing
             cost_res = get_composition_cost(mass_fractions)
             risk_res = evaluate_supply_chain_risk(list(mass_fractions.keys()))
 
-            # 4. CI-NEB Migration Barrier & Polarization Penalty
+            # 4. CI-NEB Migration Barrier & Dynamic Bottleneck Geometry
             anion_polarizability = 3.88 if cand_crystal["anion_type"] == "S" else 2.0
             pol_penalty = self.transport_engine.compute_multivalent_polarization_penalty(
                 anion_polarizability_ang3=anion_polarizability
             )
-            base_barrier_ev = 0.24 + pol_penalty - 0.015 * cand_crystal["bottleneck_radius_angstrom"]
+            bottleneck_r = cand_crystal["bottleneck_radius_angstrom"]
+            base_barrier_ev = 0.24 + pol_penalty - 0.015 * bottleneck_r
             barrier_ev = max(0.18, float(base_barrier_ev))
 
             # 5. AIMD & Nernst-Einstein Conductivity
-            kbt = 0.02585  # eV at 300 K
-            d0_superionic = 2.5e-3  # cm2/s
+            kbt = 0.02585
+            d0_superionic = 2.5e-3
             diffusivity_cm2_s = d0_superionic * np.exp(-barrier_ev / kbt)
             transport_res = self.transport_engine.compute_nernst_einstein_ionic_conductivity(
                 diffusivity_cm2_s=diffusivity_cm2_s,
@@ -105,9 +106,14 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 wall_thickness_ratio=0.22,
             )
 
+            # Dynamic elastic stiffness and compliance
+            e_vrh_gpa = 110.0 + 35.0 * (1.0 - (bottleneck_r / 3.0))
+            matrix_compliance = float(1.0 / max(10.0, e_vrh_gpa))
+            ceramic_elastic_energy = float(0.5 * e_vrh_gpa * (0.002**2) * 1.0e3)  # MJ/m^3
+
             # 9. Holistic System-Level Constraint Relaxation
             stab_system = self.holistic_stability.evaluate_composite_system_hamiltonian(
-                ceramic_elastic_energy_density_mj_m3=135.0,
+                ceramic_elastic_energy_density_mj_m3=ceramic_elastic_energy,
                 fluid_pressure_work_mj_m3=85.0,
                 polymer_interfacial_traction_energy_mj_m3=12.0,
                 vol_fraction_ceramic=tpms_res["volume_fraction_solid_ceramic"],
@@ -129,7 +135,6 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 cell_architecture={"nominal_cell_voltage_v": 3.2, "cell_areal_capacity_mah_cm2": 4.0},
             )
 
-            # Multi-Objective Fitness: Transport + Window + TEA penalties (Cost, HHI, Carbon)
             cost_penalty = np.log10(max(1.0, cost_res["raw_material_cost_usd_kg"])) * 0.8
             hhi_penalty = (risk_res["weighted_hhi_refining"] / 10000.0) * 1.2
             carbon_penalty = (ehs_res["embodied_carbon_kg_co2_kg"] / 100.0) * 0.5
@@ -165,16 +170,15 @@ class SolidElectrolyteDiscoveryOrchestrator:
 
             discovered_candidates.append(candidate_record)
 
-            # Quality-Diversity Archive Insertion
+            # Quality-Diversity Archive Insertion with dynamic compliance
             self.map_elites.add_candidate_to_archive(
                 candidate_data=candidate_record,
                 fitness_score=fitness,
                 ionic_conductivity_ms_cm=transport_res["ionic_conductivity_ms_cm"],
                 channel_volume_fraction=tpms_res["volume_fraction_pressurized_channel"],
-                matrix_compliance_gpa_inv=0.08,
+                matrix_compliance_gpa_inv=matrix_compliance,
             )
 
-        # Sort by fitness
         discovered_candidates.sort(key=lambda x: x["fitness"], reverse=True)
         archive_stats = self.map_elites.get_archive_statistics()
 
