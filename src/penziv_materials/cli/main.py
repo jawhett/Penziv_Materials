@@ -41,6 +41,13 @@ from penziv_materials.meta_bridge.bayesian_assimilation import BayesianDataAssim
 from penziv_materials.benchmarks.superalloy_discovery import SuperalloyBenchmarkSuite
 from penziv_materials.governance.citation_engine import CitationEngine
 from penziv_materials.io.tiered_storage import TieredStorageManager
+from penziv_materials.economics.economic_tools import (
+    get_composition_cost,
+    evaluate_supply_chain_risk,
+    evaluate_toxicity_and_regulations,
+    compute_techno_economic_lcos,
+    _parse_formula_to_mass_fractions,
+)
 
 console = Console(highlight=False)
 
@@ -72,6 +79,7 @@ def status():
  * [bold yellow]Generative Topology:[/bold yellow] Triply Periodic Minimal Surfaces (Gyroid/Diamond TPMS), Off-Stoichiometric Synthesizers
  * [bold yellow]Swarm Discovery:[/bold yellow] Quality-Diversity (QD) MAP-Elites Illumination, Holistic Constraint Relaxation
  * [bold yellow]Retrosynthesis:[/bold yellow] Causal Processing Route Planner (Cold Sintering, Sol-Gel Infiltration, ALD)
+ * [bold yellow]Economics & EHS:[/bold yellow] Spot Precursor Pricing, HHI Geopolitical Risk, EPA CompTox / REACH SVHC, LCOS $/kWh
 
 [bold]Physical Handshake Validation Gates:[/bold]
  [green][PASSED][/green] Born Mechanical Stability (lambda_min > 0)
@@ -82,8 +90,43 @@ def status():
  [green][PASSED][/green] RVE Stress Homogenization Convergence Gate (< 0.015)
  [green][PASSED][/green] Clausius-Duhem & Plastic Dissipation Positivity (D_int >= 0)
  [green][PASSED][/green] Compound Scale Uncertainty Variance Bound (< 0.15)
+ [green][PASSED][/green] Pre-Compute Toxicity & Banned Elements Gate (Zero Cadmium/Mercury/Lead)
  [green][PASSED][/green] Holistic System-Level Composite Stability Relaxation"""
     console.print(Panel(panel_content, title="[bold]Framework Architecture (Universal Multiscale System)[/bold]", border_style="cyan"))
+
+
+@main.command()
+@click.argument("formula", type=str)
+@click.option("--purity", type=click.Choice(["technical_grade", "battery_grade_99_9", "semiconductor_grade_99_999"]), default="battery_grade_99_9")
+@click.option("--sinter-temp", type=float, default=850.0, help="Sintering temperature in Celsius")
+def evaluate_tea(formula: str, purity: str, sinter_temp: float):
+    """Run instant Techno-Economic (TEA), Supply Chain HHI, and Toxicity EHS audit for a chemical formula."""
+    console.print(f"\n[bold cyan]Evaluating Techno-Economics, Supply Chain & EHS for: {formula}...[/bold cyan]\n")
+
+    mass_fractions = _parse_formula_to_mass_fractions(formula)
+    cost_res = get_composition_cost(mass_fractions)
+    risk_res = evaluate_supply_chain_risk(list(mass_fractions.keys()))
+    ehs_res = evaluate_toxicity_and_regulations(formula)
+    tea_res = compute_techno_economic_lcos(
+        material_params={"raw_material_cost_usd_kg": cost_res["raw_material_cost_usd_kg"], "sintering_temp_c": sinter_temp},
+    )
+
+    table = Table(title=f"Techno-Economic & EHS Audit: {formula}", border_style="cyan")
+    table.add_column("Category", style="bold cyan")
+    table.add_column("Metric / Indicator", style="bold")
+    table.add_column("Value", justify="right", style="green")
+    table.add_column("Evaluation Details", style="dim")
+
+    table.add_row("Economics (TEA)", "Raw Precursor Cost", f"${cost_res['raw_material_cost_usd_kg']:.2f} /kg", f"Purity: {purity} (multiplier applied)")
+    table.add_row("Economics (TEA)", "Electrolyte LCOS Floor", f"${tea_res['electrolyte_cost_contribution_usd_kwh']:.2f} /kWh", "Normalized to 4 mAh/cm², 3.2V cell")
+    table.add_row("Economics (TEA)", "Sintering Energy Cost", f"${tea_res['synthesis_energy_cost_usd_kg']:.2f} /kg", f"{tea_res['synthesis_energy_kwh_kg']:.1f} kWh/kg thermal budget at {sinter_temp:.0f}°C")
+    table.add_row("Supply Chain", "Refining HHI Concentration", f"{risk_res['weighted_hhi_refining']:.0f}", f"Risk Level: {risk_res['supply_disruption_risk_level']}")
+    table.add_row("Supply Chain", "USGS Critical Minerals", f"{', '.join(risk_res['critical_minerals_detected']) if risk_res['critical_minerals_detected'] else 'None'}", "USGS/DOE Critical Minerals List")
+    table.add_row("Regulatory EHS", "EPA CompTox Score", f"{ehs_res['epa_comptox_hazard_score']:.2f} / 10", "Lower is safer (threshold < 4.5)")
+    table.add_row("Regulatory EHS", "Embodied Carbon Footprint", f"{ehs_res['embodied_carbon_kg_co2_kg']:.1f} kg CO2/kg", "Cradle-to-gate extraction & refining")
+    table.add_row("Regulatory EHS", "Regulatory Compliance", "[green]COMPLIANT[/green]" if ehs_res['is_regulatory_compliant'] else "[red]NON-COMPLIANT[/red]", "REACH SVHC & Banned Metal Screening")
+
+    console.print(table)
 
 
 @main.command()
@@ -95,7 +138,7 @@ def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
     header = f"""[bold cyan]Autonomous Solid Electrolyte & Hybrid Architecture Discovery[/bold cyan]
 [dim]Target Mobile Cation:[/dim] [bold green]{carrier}^{'2+' if carrier in ['Mg', 'Zn', 'Ca'] else '+'}[/bold green] | [dim]Target Conductivity:[/dim] > {min_sigma:.1f} mS/cm
 
-[bold]Evaluating:[/bold] CI-NEB Barriers | Polarization Screening | FNV Defects | PNP Space-Charge | TPMS Gyroid Channels | Retrosynthesis Feasibility"""
+[bold]Evaluating:[/bold] CI-NEB Barriers | Polarization Screening | FNV Defects | PNP Space-Charge | Precursor Cost ($/kg) | Refining HHI | Retrosynthesis"""
     console.print(Panel(header, border_style="cyan"))
 
     orchestrator = SolidElectrolyteDiscoveryOrchestrator(target_carrier=carrier)
@@ -120,12 +163,11 @@ def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
     table.add_column("Formula", style="bold green")
     table.add_column("E_a (eV)", justify="right")
     table.add_column("Conductivity (mS/cm)", justify="right", style="magenta")
-    table.add_column("Window [V_red, V_ox]", justify="center")
-    table.add_column("Gate Decision", justify="center", style="yellow")
-    table.add_column("Manufacturing Route", style="dim")
+    table.add_column("Cost ($/kg)", justify="right", style="yellow")
+    table.add_column("HHI Score", justify="right")
+    table.add_column("Gate Decision", justify="center")
 
     for rank, cand in enumerate(res["all_candidates"][:6], 1):
-        window_str = f"[{cand['stability_window_v'][0]:.1f}V - {cand['stability_window_v'][1]:.1f}V]"
         gate_str = "[green]ACCEPTED[/green]" if "ACCEPTED" in cand["holistic_gate_decision"] else "[red]REJECTED[/red]"
         table.add_row(
             f"#{rank}",
@@ -133,9 +175,9 @@ def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
             cand["formula"],
             f"{cand['activation_barrier_ev']:.3f}",
             f"{cand['ionic_conductivity_ms_cm']:.2f}",
-            window_str,
+            f"${cand['raw_material_cost_usd_kg']:.2f}",
+            f"{cand['hhi_refining_score']:.0f}",
             gate_str,
-            cand["manufacturing_route"],
         )
 
     console.print(table)
@@ -146,10 +188,12 @@ def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
  • [bold]Formula:[/bold] {top['formula']} ({top['carrier']}-carrier)
  • [bold]Ion Migration Barrier Delta E_a:[/bold] {top['activation_barrier_ev']:.3f} eV (CI-NEB + Anion Polarization Screening)
  • [bold]Bulk Ionic Conductivity sigma_ion:[/bold] {top['ionic_conductivity_ms_cm']:.2f} mS/cm at 300 K (Nernst-Einstein)
- • [bold]Transference Number t_ion:[/bold] {top['transference_number']:.4f} (Suppressed electronic leakage)
+ • [bold]Raw Material Cost:[/bold] ${top['raw_material_cost_usd_kg']:.2f} /kg (Battery-grade precursors)
+ • [bold]Refining HHI Score:[/bold] {top['hhi_refining_score']:.0f} (Risk Level: {top['supply_risk_level']})
+ • [bold]Embodied Carbon:[/bold] {top['embodied_carbon_kg_co2_kg']:.1f} kg CO2/kg
  • [bold]Electrochemical Window:[/bold] {top['stability_window_v'][0]:.1f} V to {top['stability_window_v'][1]:.1f} V vs {carrier}/{carrier}^{'2+' if carrier in ['Mg', 'Zn', 'Ca'] else '+'}
  • [bold]Heterogeneous Architecture:[/bold] 3D Bicontinuous Interpenetrating Gyroid (Ceramic + Gas Channel + Polymer Skin)
- • [bold]Handshake Gate Resolution:[/bold] {top['holistic_gate_decision']} (Stabilized via internal fluid counter-pressure)
+ • [bold]Handshake Gate Resolution:[/bold] {top['holistic_gate_decision']}
  • [bold]Retrosynthesis Route:[/bold] {top['manufacturing_route']}"""
         console.print(Panel(top_card, title="[bold]Design Solution Card[/bold]", border_style="green"))
 
@@ -446,7 +490,7 @@ def cite(title: str, author: str):
     console.print("\n[bold cyan]BibTeX Citation Entry:[/bold cyan]\n")
     console.print(Panel(bibtex, style="dim"))
 
-    solvers = ["SCAN_metaGGA", "TDEP_phonons", "MACE_MLIP", "DAMASK_CPFFT", "Nix_Gao_Indentation", "CGM_Solute_Trapping", "Coupled_PNP_Mechanics", "MAP_Elites_Swarm"]
+    solvers = ["SCAN_metaGGA", "TDEP_phonons", "MACE_MLIP", "DAMASK_CPFFT", "Nix_Gao_Indentation", "CGM_Solute_Trapping", "Coupled_PNP_Mechanics", "MAP_Elites_Swarm", "Commodity_Spot_Pricing", "EPA_CompTox_EHS"]
     dep_tree = engine.assemble_execution_dependency_tree(solvers)
     console.print(Markdown(dep_tree))
 

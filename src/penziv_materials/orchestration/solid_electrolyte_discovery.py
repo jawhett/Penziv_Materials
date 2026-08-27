@@ -1,4 +1,4 @@
-"""Master Solid Electrolyte & Heterogeneous Architecture Discovery Orchestrator."""
+"""Master Solid Electrolyte & Heterogeneous Architecture Discovery Orchestrator with TEA & EHS."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -13,6 +13,13 @@ from penziv_materials.generative.crystal_generator import GenerativeCrystalSynth
 from penziv_materials.swarm.map_elites import MAPElitesSwarmEngine
 from penziv_materials.swarm.holistic_stability import HolisticStabilityRelaxationEngine
 from penziv_materials.synthesis.retrosynthesis_planner import RetrosynthesisAssemblyPlanner
+from penziv_materials.economics.economic_tools import (
+    get_composition_cost,
+    evaluate_supply_chain_risk,
+    evaluate_toxicity_and_regulations,
+    compute_techno_economic_lcos,
+    _parse_formula_to_mass_fractions,
+)
 
 
 class SolidElectrolyteDiscoveryOrchestrator:
@@ -49,18 +56,27 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 doping_fraction=0.10 + 0.02 * i,
                 random_seed=i + 100,
             )
+            formula = cand_crystal["candidate_formula"]
+            mass_fractions = _parse_formula_to_mass_fractions(formula)
 
-            # 2. CI-NEB Migration Barrier & Polarization Penalty
+            # 2. Hard Pre-Compute EHS / Toxicity & Regulatory Gate
+            ehs_res = evaluate_toxicity_and_regulations(formula)
+            if not ehs_res["is_regulatory_compliant"]:
+                continue  # Discard banned/toxic heavy metals immediately
+
+            # 3. Supply Chain Risk & Commodity Spot Pricing
+            cost_res = get_composition_cost(mass_fractions)
+            risk_res = evaluate_supply_chain_risk(list(mass_fractions.keys()))
+
+            # 4. CI-NEB Migration Barrier & Polarization Penalty
             anion_polarizability = 3.88 if cand_crystal["anion_type"] == "S" else 2.0
             pol_penalty = self.transport_engine.compute_multivalent_polarization_penalty(
                 anion_polarizability_ang3=anion_polarizability
             )
-            # Aliovalent Sc3+ doping opens bottlenecks and lowers effective barrier
             base_barrier_ev = 0.24 + pol_penalty - 0.015 * cand_crystal["bottleneck_radius_angstrom"]
             barrier_ev = max(0.18, float(base_barrier_ev))
 
-            # 3. AIMD & Nernst-Einstein Conductivity
-            # Superionic D0 = 1/6 * nu0 * a0^2 ~ 2.5e-3 cm2/s
+            # 5. AIMD & Nernst-Einstein Conductivity
             kbt = 0.02585  # eV at 300 K
             d0_superionic = 2.5e-3  # cm2/s
             diffusivity_cm2_s = d0_superionic * np.exp(-barrier_ev / kbt)
@@ -70,56 +86,76 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 temperature_k=300.0,
             )
 
-            # 4. Defect Thermodynamics & Electronic Leakage
+            # 6. Defect Thermodynamics & Electronic Leakage
             leakage_res = self.defect_engine.evaluate_electronic_leakage_and_dendrite_risk(
                 conduction_band_min_vs_metal_redox_v=0.85,
                 trap_state_depth_ev=0.90,
             )
 
-            # 5. Grand Canonical Phase Stability Window
+            # 7. Grand Canonical Phase Stability Window
             stab_res = self.phase_stability_engine.evaluate_electrochemical_stability_window(
-                formula=cand_crystal["candidate_formula"],
+                formula=formula,
                 reduction_potential_v=0.0,
                 oxidation_potential_v=3.6,
             )
 
-            # 6. TPMS Gyroid Multi-Phase Architecture
+            # 8. TPMS Gyroid Multi-Phase Architecture
             tpms_res = self.tpms_gen.build_tri_phase_hybrid_architecture(
                 surface_type="gyroid",
                 wall_thickness_ratio=0.22,
             )
 
-            # 7. Holistic System-Level Constraint Relaxation
+            # 9. Holistic System-Level Constraint Relaxation
             stab_system = self.holistic_stability.evaluate_composite_system_hamiltonian(
-                ceramic_elastic_energy_density_mj_m3=135.0,  # Fragile in isolation
-                fluid_pressure_work_mj_m3=85.0,  # Stabilized by internal gas/fluid channels
+                ceramic_elastic_energy_density_mj_m3=135.0,
+                fluid_pressure_work_mj_m3=85.0,
                 polymer_interfacial_traction_energy_mj_m3=12.0,
                 vol_fraction_ceramic=tpms_res["volume_fraction_solid_ceramic"],
                 vol_fraction_fluid=tpms_res["volume_fraction_pressurized_channel"],
                 vol_fraction_polymer=tpms_res["volume_fraction_polymer_skin"],
             )
 
-            # 8. Retrosynthesis Processing Verification
+            # 10. Retrosynthesis Processing & Techno-Economic LCOS
             synth_res = self.retrosynthesis.evaluate_hybrid_manufacturing_route(
                 ceramic_sintering_temp_c=850.0,
                 polymer_degradation_temp_c=240.0,
             )
+            tea_res = compute_techno_economic_lcos(
+                material_params={
+                    "raw_material_cost_usd_kg": cost_res["raw_material_cost_usd_kg"],
+                    "thickness_um": 25.0,
+                    "sintering_temp_c": 850.0,
+                },
+                cell_architecture={"nominal_cell_voltage_v": 3.2, "cell_areal_capacity_mah_cm2": 4.0},
+            )
 
-            # Fitness formulation
+            # Multi-Objective Fitness: Transport + Window + TEA penalties (Cost, HHI, Carbon)
+            cost_penalty = np.log10(max(1.0, cost_res["raw_material_cost_usd_kg"])) * 0.8
+            hhi_penalty = (risk_res["weighted_hhi_refining"] / 10000.0) * 1.2
+            carbon_penalty = (ehs_res["embodied_carbon_kg_co2_kg"] / 100.0) * 0.5
+
             fitness = (
                 np.log10(max(1e-4, transport_res["ionic_conductivity_ms_cm"])) * 2.0
                 + (stab_res["stability_window_width_v"] * 1.5)
                 + (2.0 if stab_system["composite_co_design_stabilized"] else -5.0)
+                - cost_penalty
+                - hhi_penalty
+                - carbon_penalty
             )
 
             candidate_record = {
                 "candidate_id": f"Penziv-SolidElectrolyte-{self.target_carrier}-{i+1:03d}",
-                "formula": cand_crystal["candidate_formula"],
+                "formula": formula,
                 "carrier": self.target_carrier,
                 "activation_barrier_ev": barrier_ev,
                 "ionic_conductivity_ms_cm": transport_res["ionic_conductivity_ms_cm"],
                 "transference_number": transport_res["transference_number_t_ion"],
                 "stability_window_v": [stab_res["reduction_potential_v_vs_ref"], stab_res["oxidation_potential_v_vs_ref"]],
+                "raw_material_cost_usd_kg": cost_res["raw_material_cost_usd_kg"],
+                "hhi_refining_score": risk_res["weighted_hhi_refining"],
+                "supply_risk_level": risk_res["supply_disruption_risk_level"],
+                "embodied_carbon_kg_co2_kg": ehs_res["embodied_carbon_kg_co2_kg"],
+                "lcos_floor_usd_kwh": tea_res["electrolyte_cost_contribution_usd_kwh"],
                 "dendrite_free_j_crit_ma_cm2": leakage_res["critical_current_density_j_crit_ma_cm2"],
                 "architecture": tpms_res["surface_type"],
                 "holistic_gate_decision": stab_system["handshake_gate_decision"],

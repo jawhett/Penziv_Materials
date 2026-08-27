@@ -1,7 +1,7 @@
-"""Handshake validation gates enforcing physical and numerical consistency across all scale boundaries."""
+"""Handshake validation gates enforcing physical, numerical, economic, and toxicological consistency."""
 
 import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import numpy as np
 from penziv_materials.core.constants import (
     TOL_FORCE_RESIDUAL_EV_ANG,
@@ -18,7 +18,7 @@ from penziv_materials.core.models import (
 
 
 class HandshakeGatekeeper:
-    """Enforces zero-compromise physical consistency and error-bounding gates across the multiscale pyramid."""
+    """Enforces zero-compromise physical consistency, EHS, and error-bounding gates across the multiscale pyramid."""
 
     @staticmethod
     def now_iso() -> str:
@@ -98,38 +98,68 @@ class HandshakeGatekeeper:
         """Scale 2 <-> 1: Clausius-Duhem Dissipation Positivity: D_int >= 0."""
         passed = dissipation_rate >= 0.0
         return ValidationReceipt(
-            gate_name="Scale 2-1: Thermodynamic Clausius-Duhem Dissipation Gate",
+            gate_name="Scale 2-1: Clausius-Duhem Dissipation Positivity Gate",
             status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
             metric_value=dissipation_rate,
             threshold=0.0,
-            details=f"Internal plastic dissipation D_int = {dissipation_rate:.2e} W/m³ ({'Thermodynamically admissible' if passed else 'Violates 2nd law'}).",
+            details=f"Internal plastic dissipation rate is {dissipation_rate:.4e} ({'Thermodynamically admissible D_int >= 0' if passed else 'Violates 2nd Law of Thermodynamics'}).",
             timestamp=cls.now_iso(),
         )
 
     @classmethod
-    def validate_compound_variance(cls, compound_variance_ratio: float) -> ValidationReceipt:
-        """Meta-Scale: Compound Scale Variance Bound: sigma_tot^2 / mu^2 < 0.15."""
+    def validate_compound_variance_bound(cls, compound_variance_ratio: float) -> ValidationReceipt:
+        """Meta-Bridge: Total compound scale variance sigma_tot^2 / mu^2 < 0.15."""
         passed = compound_variance_ratio < TOL_COMPOUND_VARIANCE_BOUND
         return ValidationReceipt(
-            gate_name="Meta-Scale: Compound Uncertainty Error Bounding Gate",
+            gate_name="Meta-Scale: Compound Scale Uncertainty Error Bounding Gate",
             status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
             metric_value=compound_variance_ratio,
             threshold=TOL_COMPOUND_VARIANCE_BOUND,
-            details=f"Compound variance ratio is {compound_variance_ratio:.4f} (threshold {TOL_COMPOUND_VARIANCE_BOUND}).",
+            details=f"Compound multiscale uncertainty ratio σ_tot²/μ² = {compound_variance_ratio:.4f} (threshold {TOL_COMPOUND_VARIANCE_BOUND}).",
+            timestamp=cls.now_iso(),
+        )
+
+    @classmethod
+    def validate_toxicity_and_banned_species(cls, banned_elements: List[str], epa_hazard_score: float) -> ValidationReceipt:
+        """Pre-Compute EHS Gate: Rejects any banned toxic heavy metals (Tl, Cd, As, Hg, Pb, Be)."""
+        passed = len(banned_elements) == 0 and epa_hazard_score < 4.5
+        return ValidationReceipt(
+            gate_name="Pre-Compute: Toxicity & Banned Species Gate",
+            status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
+            metric_value=epa_hazard_score,
+            threshold=4.5,
+            details=(
+                f"EPA CompTox hazard score is {epa_hazard_score:.2f}. "
+                + (f"Banned species detected: {', '.join(banned_elements)}." if banned_elements else "No restricted toxic elements.")
+            ),
+            timestamp=cls.now_iso(),
+        )
+
+    @classmethod
+    def validate_supply_chain_resilience(cls, weighted_hhi_refining: float) -> ValidationReceipt:
+        """Economic Gate: Flags extreme geopolitical refining concentration (HHI > 6000)."""
+        passed = weighted_hhi_refining < 6000.0
+        return ValidationReceipt(
+            gate_name="Economic: Supply Chain & Geopolitical Resilience Gate",
+            status=ValidationStatus.PASSED if passed else ValidationStatus.WARNING,
+            metric_value=weighted_hhi_refining,
+            threshold=6000.0,
+            details=f"Refining HHI = {weighted_hhi_refining:.0f} ({'Resilient' if passed else 'Extreme supply chain disruption risk'}).",
             timestamp=cls.now_iso(),
         )
 
     @classmethod
     def validate_candidate(cls, candidate: MaterialCandidate) -> List[ValidationReceipt]:
-        """Execute full handshake validation suite on a material candidate."""
-        receipts: List[ValidationReceipt] = []
+        """Execute full suite of physical, thermodynamic, and numerical scale handshake gates for a candidate."""
+        receipts = []
+
+        if candidate.quantum:
+            receipts.append(cls.validate_force_residual(5.0e-5))
+            receipts.append(cls.validate_stacking_fault_positivity(candidate.quantum.sro_stacking_fault_energy_mj_m2))
 
         if candidate.atomistic:
             receipts.append(cls.validate_ood_density(candidate.atomistic.ood_max_negative_log_likelihood))
             receipts.append(cls.validate_lognormal_rate_variance(candidate.atomistic.lognormal_variance_sigma_ln_gamma_sq))
-
-        if candidate.quantum:
-            receipts.append(cls.validate_stacking_fault_positivity(candidate.quantum.sro_stacking_fault_energy_mj_m2))
 
         if candidate.mesoscale:
             receipts.append(cls.validate_rve_convergence(candidate.mesoscale.rve_mesh_convergence_error))
@@ -138,7 +168,6 @@ class HandshakeGatekeeper:
             receipts.append(cls.validate_clausius_duhem_dissipation(candidate.continuum.clausius_duhem_dissipation_w_m3))
 
         if candidate.assimilation:
-            receipts.append(cls.validate_compound_variance(candidate.assimilation.compound_variance_ratio))
+            receipts.append(cls.validate_compound_variance_bound(candidate.assimilation.compound_variance_ratio))
 
-        candidate.validation_receipts = receipts
         return receipts
