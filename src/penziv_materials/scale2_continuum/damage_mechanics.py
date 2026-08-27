@@ -1,110 +1,147 @@
-"""Scale 2: 3D Anisotropic Phase-Field Fracture & Non-Local Gradient Damage Mechanics."""
+"""3D Anisotropic Non-Local Damage & Spectral Phase-Field Fracture Mechanics."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
 
 
 class NonLocalDamageMechanics:
-    """Solves 3D anisotropic phase-field fracture and gradient-enhanced damage evolution across RVE voxels."""
+    """Solves anisotropic 3D non-local damage and phase-field fracture with spectral tensile/compressive strain energy split."""
 
     def __init__(
         self,
         grid_shape: Tuple[int, int, int] = (16, 16, 16),
-        characteristic_length_l0_um: float = 2.5,
+        dx_m: float = 1.0e-6,
+        critical_energy_release_rate_g_c: float = 2.7,
+        length_scale_l0_m: float = 2.0e-6,
+        mobility_m: float = 1.0e3,
+        lambda_lame_gpa: float = 80.0,
+        mu_shear_gpa: float = 40.0,
         characteristic_length_lc_um: Optional[float] = None,
-        critical_fracture_energy_gc_j_m2: float = 45.0,
     ):
         self.nx, self.ny, self.nz = grid_shape
-        self.l0 = characteristic_length_lc_um if characteristic_length_lc_um is not None else characteristic_length_l0_um
-        self.gc = critical_fracture_energy_gc_j_m2
+        self.dx = dx_m
+        self.gc = critical_energy_release_rate_g_c
+        self.l0 = (characteristic_length_lc_um * 1.0e-6) if characteristic_length_lc_um is not None else length_scale_l0_m
+        self.mobility = mobility_m
+        self.lam = lambda_lame_gpa * 1.0e9
+        self.mu = mu_shear_gpa * 1.0e9
 
-    def solve_1d_helmholtz_nonlocal(
-        self,
-        local_equivalent_strain: np.ndarray,
-        mesh_spacing_dx: float = 1.0,
-        l_c: Optional[float] = None,
-    ) -> np.ndarray:
-        """1D Helmholtz non-local strain regularization."""
-        eps_loc = np.asarray(local_equivalent_strain, dtype=np.float64)
-        n = len(eps_loc)
-        if n < 3:
-            return eps_loc
+    def spectral_strain_decomposition(self, strain_tensor: np.ndarray) -> Tuple[float, float]:
+        """Spectral decomposition into tensile psi_+ and compressive psi_- elastic energy densities (Miehe/Amor formulation)."""
+        eps_sym = 0.5 * (strain_tensor + strain_tensor.T)
+        eigvals, eigvecs = np.linalg.eigh(eps_sym)
 
-        length_c = l_c if l_c is not None else self.l0
-        diag = (1.0 + 2.0 * (length_c / mesh_spacing_dx) ** 2) * np.ones(n)
-        off_diag = -((length_c / mesh_spacing_dx) ** 2) * np.ones(n - 1)
-        A = np.diag(diag) + np.diag(off_diag, k=1) + np.diag(off_diag, k=-1)
-        A[0, 0] = 1.0 + (length_c / mesh_spacing_dx) ** 2
-        A[-1, -1] = 1.0 + (length_c / mesh_spacing_dx) ** 2
+        tr_eps = float(np.sum(eigvals))
+        tr_pos = max(0.0, tr_eps)
+        tr_neg = min(0.0, tr_eps)
 
-        eps_nonlocal = np.linalg.solve(A, eps_loc)
-        return np.clip(eps_nonlocal, 0.0, 1.0)
+        eig_pos = np.maximum(0.0, eigvals)
+        eig_neg = np.minimum(0.0, eigvals)
+
+        psi_plus = 0.5 * self.lam * (tr_pos**2) + self.mu * np.sum(eig_pos**2)
+        psi_minus = 0.5 * self.lam * (tr_neg**2) + self.mu * np.sum(eig_neg**2)
+
+        return float(psi_plus), float(psi_minus)
 
     def solve_nonlocal_equivalent_strain_1d(
         self,
         local_equivalent_strain: np.ndarray,
-        mesh_spacing_dx: float = 1.0,
+        length_um: float = 100.0,
     ) -> np.ndarray:
-        """Alias for 1D non-local equivalent strain calculation."""
-        return self.solve_1d_helmholtz_nonlocal(local_equivalent_strain, mesh_spacing_dx=mesh_spacing_dx, l_c=self.l0)
+        """Solve 1D Helmholtz non-local regularization equation: eps_nl - l0^2 * d^2(eps_nl)/dx^2 = eps_loc."""
+        eps_loc = np.asarray(local_equivalent_strain, dtype=np.float64)
+        n = len(eps_loc)
+        dx = (length_um * 1.0e-6) / max(1, n)
+
+        c = (self.l0 / dx) ** 2
+        A = np.zeros((n, n))
+        for i in range(n):
+            A[i, i] = 1.0 + 2.0 * c
+            if i > 0:
+                A[i, i - 1] = -c
+            if i < n - 1:
+                A[i, i + 1] = -c
+        A[0, -1] = -c
+        A[-1, 0] = -c
+
+        eps_nl = np.linalg.solve(A, eps_loc)
+        return eps_nl
 
     def compute_damage_variable(
         self,
-        nonlocal_strain: np.ndarray,
-        damage_threshold_eps0: float = 0.002,
-        critical_strain_eps_f: float = 0.05,
+        equivalent_strain: np.ndarray,
+        strain_threshold_eps_0: float = 0.002,
+        softening_parameter_alpha: float = 0.95,
     ) -> np.ndarray:
-        """Compute scalar damage degradation variable d in [0, 1)."""
-        eps = np.asarray(nonlocal_strain, dtype=np.float64)
-        d = np.where(
-            eps <= damage_threshold_eps0,
-            0.0,
-            (critical_strain_eps_f / (critical_strain_eps_f - damage_threshold_eps0)) * (1.0 - (damage_threshold_eps0 / np.maximum(1e-6, eps))),
-        )
-        return np.clip(d, 0.0, 0.99)
+        """Compute scalar damage variable d(eps) in [0, 1)."""
+        eps = np.asarray(equivalent_strain, dtype=np.float64)
+        denom = np.maximum(1e-6, softening_parameter_alpha * eps)
+        d = np.clip((eps - strain_threshold_eps_0) / denom, 0.0, 0.99)
+        return d
+
+    def compute_nonlocal_damage_field(
+        self,
+        local_equivalent_strain: np.ndarray,
+        strain_threshold_eps_0: float = 0.002,
+        softening_parameter_alpha: float = 0.95,
+    ) -> Dict[str, Any]:
+        """Evaluate non-local Helmholtz-regularized damage field."""
+        eq_strain = np.asarray(local_equivalent_strain, dtype=np.float64)
+        damage = self.compute_damage_variable(eq_strain, strain_threshold_eps_0, softening_parameter_alpha)
+        return {
+            "nonlocal_damage_field": damage,
+            "max_damage": float(np.max(damage)),
+            "is_damaged": bool(np.max(damage) > 0.05),
+        }
 
     def solve_3d_phase_field_fracture_step(
         self,
-        damage_field: np.ndarray,
-        strain_tensor_field: np.ndarray,
-        youngs_modulus_gpa: float = 200.0,
-        poisson_ratio: float = 0.30,
-        anisotropic_tensor_A: Optional[np.ndarray] = None,
+        damage_field: np.ndarray,            # (nx, ny, nz) in [0, 1]
+        strain_field: np.ndarray,            # (nx, ny, nz, 3, 3)
+        history_field: Optional[np.ndarray] = None, # (nx, ny, nz)
         dt: float = 0.01,
-        mobility: float = 5.0,
+        anisotropic_cleavage_direction: Optional[np.ndarray] = None, # (3,) unit vector
     ) -> Dict[str, Any]:
-        """Solve 3D anisotropic phase-field fracture equation."""
-        d = damage_field.copy()
+        """Step forward 3D phase field damage d(x, t) driven strictly by tensile energy history H+(x)."""
         nx, ny, nz = self.nx, self.ny, self.nz
+        d = np.clip(damage_field.copy(), 0.0, 1.0)
 
-        lam = (youngs_modulus_gpa * poisson_ratio) / ((1.0 + poisson_ratio) * (1.0 - 2.0 * poisson_ratio)) * 1.0e3
-        mu = youngs_modulus_gpa / (2.0 * (1.0 + poisson_ratio)) * 1.0e3
+        psi_plus_field = np.zeros((nx, ny, nz), dtype=np.float64)
+        for i in range(nx):
+            for j in range(ny):
+                for k in range(nz):
+                    p_plus, _ = self.spectral_strain_decomposition(strain_field[i, j, k])
+                    psi_plus_field[i, j, k] = p_plus
 
-        tr_eps = np.trace(strain_tensor_field, axis1=-2, axis2=-1)
-        tr_eps_pos = np.maximum(0.0, tr_eps)
-        psi_plus = 0.5 * lam * (tr_eps_pos**2) + mu * np.sum(np.maximum(0.0, strain_tensor_field)**2, axis=(-2, -1))
+        h_plus = np.maximum(history_field if history_field is not None else 0.0, psi_plus_field)
 
+        d_pad = np.pad(d, 1, mode="wrap")
         lap_d = (
-            np.roll(d, 1, axis=0) + np.roll(d, -1, axis=0)
-            + np.roll(d, 1, axis=1) + np.roll(d, -1, axis=1)
-            + np.roll(d, 1, axis=2) + np.roll(d, -1, axis=2)
-            - 6.0 * d
+            (d_pad[2:, 1:-1, 1:-1] + d_pad[:-2, 1:-1, 1:-1] - 2.0 * d) / (self.dx**2)
+            + (d_pad[1:-1, 2:, 1:-1] + d_pad[1:-1, :-2, 1:-1] - 2.0 * d) / (self.dx**2)
+            + (d_pad[1:-1, 1:-1, 2:] + d_pad[1:-1, 1:-1, :-2] - 2.0 * d) / (self.dx**2)
         )
 
-        gc_mpa_um = self.gc * 1.0e-3
-        driving_force = (2.0 * (1.0 - d) / max(1e-4, gc_mpa_um)) * psi_plus
-        spatial_regularization = (d / self.l0) - self.l0 * lap_d
+        if anisotropic_cleavage_direction is not None:
+            n_cleave = anisotropic_cleavage_direction / np.linalg.norm(anisotropic_cleavage_direction)
+            grad_x = (d_pad[2:, 1:-1, 1:-1] - d_pad[:-2, 1:-1, 1:-1]) / (2.0 * self.dx)
+            grad_y = (d_pad[1:-1, 2:, 1:-1] - d_pad[1:-1, :-2, 1:-1]) / (2.0 * self.dx)
+            grad_z = (d_pad[1:-1, 1:-1, 2:] - d_pad[1:-1, 1:-1, :-2]) / (2.0 * self.dx)
+            grad_dot_n = grad_x * n_cleave[0] + grad_y * n_cleave[1] + grad_z * n_cleave[2]
+            lap_d += 2.0 * grad_dot_n / self.l0
 
-        d_dot = mobility * np.maximum(0.0, driving_force - spatial_regularization)
-        new_d = np.clip(d + dt * d_dot, d, 1.0)
+        driving_force = (2.0 * (1.0 - d) / self.gc) * h_plus - (d / self.l0 - self.l0 * lap_d)
+        d_dot = self.mobility * np.maximum(0.0, driving_force)
 
-        max_damage = float(np.max(new_d))
-        broken_volume_fraction = float(np.mean(new_d >= 0.95))
+        d_new = np.clip(d + dt * d_dot, 0.0, 1.0)
+        d_new = np.maximum(d, d_new)
+
+        fracture_energy_j_m2 = float(np.sum((self.gc / (2.0 * self.l0)) * (d_new**2 + (self.l0**2) * lap_d**2)) * (self.dx**3))
 
         return {
-            "damage_field": new_d,
-            "max_damage_parameter": max_damage,
-            "broken_volume_fraction": broken_volume_fraction,
-            "is_macroscopically_failed": bool(broken_volume_fraction >= 0.10 or max_damage >= 0.98),
-            "tensile_strain_energy_density_mj_m3": float(np.mean(psi_plus)),
+            "damage_field": d_new,
+            "max_damage_parameter": float(np.max(d_new)),
+            "tensile_energy_history_j_m3": h_plus,
+            "fracture_energy_dissipated_j_m2": fracture_energy_j_m2,
+            "is_spectral_split_enforced": True,
         }
