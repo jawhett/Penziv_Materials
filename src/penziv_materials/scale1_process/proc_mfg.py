@@ -1,98 +1,98 @@
-"""Process Dynamics & Synthesizability Agent (PROC-MFG): Scale 1 Manufacturing & Exergy Engine."""
+"""Scale 1: Process Dynamics & Synthesizability Agent (PROC-MFG)."""
 
 import math
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
 from penziv_materials.core.constants import R_GAS
-from penziv_materials.core.models import ProcessState, ContinuumState
+from penziv_materials.core.models import ProcessState
 
 
 class ProcMfgAgent:
-    """Specialized Agent for Melt-Pool Solidification, Oxidation Kinetics, Stress-Diffusion, and Crustal Exergy Limits."""
+    """Agent executing moving laser meltpool thermodynamics, thermal cracking susceptibility, and exergy work limits."""
 
-    def __init__(self, process_type: str = "Laser_Powder_Bed_Fusion"):
-        self.process_type = process_type
+    def __init__(self, laser_power_w: float = 285.0, scan_speed_m_s: float = 1.0):
+        self.power = laser_power_w
+        self.v_scan = scan_speed_m_s
 
-    def compute_cooling_rate_and_gradient(
+    def compute_minimum_ore_extraction_exergy(self, composition: Dict[str, float]) -> float:
+        """Alias for compute_mineral_ore_reduction_exergy."""
+        return self.compute_mineral_ore_reduction_exergy(composition)
+
+    def compute_rosenthal_solidification_kinetics(
         self,
-        laser_power_w: float = 280.0,
-        scan_speed_m_s: float = 1.0,
-        thermal_conductivity_w_m_k: float = 25.0,
-        beam_radius_um: float = 50.0,
+        thermal_conductivity_w_m_k: float = 26.0,
+        volumetric_heat_capacity_j_m3_k: float = 3.6e6,
+        liquidus_temperature_k: float = 1620.0,
+        preheat_temperature_k: float = 353.15,
     ) -> Tuple[float, float, float]:
-        """Rosenthal-Stefan analytical melt-pool thermal gradient G, cooling rate T_dot, and front velocity V:
+        """Compute moving heat source thermal gradient G, cooling rate T_dot, and solidification velocity V_s."""
+        p_absorbed = self.power * 0.42
+        delta_t = liquidus_temperature_k - preheat_temperature_k
 
-        T_dot = G * V
-        """
-        # Solidification velocity V = v_scan * cos(theta) (m/s)
-        solidification_velocity = scan_speed_m_s * 0.707
-        # Peak thermal gradient G (K/m) ~ (P / k) / (pi * r_beam^2)
-        area_m2 = np.pi * ((beam_radius_um * 1.0e-6) ** 2)
-        thermal_gradient = (laser_power_w / (thermal_conductivity_w_m_k * area_m2)) * 0.05
-        cooling_rate = thermal_gradient * solidification_velocity
-        return float(cooling_rate), float(thermal_gradient), float(solidification_velocity)
+        t_dot_k_s = (2.0 * np.pi * thermal_conductivity_w_m_k * (delta_t**2) * self.v_scan) / max(1.0, p_absorbed)
+        v_s_m_s = self.v_scan * 0.707
+        g_k_m = t_dot_k_s / max(1e-4, v_s_m_s)
 
-    def compute_parabolic_oxidation_rate(
+        return float(t_dot_k_s), float(g_k_m), float(v_s_m_s)
+
+    def evaluate_thermal_stress_cracking_susceptibility(
         self,
-        temperature_k: float,
-        cr_al_fraction: float = 0.25,
-    ) -> float:
-        """Wagner parabolic oxidation scale growth rate constant k_p (m^2/s)."""
-        activation_energy_j_mol = 230000.0 if cr_al_fraction > 0.15 else 160000.0
-        k_p0 = 1.2e-6
-        k_p = k_p0 * np.exp(-activation_energy_j_mol / (R_GAS * temperature_k))
-        return float(k_p)
+        youngs_modulus_gpa: float,
+        thermal_expansion_coeff: float,
+        yield_strength_mpa: float,
+        delta_t_k: float = 1200.0,
+        poissons_ratio: float = 0.31,
+    ) -> Dict[str, float]:
+        """Compute thermal shock / solidification cracking susceptibility index:
 
-    def compute_minimum_ore_extraction_exergy(
+        chi_crack = (E * alpha * Delta T) / [ sigma_y * (1 - nu) ]
+        """
+        thermal_stress_mpa = (youngs_modulus_gpa * 1000.0 * thermal_expansion_coeff * delta_t_k) / (1.0 - poissons_ratio)
+        chi_crack = thermal_stress_mpa / max(1.0, yield_strength_mpa)
+        synthesizability_score = 1.0 / (1.0 + np.exp(chi_crack - 2.0))
+
+        return {
+            "thermal_mismatch_stress_mpa": float(thermal_stress_mpa),
+            "cracking_susceptibility_index": float(chi_crack),
+            "synthesizability_score": float(np.clip(synthesizability_score, 0.10, 0.98)),
+        }
+
+    def compute_mineral_ore_reduction_exergy(
         self,
         composition: Dict[str, float],
         temperature_k: float = 298.15,
     ) -> float:
-        """Compute minimum theoretical exergy required to extract and reduce elemental constituents from crustal ores."""
-        ore_exergy_table_mj_kg = {
-            "Fe": 7.2,
-            "Ni": 38.5,
-            "Cr": 55.4,
-            "Al": 185.0,
-            "Ti": 145.0,
-            "Co": 42.0,
-            "Mo": 78.0,
-            "W": 92.0,
-            "Ta": 210.0,
-            "Re": 320.0,
-            "B": 65.0,
-            "C": 4.5,
+        """Compute minimum thermodynamic work required to extract and reduce metals from crustal oxide ores."""
+        element_reduction_exergy_mj_kg = {
+            "Fe": 7.5, "Al": 32.0, "Cu": 12.0, "Ni": 28.0, "Cr": 35.0, "Ti": 65.0,
+            "Mo": 45.0, "W": 55.0, "Nb": 85.0, "Sc": 320.0, "Zr": 78.0, "Mg": 42.0,
+            "Na": 24.0, "Li": 68.0, "Si": 22.0, "P": 18.0, "S": 2.5, "B": 45.0,
         }
 
-        total_exergy_mj_kg = 0.0
-        total_fraction = sum(composition.values()) or 1.0
-        for elem, fraction in composition.items():
-            norm_fraction = fraction / total_fraction
-            spec_exergy = ore_exergy_table_mj_kg.get(elem, 50.0)
-            total_exergy_mj_kg += norm_fraction * spec_exergy
-
+        total_exergy_mj_kg = sum(w * element_reduction_exergy_mj_kg.get(elem, 40.0) for elem, w in composition.items())
         return float(total_exergy_mj_kg)
 
-    def execute_forward_scale(
+    def execute_process_evaluation(
         self,
         composition: Dict[str, float],
-        laser_power_w: float = 280.0,
-        scan_speed_m_s: float = 1.0,
-        target_temp_k: float = 1123.15,
+        youngs_modulus_gpa: float = 210.0,
+        yield_strength_mpa: float = 950.0,
+        thermal_expansion_coeff: float = 1.45e-5,
     ) -> ProcessState:
-        """Execute PROC-MFG forward scale calculation."""
-        t_dot, g_grad, v_front = self.compute_cooling_rate_and_gradient(laser_power_w, scan_speed_m_s)
-        cr_al = composition.get("Cr", 0.0) + composition.get("Al", 0.0)
-        kp_ox = self.compute_parabolic_oxidation_rate(target_temp_k, cr_al)
-        exergy = self.compute_minimum_ore_extraction_exergy(composition)
-        synthesizability = 0.94 if exergy < 120.0 else 0.82
+        t_dot, g_k_m, v_s = self.compute_rosenthal_solidification_kinetics()
+        crack_res = self.evaluate_thermal_stress_cracking_susceptibility(
+            youngs_modulus_gpa=youngs_modulus_gpa,
+            thermal_expansion_coeff=thermal_expansion_coeff,
+            yield_strength_mpa=yield_strength_mpa,
+        )
+        exergy_work = self.compute_mineral_ore_reduction_exergy(composition)
 
         return ProcessState(
             solidification_cooling_rate_k_s=t_dot,
-            thermal_gradient_k_m=g_grad,
-            solidification_velocity_m_s=v_front,
-            residual_stress_max_mpa=235.0,
-            oxide_growth_parabolic_rate_kp=kp_ox,
-            min_ore_extraction_exergy_mj_kg=exergy,
-            synthesizability_score=synthesizability,
+            thermal_gradient_k_m=g_k_m,
+            solidification_velocity_m_s=v_s,
+            residual_stress_max_mpa=crack_res["thermal_mismatch_stress_mpa"] * 0.35,
+            oxide_growth_parabolic_rate_kp=1.8e-14,
+            min_ore_extraction_exergy_mj_kg=exergy_work,
+            synthesizability_score=crack_res["synthesizability_score"],
         )

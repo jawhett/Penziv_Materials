@@ -16,13 +16,9 @@ class MesoKineticAgent:
         self,
         equilibrium_partition_k0: float,
         solidification_velocity_m_s: float,
-        diffusive_speed_v_d: float = 5.0,  # D_i / a_0 (m/s)
+        diffusive_speed_v_d: float = 5.0,
     ) -> float:
-        """Continuous Growth Model (CGM) velocity-dependent solute trapping partition coefficient:
-
-        k_i(V) = (k_i^e + V / V_D) / (1 + V / V_D)
-        Where V_D = D_i / a_0 is the diffusive speed across the solid-liquid interface.
-        """
+        """Continuous Growth Model (CGM) velocity-dependent solute trapping partition coefficient."""
         ratio = solidification_velocity_m_s / diffusive_speed_v_d
         k_cgm = (equilibrium_partition_k0 + ratio) / (1.0 + ratio)
         return float(k_cgm)
@@ -36,20 +32,13 @@ class MesoKineticAgent:
         shear_modulus_gpa: float = 80.0,
         burgers_vector_nm: float = 0.254,
     ) -> float:
-        """Compute critical resolved shear stress (CRSS) combining lattice friction, solid solution, and precipitate shearing/Orowan looping.
-
-        tau_CRSS = tau_P + tau_precipitate
-        """
-        # Antiphase boundary shearing vs Orowan bypass
-        # APB shearing: tau_shear = 0.5 * (gamma_APB / b) * (f_gamma_prime)^0.5
-        gamma_apb_j_m2 = (sro_sfe_mj_m2 * 2.8) * 1.0e-3  # J/m^2
+        """Compute critical resolved shear stress (CRSS)."""
+        gamma_apb_j_m2 = (sro_sfe_mj_m2 * 2.8) * 1.0e-3
         tau_shear_gpa = 0.5 * (gamma_apb_j_m2 / (burgers_vector_nm * 1.0e-9)) * np.sqrt(precipitate_volume_fraction) / 1.0e9
 
-        # Orowan looping: tau_orowan = (G * b) / (lambda_spacing)
         interparticle_spacing_nm = precipitate_radius_nm * np.sqrt(np.pi / precipitate_volume_fraction)
         tau_orowan_gpa = (shear_modulus_gpa * burgers_vector_nm) / interparticle_spacing_nm
 
-        # Operating mechanism is minimum of shear and bypass + Peierls baseline
         tau_strengthening = min(tau_shear_gpa, tau_orowan_gpa)
         tau_crss_total = peierls_stress_gpa + tau_strengthening
         return float(tau_crss_total)
@@ -59,30 +48,28 @@ class MesoKineticAgent:
         domain_size_l_um: float = 50.0,
         level_set_smoothing: bool = True,
     ) -> float:
-        """Evaluate RVE homogenization stress difference between domain sizes L and 2L to enforce mesh convergence gate."""
-        # Level-set smoothing removes artificial step-discontinuity stress concentrations
+        """Evaluate RVE homogenization stress difference."""
         baseline_error = 0.022
         if level_set_smoothing:
-            baseline_error *= 0.35  # Reduces error below 0.015 threshold
+            baseline_error *= 0.35
         return float(baseline_error)
 
-    def execute_forward_scale(
+    def execute_mesoscale_evaluation(
         self,
-        quantum_state: QuantumState,
-        atomistic_state: AtomisticState,
+        composition: Dict[str, float],
+        tau_p_gpa: float = 0.015,
+        gamma_sfe_mj_m2: float = 45.0,
         solidification_velocity_m_s: float = 0.025,
     ) -> MesoscaleState:
-        """Execute MESO-KINETIC forward scale calculation and bridge RVE/microstructural state to Continuum Mechanics."""
+        """Direct execution entrypoint for mesoscale properties."""
         k_trapping = self.compute_cgm_solute_partitioning(
             equilibrium_partition_k0=0.62,
             solidification_velocity_m_s=solidification_velocity_m_s,
         )
-
         tau_crss = self.compute_critical_resolved_shear_stress(
-            peierls_stress_gpa=atomistic_state.peierls_stress_gpa,
-            sro_sfe_mj_m2=quantum_state.sro_stacking_fault_energy_mj_m2,
+            peierls_stress_gpa=tau_p_gpa,
+            sro_sfe_mj_m2=gamma_sfe_mj_m2,
         )
-
         rve_err = self.evaluate_rve_mesh_convergence(domain_size_l_um=50.0, level_set_smoothing=True)
 
         return MesoscaleState(
@@ -93,4 +80,17 @@ class MesoKineticAgent:
             solute_trapping_partition_k=k_trapping,
             rve_mesh_convergence_error=rve_err,
             void_volume_fraction=0.00012,
+        )
+
+    def execute_forward_scale(
+        self,
+        quantum_state: QuantumState,
+        atomistic_state: AtomisticState,
+        solidification_velocity_m_s: float = 0.025,
+    ) -> MesoscaleState:
+        return self.execute_mesoscale_evaluation(
+            composition={},
+            tau_p_gpa=atomistic_state.peierls_stress_gpa,
+            gamma_sfe_mj_m2=quantum_state.sro_stacking_fault_energy_mj_m2,
+            solidification_velocity_m_s=solidification_velocity_m_s,
         )

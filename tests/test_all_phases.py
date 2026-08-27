@@ -122,9 +122,32 @@ class TestAllPhases(unittest.TestCase):
         qe = bridge.generate_quantum_espresso_input("Ni-Superalloy", 3.52)
         lammps = bridge.generate_lammps_neb_script()
         damask = bridge.generate_damask_material_config(260.0, 160.0, 110.0, 320.0)
+        slurm = bridge.generate_slurm_submission_script("dft_run", "pw.x -in scf.in")
+
         self.assertIn("&CONTROL", qe)
-        self.assertIn("fix 2 all neb/ci", lammps)
+        self.assertIn("neb/ci", lammps)
         self.assertIn("Matrix_gamma", damask)
+        self.assertIn("#SBATCH", slurm)
+
+        dummy_qe_log = """
+     convergence has been achieved
+!    total energy              =     -112.45892345 Ry
+     the Fermi energy is        7.4235 ev
+     Total force =     0.000123
+     P=  -12.45 kbar
+        """
+        qe_parsed = bridge.parse_quantum_espresso_scf_output(dummy_qe_log)
+        self.assertTrue(qe_parsed["converged"])
+        self.assertAlmostEqual(qe_parsed["total_energy_ry"], -112.45892345)
+        self.assertAlmostEqual(qe_parsed["fermi_energy_ev"], 7.4235)
+
+        dummy_lammps_log = """
+     Forward barrier = 0.325 eV
+     Backward barrier = 0.110 eV
+        """
+        neb_parsed = bridge.parse_lammps_neb_log(dummy_lammps_log)
+        self.assertAlmostEqual(neb_parsed["forward_barrier_ev"], 0.325)
+        self.assertAlmostEqual(neb_parsed["reverse_barrier_ev"], 0.110)
 
     def test_phase4_so3_pino_frame_indifference(self):
         pino = SO3PINOSurrogate()

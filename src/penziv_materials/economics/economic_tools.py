@@ -1,11 +1,11 @@
 """Programmatic Agent Tool Interfaces for Economics, Supply Chain, Toxicity, and TEA."""
 
-import re
 from typing import Dict, List, Optional, Any
 from penziv_materials.economics.commodity_pricing import CommodityPricingEngine
 from penziv_materials.economics.supply_chain_risk import SupplyChainRiskEngine
 from penziv_materials.economics.toxicity_ehs import ToxicityEHSEngine
 from penziv_materials.economics.techno_economics import TechnoEconomicsEngine
+from penziv_materials.core.formula_parser import compute_element_mass_fractions, parse_chemical_formula
 
 _pricing_engine = CommodityPricingEngine()
 _risk_engine = SupplyChainRiskEngine()
@@ -14,29 +14,8 @@ _tea_engine = TechnoEconomicsEngine()
 
 
 def _parse_formula_to_mass_fractions(formula: str) -> Dict[str, float]:
-    """Helper to convert chemical formula string into approximate elemental mass fractions."""
-    atomic_masses = {
-        "H": 1.008, "Li": 6.94, "Be": 9.012, "B": 10.81, "C": 12.011, "N": 14.007,
-        "O": 15.999, "F": 18.998, "Na": 22.990, "Mg": 24.305, "Al": 26.982, "Si": 28.085,
-        "P": 30.974, "S": 32.06, "Cl": 35.45, "K": 39.098, "Ca": 40.078, "Sc": 44.956,
-        "Ti": 47.867, "V": 50.942, "Cr": 51.996, "Mn": 54.938, "Fe": 55.845, "Co": 58.933,
-        "Ni": 58.693, "Cu": 63.546, "Zn": 65.38, "Ga": 69.723, "Ge": 72.630, "As": 74.922,
-        "Se": 78.971, "Br": 79.904, "Y": 88.906, "Zr": 91.224, "Nb": 92.906, "Mo": 95.95,
-        "W": 183.84, "La": 138.91, "Ta": 180.95, "Tl": 204.38, "Pb": 207.2, "Cd": 112.41,
-        "Hg": 200.59, "Te": 127.60, "I": 126.90,
-    }
-    tokens = re.findall(r"([A-Z][a-z]*)(\d*\.?\d*)", formula)
-    if not tokens:
-        return {"Mg": 0.5, "S": 0.5}
-
-    elem_counts: Dict[str, float] = {}
-    for elem, count_str in tokens:
-        count = float(count_str) if count_str else 1.0
-        elem_counts[elem] = elem_counts.get(elem, 0.0) + count
-
-    total_mass = sum(count * atomic_masses.get(elem, 50.0) for elem, count in elem_counts.items())
-    mass_fractions = {elem: (count * atomic_masses.get(elem, 50.0)) / max(1e-6, total_mass) for elem, count in elem_counts.items()}
-    return mass_fractions
+    """Helper delegating to the recursive chemical formula parser."""
+    return compute_element_mass_fractions(formula)
 
 
 def get_composition_cost(elements: Dict[str, float], target_mass_kg: float = 1.0) -> Dict[str, Any]:
@@ -73,13 +52,13 @@ def evaluate_toxicity_and_regulations(chemical_formula: str, phases: Optional[Li
     """Returns GHS hazard classifications, REACH SVHC flags, and EPA CompTox hazard score.
 
     Args:
-        chemical_formula: Stoichiometric chemical formula string (e.g. "Mg1.2Sc0.2Zr1.8S6").
+        chemical_formula: Stoichiometric chemical formula string (e.g. "Mg1.2Sc0.2Zr1.8(PS4)3").
         phases: Optional list of coexisting phases.
 
     Returns:
         Dictionary with regulatory compliance boolean, banned element list, and EPA hazard score.
     """
-    mass_fractions = _parse_formula_to_mass_fractions(chemical_formula)
+    mass_fractions = compute_element_mass_fractions(chemical_formula)
     return _toxicity_engine.evaluate_composition_ehs_and_carbon(mass_fractions)
 
 

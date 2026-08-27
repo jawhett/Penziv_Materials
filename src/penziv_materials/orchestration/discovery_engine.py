@@ -1,27 +1,30 @@
-"""Autonomous Pareto Alloy Discovery Engine: Inverse Design & Multi-Objective Screening."""
+"""Autonomous Discovery Engine: Inverse Design & Multi-Objective Pareto Frontier Optimization."""
 
-from typing import Dict, List, Optional, Tuple, Any
 import datetime
+from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
 from pydantic import BaseModel, Field
 
 from penziv_materials.core.models import (
     MaterialCandidate,
+    ValidationReceipt,
     ValidationStatus,
 )
 from penziv_materials.orchestration.meta_orchestrator import MetaOrchestrator
 
 
 class DiscoveryTargetConstraints(BaseModel):
-    min_yield_strength_mpa: float = 1000.0
-    max_steady_state_creep_rate_s_inv: float = 1.0e-12
-    min_fracture_toughness_k_ic: float = 60.0
+    """Target performance bounds and operating constraints for candidate screening."""
+    min_yield_strength_mpa: float = 950.0
+    max_steady_state_creep_rate_s_inv: float = 1.0e-11
+    min_fracture_toughness_k_ic: float = 65.0
     max_crustal_exergy_mj_kg: float = 90.0
-    target_temperature_k: float = 1123.15  # 850 C
+    target_temperature_k: float = 1123.15  # 850 °C
     applied_creep_stress_mpa: float = 250.0
 
 
 class ParetoDiscoveryResult(BaseModel):
+    """Dataset encapsulating screened candidates, Pareto front, and top recommendation."""
     total_screened: int
     physically_stable_count: int
     pareto_optimal_candidates: List[MaterialCandidate]
@@ -31,48 +34,43 @@ class ParetoDiscoveryResult(BaseModel):
 
 
 class AlloyDiscoveryEngine:
-    """Autonomous inverse design search loop exploring composition space for multi-objective performance."""
+    """Autonomous engine for multi-objective composition sampling, multiscale screening, and Pareto ranking."""
 
-    def __init__(self, orchestrator: Optional[MetaOrchestrator] = None):
-        self.orchestrator = orchestrator or MetaOrchestrator()
+    def __init__(self):
+        self.orchestrator = MetaOrchestrator()
 
     def generate_random_compositions(
         self,
         base_elements: List[str],
-        n_samples: int = 50,
+        n_samples: int = 30,
         primary_element: str = "Ni",
-        primary_fraction_range: Tuple[float, float] = (0.45, 0.70),
         random_seed: Optional[int] = 42,
     ) -> List[Dict[str, float]]:
-        """Sample physically realistic alloy compositions using Dirichlet / constrained uniform distributions."""
+        """Generate physically reasonable alloy composition vectors normalized to sum to 1.0."""
         if random_seed is not None:
             np.random.seed(random_seed)
 
         compositions = []
-        secondary_elements = [el for el in base_elements if el != primary_element]
-
         for _ in range(n_samples):
-            # Sample primary fraction
-            prim_frac = np.random.uniform(primary_fraction_range[0], primary_fraction_range[1])
-            rem_frac = 1.0 - prim_frac
+            # Dirichlet-distributed random fractions
+            raw_weights = np.random.dirichlet(np.ones(len(base_elements)) * 1.2)
+            comp_dict = {elem: float(w) for elem, w in zip(base_elements, raw_weights)}
 
-            # Sample secondary distribution via Dirichlet
-            alpha = np.ones(len(secondary_elements))
-            # Minor microalloying preference for B, C, Zr
-            for i, el in enumerate(secondary_elements):
-                if el in ["B", "C"]:
-                    alpha[i] = 0.15
-                elif el in ["Al", "Ti", "Cr"]:
-                    alpha[i] = 2.0
-                elif el in ["Nb", "Mo", "W", "Ta"]:
-                    alpha[i] = 1.2
+            # Ensure primary matrix element has minimum threshold (e.g. Ni >= 45%)
+            if primary_element in comp_dict and comp_dict[primary_element] < 0.45:
+                deficit = 0.50 - comp_dict[primary_element]
+                comp_dict[primary_element] = 0.50
+                # Rescale other elements
+                other_sum = sum(w for k, w in comp_dict.items() if k != primary_element)
+                if other_sum > 0:
+                    for k in comp_dict:
+                        if k != primary_element:
+                            comp_dict[k] = (comp_dict[k] / other_sum) * (1.0 - 0.50)
 
-            sec_weights = np.random.dirichlet(alpha)
-            comp = {primary_element: round(float(prim_frac), 4)}
-            for el, w in zip(secondary_elements, sec_weights):
-                comp[el] = round(float(rem_frac * w), 4)
-
-            compositions.append(comp)
+            # Round and normalize
+            total = sum(comp_dict.values())
+            normalized_comp = {k: round(v / total, 4) for k, v in comp_dict.items()}
+            compositions.append(normalized_comp)
 
         return compositions
 
@@ -80,63 +78,15 @@ class AlloyDiscoveryEngine:
         self,
         candidates: List[MaterialCandidate],
     ) -> List[MaterialCandidate]:
-        """Extract Non-Dominated Pareto Rank-1 candidates across:
+        """Compute Non-Dominated Pareto Rank across candidates."""
+        ranked_pairs = self.orchestrator.compute_pareto_front(candidates)
+        pareto_optimal = [c for c, rank in ranked_pairs if rank == 1]
 
-        1. Maximize Yield Strength (sigma_y)
-        2. Minimize Creep Rate (eps_dot) -> maximize -log10(eps_dot)
-        3. Maximize Fracture Toughness (K_Ic)
-        4. Minimize Exergy (Ex_min) -> maximize -Ex_min
-        """
-        # Filter strictly stable candidates
-        stable_candidates = [
-            c
-            for c in candidates
-            if all(
-                r.status in [ValidationStatus.PASSED, ValidationStatus.WARNING]
-                for r in c.validation_receipts
-            )
-        ]
+        # Annotate candidates with pareto rank
+        for c, rank in ranked_pairs:
+            c.pareto_rank = rank
 
-        if not stable_candidates:
-            return []
-
-        # Multi-objective criteria matrix: [sigma_y, -log10(creep), K_Ic, -Ex_min]
-        matrix = []
-        for c in stable_candidates:
-            ys = c.continuum.yield_strength_mpa if c.continuum else 0.0
-            creep = c.continuum.steady_state_creep_rate_s_inv if c.continuum else 1.0
-            k_ic = c.continuum.fracture_toughness_k_ic_mpa_sqrt_m if c.continuum else 0.0
-            exergy = c.process.min_ore_extraction_exergy_mj_kg if c.process else 1000.0
-
-            log_creep_inv = -np.log10(max(1e-25, creep))
-            matrix.append([ys, log_creep_inv, k_ic, -exergy])
-
-        matrix_np = np.array(matrix, dtype=np.float64)
-        n_candidates = len(stable_candidates)
-        is_pareto = np.ones(n_candidates, dtype=bool)
-
-        for i in range(n_candidates):
-            for j in range(n_candidates):
-                if i != j:
-                    # j dominates i if j is >= in all objectives and strictly > in at least one
-                    if np.all(matrix_np[j] >= matrix_np[i]) and np.any(matrix_np[j] > matrix_np[i]):
-                        is_pareto[i] = False
-                        break
-
-        pareto_list = []
-        for idx, (cand, pareto_flag) in enumerate(zip(stable_candidates, is_pareto)):
-            if pareto_flag:
-                cand.pareto_rank = 1
-                pareto_list.append(cand)
-            else:
-                cand.pareto_rank = 2
-
-        # Sort pareto list by yield strength descending
-        pareto_list.sort(
-            key=lambda c: c.continuum.yield_strength_mpa if c.continuum else 0.0,
-            reverse=True,
-        )
-        return pareto_list
+        return pareto_optimal
 
     def discover_optimal_alloys(
         self,
@@ -183,7 +133,7 @@ class AlloyDiscoveryEngine:
             1
             for c in all_candidates
             if all(
-                r.status in [ValidationStatus.PASSED, ValidationStatus.WARNING]
+                r.status in [ValidationStatus.PASSED, ValidationStatus.WARNING, ValidationStatus.ROUTED_TO_HIGH_FIDELITY]
                 for r in c.validation_receipts
             )
         )
