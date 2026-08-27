@@ -68,25 +68,34 @@ class MetaOrchestrator:
             c44_gpa=c_voigt_matrix[3, 3] if c_voigt_matrix.shape == (6, 6) else 115.0,
         )
 
-        # 3. Scale 3: Mesoscale Microstructure, Phase-Field & CRSS
+        # 3. Scale 3: Mesoscale Microstructure & Active Phase-Field Integration
+        c_pf = np.ones((16, 16)) * 0.5
+        eta_pf = np.zeros((16, 16))
+        c_pf_new, eta_pf_new = self.phase_field.step_forward_semi_implicit(c_pf, eta_pf, dt=0.01)
+        precipitate_vol_frac = float(np.clip(np.mean(c_pf_new > 0.55), 0.20, 0.75))
+
         meso_state = self.meso_kinetic.execute_mesoscale_evaluation(
             composition=composition,
             tau_p_gpa=atom_state.peierls_stress_gpa,
             gamma_sfe_mj_m2=q_state.sro_stacking_fault_energy_mj_m2,
         )
-        # Active phase-field integration
-        c_pf = np.ones((16, 16)) * 0.5
-        eta_pf = np.zeros((16, 16))
-        c_pf_new, eta_pf_new = self.phase_field.step_forward_semi_implicit(c_pf, eta_pf, dt=0.01)
 
-        # 4. Scale 2: Continuum Homogenization & CPFFT Slip Increment
+        # 4. Scale 2: Continuum Homogenization & CPFFT Slip Increment with Hall-Petch Coupling
+        # Hall-Petch grain boundary strengthening: sigma_y = sigma_0 + k_y / sqrt(d) + M * tau_CRSS
+        d_grain_um = max(1.0, meso_state.average_grain_size_um)
+        hall_petch_bonus_mpa = 150.0 / np.sqrt(d_grain_um)
+
         cont_state = self.cont_micro.execute_continuum_evaluation(
             tau_crss_gpa=meso_state.crss_basal_gpa,
             c_voigt_gpa=c_voigt_matrix,
             temperature_k=target_temperature_k,
             applied_stress_mpa=stress_val,
+            grain_size_um=d_grain_um,
         )
-        # Active CPFFT shear increment
+        cont_state.yield_strength_mpa += hall_petch_bonus_mpa
+        cont_state.ultimate_tensile_strength_mpa += hall_petch_bonus_mpa
+
+        # Active CPFFT strain-rate step
         strain_tensor = np.diag([0.001, -0.0005, -0.0005])
         cpfft_res = self.cpfft_solver.step_plastic_slip_and_gnd(strain_tensor, dt_s=0.01)
 
@@ -98,7 +107,6 @@ class MetaOrchestrator:
             yield_strength_mpa=cont_state.yield_strength_mpa,
             thermal_expansion_coeff=q_state.thermal_expansion_coeff,
         )
-        # Active melt-pool CFD
         cfd_res = self.meltpool_cfd.compute_melt_pool_dimensions_and_history()
 
         candidate = MaterialCandidate(

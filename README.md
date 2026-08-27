@@ -4,10 +4,10 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-0891B2.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-0A2540.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/Tests-47%2F47%20Passed-1E7065.svg)](#complete-verification-suite)
+[![Tests](https://img.shields.io/badge/Tests-62%2F62%20Passed-1E7065.svg)](#complete-verification-suite)
 [![Physics Gates](https://img.shields.io/badge/Physics_Validation-Verified-1E7065.svg)](#bidirectional-scale-handshake-gates)
-[![Solid Electrolytes](https://img.shields.io/badge/Electrochem-Superionic_Fast_Ions-0891B2.svg)](#solid-electrolyte--heterogeneous-discovery-suite)
-[![Techno-Economics](https://img.shields.io/badge/Economics_TEA-LCOS_%26_HHI_Risk-1E7065.svg)](#techno-economics-supply-chain-risk--ehs-suite)
+[![Convex Hull](https://img.shields.io/badge/Thermodynamics-Grand_Canonical_Hull-0891B2.svg)](#grand-canonical-convex-hull--materials-project-stability)
+[![Active Learning](https://img.shields.io/badge/Active_Learning-HPC_Slurm_Auto--Retrain-1E7065.svg)](#asynchronous-active-learning--hpc-dispatch-engine)
 [![Design System](https://img.shields.io/badge/Design-Serene_Zenith-0891B2.svg)](https://github.com/jawhett/Penziv_Materials)
 
 **Autonomous Multiscale First-Principles Materials & Solid-State Electrolyte Discovery Framework**
@@ -29,57 +29,53 @@
                                 ▼ │ Forward & Backward Loops   ▼ │
                 ┌───────────────┴───────────────┐ ┌──────────────┴───────────────┐
                 │ Quantum & Electronic Agent    │ │ Atomistic & Defect Agent     │
-                │ (Mermin-DFT, SRO-Planar Faults│ │ (Polar-MLIPs, CI-NEB MEP,    │
-                │  TDEP, FNV Defect Energies)   │ │  AIMD MSD, Nernst-Einstein)  │
+                │ (Mermin-DFT, SRO-Planar Faults│ │ (Universal MLIPs, CI-NEB MEP,│
+                │  TDEP, FNV Defect Energies)   │ │  BFGS Relax, Nernst-Einstein)│
                 └───────────────┬───────────────┘ └──────────────┬───────────────┘
                                 │ ▲                            │ ▲
                                 ▼ │                            ▼ │
                 ┌───────────────┴───────────────┐ ┌──────────────┴───────────────┐
                 │ Mesoscale Kinetics Agent      │ │ Continuum Micromechanics     │
-                │ (Coupled PNP Space-Charge,    │ │ (CPFEM/CPFFT, Non-Local Dmg, │
-                │  TPMS Gyroid, Dynamic DDD)    │ │  Butler-Volmer Interfacial)  │
+                │ (Coupled PNP Space-Charge,    │ │ (CPFFT Polycrystal Plasticity│
+                │  TPMS Gyroid, Dynamic DDD)    │ │  Hall-Petch, Non-Local Dmg)  │
                 └───────────────┬───────────────┘ └──────────────┬───────────────┘
                                 │ ▲                            │ ▲
                                 ▼ │ Thermal & Field History    ▼ │ Yield & Overpotentials
                                 └───────────────┬────────────────┘
                                                 │ ▲
                                                 ▼ │
-                                ┌───────────────┴───────────────┐
-                                │ Process & Synthesizability    │
-                                │ (Stefan, Poro-Mechanics FSI,  │
-                                │  Cold Sintering Retrosynth)   │
-                                └───────────────┬───────────────┘
+                ┌───────────────┴───────────────┐
+                │ Process & Synthesizability    │
+                │ (Stefan, Poro-Mechanics FSI,  │
+                │  Robotic Opentrons/A-Lab LIMS)│
+                └───────────────┬───────────────┘
                                                 │ ▲
                                                 ▼ │
                 ┌───────────────────────────────┴─┴──────────────────────────────┐
                 │ Cross-Scale Uncertainty, TEA & Sim-to-Real Assimilation Bridge │
-                │ (Commodity Pricing, HHI Risk, EPA CompTox, Multi-Modal MCMC)   │
+                │ (Grand Canonical Hull, HHI Risk, EPA CompTox, Rietveld XRD)    │
                 └────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔬 Physics Hierarchy & Scale-Bridging Ingests / Emits
+## 💎 Advanced Capabilities & Upgrades
 
-| Scale | Layer | Physics Engine & Governing Equations | Scale-Bridging Ingests (Inputs) | Scale-Bridging Emits (Outputs) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Scale 5** | **Quantum & Electronic (`Q-ELEC`)** | Relativistic Dirac-Coulomb-Breit, Mermin Finite-$T_e$ DFT, TDEP phonons, SCAN Meta-GGA, RPA correlation via ACFDT, $GW$-BSE, cRPA+DMFT, DLM paramagnetism, SRO GSFE $\gamma(\mathbf{u}, \boldsymbol{\alpha}_{\text{SRO}})$, FNV charged defect formation $\Delta H_f(D, q)$. | Atomic numbers $Z_I$, positions $\mathbf{R}_I$, space group, temperatures ($T_e, T_{\text{ion}}$), magnetic moments $\mathbf{m}_I$, SRO tensors $\boldsymbol{\alpha}_{\text{SRO}}$. | $\Delta H_f^0(T)$, $\mathbb{C}_{ijkl}(T)$, thermal expansion $\boldsymbol{\alpha}(T)$, $\gamma(\mathbf{u}, \boldsymbol{\alpha}_{\text{SRO}})$, $F(V,T)$, $\boldsymbol{\varepsilon}_{\alpha\beta}(\omega)$, $\Delta\text{-ML}$ offset operators, FNV defect energies. |
-| **Scale 4** | **Atomistic & Defects (`ATOM-DYN`)** | $E(3)$-Equivariant MLIPs with GMM-OOD detection, CI-NEB ion migration paths ($\Delta E_a$), multivalent polarization screening, AIMD Mean-Squared Displacement (MSD), Nernst-Einstein ionic conductivity ($\sigma_i, t_{\text{ion}}$), SVPN Peierls core width $\tau_P$. | Potential Energy Surface, $\mathbb{C}_{ijkl}(T)$, $\gamma(\mathbf{u}, \boldsymbol{\alpha}_{\text{SRO}})$, active learning DFT retrain data, mobile cation radius $r_{\text{ion}}$. | Defect migration distributions $\Delta E_a \pm \sigma$, diffusion tensors $\mathbf{D}(T)$, $\sigma_{\text{ion}}(T)$, transference number $t_{\text{ion}}$, 5-parameter GB energy $\gamma_{\text{GB}}$, $\tau_P$, traction laws ($W_{\text{sep}}, \lambda$). |
-| **Scale 3** | **Mesoscale Kinetics (`MESO-KINETIC`)** | Coupled Cahn-Hilliard & Allen-Cahn + Khachaturyan microelasticity, Coupled Poisson-Nernst-Planck (PNP) space-charge layers, Dynamic Drag DDD ($\mathbf{f}_{\text{PK}} = (\boldsymbol{\sigma}\cdot\mathbf{b})\times\boldsymbol{\xi}$), Triply Periodic Minimal Surfaces (TPMS Gyroid/Diamond). | Diffusion tensors $\mathbf{D}(T)$, GB energy manifolds $\gamma_{\text{GB}}$, single-crystal $\mathbb{C}_{ijkl}(T)$, thermal/electric history from Scale 1 ($T(t), \phi(t), G, \dot{T}, V$). | 3D TPMS multi-phase topologies (ceramic + pressurized channel + polymer skin), ODF texture maps, space-charge potential $\phi(x)$, Debye length $\lambda_D$, CRSS $\tau_{\text{CRSS}}^\alpha$, hardening matrix $h_{\alpha\beta}$. |
-| **Scale 2** | **Continuum Micromechanics (`CONT-MICRO`)** | Multiplicative finite-strain CPFEM/CPFFT ($\mathbf{F} = \mathbf{F}^e\mathbf{F}^p$), Butler-Volmer interfacial charge transfer ($J_{\text{BV}}$), Nye dislocation tensor ($\boldsymbol{\alpha}_{\text{Nye}} = \nabla\times\mathbf{F}^p$), Chemo-mechanical stress coupling, Non-local gradient damage, Weibull modulus $m$. | Conformed RVE meshes, TPMS phase maps, $\tau_{\text{CRSS}}^\alpha$, $h_{\alpha\beta}$, $\mathbb{C}_{ijkl}(T)$, overpotential $\eta$, intrinsic fracture energy $G_c$, residual stresses $\boldsymbol{\sigma}_{\text{res}}(\mathbf{x})$ from Scale 1. | True stress-strain curves $\boldsymbol{\sigma}(\boldsymbol{\varepsilon})$, homogenized yield surfaces $\Sigma(\boldsymbol{\sigma})$, Butler-Volmer flux $J_{\text{BV}}(\eta)$, steady-state creep rate laws $\dot{\varepsilon}_{\text{ss}}(T, \boldsymbol{\sigma})$, fracture toughness $K_{Ic}$, Weibull modulus $m_{\text{weibull}}$. |
-| **Scale 1** | **Process & Synthesizability (`PROC-MFG`)** | Stefan solidification with Marangoni thermofluids, Poro-elastic Darcy-Stokes FSI, Knudsen microchannel gas dynamics ($Kn > 0.1$), Transient oxidation ($x^2=k_pt$), Minimum crustal exergy extraction work $\text{Ex}_{\min}$, Retrosynthesis assembly planner. | Target alloy/electrolyte composition, processing parameters (laser power $P$, scan speed $v$, gas pressure $p_{\text{gas}}$), macroscopic yield surface $\Sigma(\boldsymbol{\sigma})$ and mechanical limit states from Scale 2. | Space-time thermal profiles ($T(\mathbf{x}, t), G, \dot{T}, V$), channel wall hydrostatic support, process residual stresses $\boldsymbol{\sigma}_{\text{res}}(\mathbf{x})$, synthesizability confidence index, minimum crustal exergy $\text{Ex}_{\min}$, causal retrosynthesis route. |
-| **Meta-Scale** | **Uncertainty & Sim-to-Real (`UQ-BRIDGE`)** | Quality-Diversity (QD) MAP-Elites illumination swarm, Holistic multi-domain constraint relaxation, $\text{SO}(3)$-PINO with hard frame indifference, Grand Canonical stability windows $[V_{\text{red}}, V_{\text{ox}}]$, Commodity spot pricing, HHI geopolitical risk, EPA CompTox. | Synchrotron XRD phase fractions, EBSD orientation maps, Atom Probe Tomography cluster distributions, Nanoindentation depth curves, Commodity market spot rates. | Calibrated joint Bayesian posteriors $P(\boldsymbol{\theta}\mid\mathbf{y})$, MAP-Elites behavioral archive, holistic composite stability receipts, Levelized Cost of Storage (LCOS $/kWh), Embodied $\text{CO}_2$. |
+### 1. Crystallographic Structure Container & Universal MLIP Inference
+- **Crystallographic Representation (`crystal_structure.py`):** True periodic lattice tensor $\mathbf{A}$, fractional coordinates $\mathbf{s}_i$, Wyckoff site symmetries, Voronoi bottleneck apertures, and CIF import/export.
+- **Universal MLIP & Relaxation (`equivariant_mlip.py`):** MACE-MP-0 / SevenNet / CHGNet execution runtime with automated BFGS local geometry relaxation, strain-energy finite difference elastic tensor calculation $C_{ij}$, and CI-NEB minimum energy pathway calculation.
 
----
+### 2. Grand Canonical Convex Hull & Phase Stability
+- **Grand Canonical Solver (`convex_hull.py`):** Quickhull Delaunay triangulation calculating distance-to-hull ($\Delta E_{\text{hull}} \le 35\text{ meV/atom}$), grand potential $\Phi(V) = G - \sum \mu_i N_i$, competing phase decomposition reactions, and authentic $[V_{\text{red}}, V_{\text{ox}}]$ stability windows.
 
-## 📊 Techno-Economics, Supply Chain Risk & EHS Suite
+### 3. Asynchronous Active Learning & HPC Dispatch
+- **Closed-Loop Epistemic Retraining (`active_learning_loop.py`):** Automatically detects OOD configurations ($NLL > 12.0$ or force variance $\sigma_F > \tau$), generates Quantum ESPRESSO `pw.x` / VASP input decks, submits batch Slurm jobs, ingests converged energies/forces, and fine-tunes MLIP weights on the fly.
 
-The framework provides programmatic tool interfaces and optimization penalties for real-world viability:
+### 4. Experimental Characterization Assimilation (Sim-to-Real)
+- **Multi-Modal Assimilation (`bayesian_assimilation.py`):** Pseudo-Voigt XRD profile generation and weighted Rietveld profile matching ($R_{\text{wp}}$), EBSD orientation distribution functions, and Continuous Stiffness Measurement (CSM) nanoindentation load-displacement inversion.
 
-1. **Commodity Spot Pricing & Precursors (`commodity_pricing.py`):** Live market pricing ($/kg) across elemental feedstocks and battery-grade precursors ($99.9\%$ purity multiplier).
-2. **Geopolitical Concentration & USGS Critical Minerals (`supply_chain_risk.py`):** Evaluates Herfindahl-Hirschman Indices ($\text{HHI} = \sum s_i^2$) for mining and refining, tagging DOE/USGS critical minerals and byproduct dependence.
-3. **Regulatory Toxicity & CompTox EHS (`toxicity_ehs.py`):** Pre-compute rejection of banned heavy metals ($\text{Tl, Cd, As, Hg, Pb, Be}$), EPA CompTox scores, REACH SVHC flags, and cradle-to-gate embodied carbon footprints ($\text{kg CO}_2\text{-eq}/\text{kg}$).
-4. **Techno-Economic Analysis & LCOS Floor (`techno_economics.py`):** Calculates normalized Levelized Cost of Storage raw-material floor ($/kWh) and thermal sintering energy budgets ($\text{kWh}/\text{kg}$).
+### 5. Automated Robotic LIMS Protocol Export
+- **Robotic Lab Automation (`retrosynthesis_planner.py`):** Exports machine-readable Python execution scripts for **Opentrons OT-2**, **Chemspeed**, and **A-Lab** platforms with solid/liquid dispensing volumes, CIP pressure ramp envelopes, and GHS safety handling.
 
 ---
 
@@ -98,8 +94,6 @@ The framework enforces zero-compromise validation contracts across every scale i
 
 ## 🚀 Quick Start
 
-### Installation
-
 ```bash
 # Clone the repository
 git clone https://github.com/jawhett/Penziv_Materials.git
@@ -116,7 +110,7 @@ pip install -e .
 penziv-mat status
 
 # 2. Run instant Techno-Economic (TEA), Supply Chain HHI, and Toxicity EHS audit
-penziv-mat evaluate-tea MgSc0.2Zr1.8S6 --purity battery_grade_99_9 --sinter-temp 850.0
+penziv-mat evaluate-tea "Mg1.10Sc0.20Zr1.80(PS4)3" --purity battery_grade_99_9 --sinter-temp 850.0
 
 # 3. Discover novel solid electrolytes & hybrid architectures (Mg2+, Na+, Li+) via QD MAP-Elites
 penziv-mat discover-solid-electrolyte --carrier Mg --candidates 15 --min-sigma 1.0
@@ -153,19 +147,11 @@ penziv-mat cite --title "Penziv Materials Discovery" --author "jawhett"
 
 ## 🧪 Complete Verification Suite
 
-Run the full multiscale test suite (47 unit tests across structural, electrochemical, multiphysics, TEA, and EHS domains):
+Run the full multiscale test suite (62 unit tests across structural, electrochemical, multiphysics, TEA, crystallographic, active learning, and EHS domains):
 
 ```bash
 python -m unittest discover tests
 ```
-
----
-
-## 📜 Theoretical Foundations & Specifications
-
-Detailed architectural specifications and full derivations are provided in [`docs/`](file:///C:/Users/jawhe/Penziv_Materials/docs):
-- [`docs/FRAMEWORK_FIRST_PRINCIPLES.md`](file:///C:/Users/jawhe/Penziv_Materials/docs/FRAMEWORK_FIRST_PRINCIPLES.md): Complete mathematical derivations from relativistic Dirac-Coulomb-Breit to non-linear continuum plasticity.
-- [`docs/PDRD_AETHERMAT_V3.2.0.md`](file:///C:/Users/jawhe/Penziv_Materials/docs/PDRD_AETHERMAT_V3.2.0.md): Product Development & Requirements Document v3.2.0-PROD with complete I/O specifications for all agents.
 
 ---
 

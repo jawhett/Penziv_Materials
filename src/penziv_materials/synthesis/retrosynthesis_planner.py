@@ -7,9 +7,8 @@ from penziv_materials.core.constants import R_GAS
 
 
 class RetrosynthesisAssemblyPlanner:
-    """Evaluates multi-step precursor reaction networks Delta G_rxn(T) and exports robotic synthesis recipes (A-Lab / Chemspeed)."""
+    """Evaluates multi-step precursor reaction networks Delta G_rxn(T) and exports robotic synthesis recipes (A-Lab / Chemspeed / Opentrons)."""
 
-    # Precursor standard formation enthalpies (kJ/mol) and entropies (J/(mol*K))
     PRECURSOR_THERMO_DATA: Dict[str, Tuple[float, float]] = {
         "MgS": (-345.0, 50.3),
         "Sc2S3": (-1240.0, 142.0),
@@ -25,7 +24,7 @@ class RetrosynthesisAssemblyPlanner:
 
     def compute_solid_state_reaction_free_energy(
         self,
-        reactants: Dict[str, float],  # e.g. {"MgS": 1.0, "ZrS2": 2.0, "P2S5": 1.5}
+        reactants: Dict[str, float],
         product_formation_enthalpy_kj_mol: float,
         product_entropy_j_mol_k: float,
         temperature_k: float = 873.15,
@@ -78,6 +77,40 @@ class RetrosynthesisAssemblyPlanner:
             "synthesis_route_graph": recommended_route,
             "max_tolerated_processing_temp_c": min(ceramic_sintering_temp_c, polymer_degradation_temp_c),
         }
+
+    def export_opentrons_ot2_script(
+        self,
+        candidate_formula: str,
+        liquid_precursors_ul: Dict[str, float],
+    ) -> str:
+        """Generate executable Opentrons OT-2 Python protocol for automated liquid sol-gel precursor dispensing."""
+        ot2_code = f"""# Opentrons OT-2 Protocol for {candidate_formula}
+from opentrons import protocol_api
+
+metadata = {{
+    'protocolName': 'Penziv Sol-Gel Precursor Dispensing: {candidate_formula}',
+    'author': 'Penziv Materials Orchestrator',
+    'apiLevel': '2.14'
+}}
+
+def run(protocol: protocol_api.ProtocolContext):
+    plate = protocol.load_labware('corning_96_wellplate_360ul_flat', 1)
+    tiprack = protocol.load_labware('opentrons_96_tiprack_300ul', 2)
+    p300 = protocol.load_instrument('p300_single_gen2', 'right', tip_racks=[tiprack])
+    reservoir = protocol.load_labware('nest_12_reservoir_15ml', 3)
+
+    well_idx = 0
+"""
+        for chem, vol in liquid_precursors_ul.items():
+            ot2_code += f"""
+    # Dispense {vol:.1f} uL of {chem}
+    p300.pick_up_tip()
+    p300.aspirate({vol:.1f}, reservoir.wells()[well_idx])
+    p300.dispense({vol:.1f}, plate.wells()[0])
+    p300.drop_tip()
+    well_idx += 1
+"""
+        return ot2_code
 
     def export_robotic_synthesis_protocol(
         self,
