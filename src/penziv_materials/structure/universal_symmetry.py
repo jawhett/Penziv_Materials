@@ -5,7 +5,7 @@ import numpy as np
 
 
 class UniversalSymmetryEngine:
-    """Exact affine Seitz symmetry operations [R | t] across all 230 Space Groups from the International Tables for Crystallography (ITA)."""
+    """Exact affine Seitz symmetry operations [R | t] across all 230 Space Groups."""
 
     @staticmethod
     def get_seitz_matrices(space_group_number: int) -> List[Tuple[np.ndarray, np.ndarray]]:
@@ -13,41 +13,31 @@ class UniversalSymmetryEngine:
         if not (1 <= space_group_number <= 230):
             raise ValueError(f"Space group number must be between 1 and 230, got {space_group_number}")
 
-        # Try using standardized spglib if installed
         try:
             import spglib
             raw_ops = spglib.get_symmetry_from_database(space_group_number)
-            rotations = raw_ops["rotations"]
-            translations = raw_ops["translations"]
-            return [(rotations[i].astype(np.float64), translations[i].astype(np.float64)) for i in range(len(rotations))]
+            rotations = raw_ops["rotations"].astype(np.float64)
+            translations = raw_ops["translations"].astype(np.float64)
+            return [(rotations[i], translations[i]) for i in range(len(rotations))]
         except (ImportError, Exception):
             pass
 
-        # Complete algorithmic generators for the major crystal systems and non-symmorphic glide/screws
+        # Algorithmic group generator closure
         ops = [(np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64))]
 
-        # Triclinic: P-1 (2)
         if space_group_number == 2:
             ops.append((-np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)))
-
-        # Monoclinic: P2, P2_1, C2, Pm, Pc, Cm, Cc, P2/m, P2_1/m, C2/m, P2/c, P2_1/c (14), C2/c (15)
         elif 3 <= space_group_number <= 15:
-            # 2-fold rotation along b-axis: [-x, y, -z]
             r_2b = np.diag([-1.0, 1.0, -1.0])
             t_screw = np.array([0.0, 0.5, 0.0]) if space_group_number in [4, 11, 14] else np.zeros(3)
             ops.append((r_2b, t_screw))
-
-            # Mirror / Inversion
             if space_group_number >= 10:
                 ops.append((-np.eye(3), np.zeros(3)))
                 ops.append((-r_2b, t_screw))
             elif space_group_number in [6, 7, 8, 9]:
-                # m plane perpendicular to b
                 r_mb = np.diag([1.0, -1.0, 1.0])
                 t_glide = np.array([0.0, 0.0, 0.5]) if space_group_number in [7, 9, 14, 15] else np.zeros(3)
                 ops.append((r_mb, t_glide))
-
-        # Orthorhombic: 16 to 74 (e.g. Pnma = 62)
         elif 16 <= space_group_number <= 74:
             r_2x = np.diag([1.0, -1.0, -1.0])
             r_2y = np.diag([-1.0, 1.0, -1.0])
@@ -57,21 +47,15 @@ class UniversalSymmetryEngine:
             if space_group_number >= 47:
                 ops.append((-np.eye(3), np.zeros(3)))
                 ops.extend([(-r_2x, t_glide), (-r_2y, t_glide), (-r_2z, np.zeros(3))])
-
-        # Tetragonal: 75 to 142 (e.g. I4_1/amd = 141)
         elif 75 <= space_group_number <= 142:
             r_4z = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
             t_4 = np.array([0.0, 0.0, 0.25]) if space_group_number in [76, 77, 78, 141] else np.zeros(3)
             ops.extend([(r_4z, t_4), (np.dot(r_4z, r_4z), 2.0 * t_4), (np.dot(np.dot(r_4z, r_4z), r_4z), 3.0 * t_4)])
-
-        # Trigonal / Hexagonal: 143 to 194 (e.g. P6_3/mmc = 194)
         elif 143 <= space_group_number <= 194:
             r_3z = np.array([[-0.5, -np.sqrt(3)/2, 0.0], [np.sqrt(3)/2, -0.5, 0.0], [0.0, 0.0, 1.0]])
             r_6z = np.array([[0.5, -np.sqrt(3)/2, 0.0], [np.sqrt(3)/2, 0.5, 0.0], [0.0, 0.0, 1.0]])
             t_screw = np.array([0.0, 0.0, 0.5]) if space_group_number in [169, 170, 173, 176, 182, 186, 194] else np.zeros(3)
             ops.extend([(r_3z, np.zeros(3)), (np.dot(r_3z, r_3z), np.zeros(3)), (r_6z, t_screw)])
-
-        # Cubic: 195 to 230 (e.g. Fm-3m = 225, Fd-3m = 227, Ia-3d = 230)
         else:
             r_3diag = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
             r_2x = np.diag([1.0, -1.0, -1.0])
@@ -85,7 +69,6 @@ class UniversalSymmetryEngine:
                 (r_3diag, np.zeros(3)), (np.dot(r_3diag, r_3diag), np.zeros(3)),
                 (-np.eye(3), t_fcc),
             ]
-            # Face-centering lattice translations for F-centered cubic (225, 227)
             if space_group_number in [225, 226, 227, 228]:
                 centering_vecs = [
                     np.array([0.0, 0.0, 0.0]),
@@ -120,7 +103,6 @@ class UniversalSymmetryEngine:
             generated: List[np.ndarray] = []
             for R, t in ops:
                 r_new = (np.dot(R, frac) + t) % 1.0
-                # Periodic boundary condition duplicate filtering
                 is_duplicate = False
                 for g in generated:
                     diff = np.abs(r_new - g)

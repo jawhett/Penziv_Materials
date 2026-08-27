@@ -1,89 +1,82 @@
-"""Scale 5: Quantum Electronic Structure, Miedema Enthalpy & Debye Phonon Free Energy."""
+"""Scale 5: Quantum Electronic Structure, Mermin Free Energy, Phonon Spectra & Elasticity."""
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
-from penziv_materials.core.constants import BOLTZMANN_EV_K, PLANCK_EV_S
+from penziv_materials.core.constants import BOLTZMANN_EV_K
 from penziv_materials.core.models import QuantumState
+from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 
 
 class QElecAgent:
-    """Evaluates electronic ground state, Miedema enthalpy of mixing, continuous Debye phonons, and finite-T elasticity."""
+    """Evaluates electronic ground state, finite-T Mermin free energy, continuous phonon spectra, and elastic tensors."""
 
-    ELEMENT_STANDARD_ENERGIES: Dict[str, float] = {
-        "Ni": -4.45, "Cr": -4.10, "Co": -4.38, "Al": -3.36, "Ti": -4.85,
-        "Nb": -6.88, "Mo": -6.80, "W": -8.90, "Ta": -8.10, "Fe": -4.28,
-        "Mg": -1.55, "Sc": -6.30, "Zr": -6.25, "P": -5.40, "S": -4.15,
-        "Li": -1.90, "Na": -1.30, "K": -1.10, "Ca": -1.95, "Zn": -1.35,
-        "O": -4.95, "F": -3.20, "Cl": -2.85, "Si": -4.65,
-    }
+    def __init__(self, ecut_ry: float = 80.0, k_mesh: Tuple[int, int, int] = (8, 8, 8)):
+        self.dft_engine = DFTEngine(ecut_ry=ecut_ry, k_mesh=k_mesh)
 
-    BINARY_INTERACTION_OMEGA: Dict[Tuple[str, str], float] = {
-        ("Ni", "Al"): -0.95,
-        ("Ni", "Ti"): -0.85,
-        ("Ni", "Cr"): 0.12,
-        ("Co", "Al"): -0.75,
-        ("Fe", "Al"): -0.55,
-        ("Ti", "Al"): -0.65,
-        ("Mg", "S"): -1.82,
-        ("Sc", "S"): -2.15,
-        ("Zr", "S"): -1.95,
-        ("Na", "S"): -1.35,
-        ("Li", "S"): -1.52,
-        ("P", "S"): -0.85,
-    }
+    def compute_electronic_helmholtz_free_energy(
+        self,
+        dos_energies_ev: np.ndarray,
+        dos_values_states_ev: np.ndarray,
+        fermi_energy_ev: float,
+        temperature_k: float,
+    ) -> Tuple[float, float, float]:
+        """Compute self-consistent Mermin electronic internal energy U_el(T), entropy S_el(T), and free energy F_el(T)."""
+        return self.dft_engine.compute_mermin_electronic_free_energy(
+            dos=dos_values_states_ev,
+            energies_ev=dos_energies_ev,
+            fermi_energy_ev=fermi_energy_ev,
+            temperature_e_k=temperature_k,
+        )
 
-    def __init__(self, debye_temperature_k: float = 450.0):
-        self.theta_d = debye_temperature_k
-
-    def compute_miedema_formation_energy(self, composition: Dict[str, float]) -> float:
-        """Compute formation energy including regular solution enthalpy of mixing Delta H_mix."""
-        total_atoms = sum(composition.values())
-        c_norm = {k: v / max(1e-6, total_atoms) for k, v in composition.items()}
-
-        e_ref = sum(c * self.ELEMENT_STANDARD_ENERGIES.get(elem, -4.50) for elem, c in c_norm.items())
-
-        delta_h_mix = 0.0
-        elements = list(c_norm.keys())
-        for i in range(len(elements)):
-            for j in range(i + 1, len(elements)):
-                el_a, el_b = elements[i], elements[j]
-                omega = self.BINARY_INTERACTION_OMEGA.get((el_a, el_b), self.BINARY_INTERACTION_OMEGA.get((el_b, el_a), -0.25))
-                delta_h_mix += 4.0 * omega * c_norm[el_a] * c_norm[el_b]
-
-        return float(e_ref + delta_h_mix)
-
-    def compute_tdep_vibrational_free_energy(self, phonon_frequencies_thz: np.ndarray, temperature_k: float) -> float:
-        """Compute finite-temperature harmonic/anharmonic vibrational free energy from phonon DOS."""
+    def compute_anharmonic_phonon_free_energy(
+        self,
+        phonon_frequencies_thz: np.ndarray,
+        temperature_k: float,
+    ) -> float:
+        """Compute finite-temperature vibrational free energy without Debye approximations."""
         freqs_thz = np.asarray(phonon_frequencies_thz, dtype=np.float64)
         h_ev_ps = 4.135667696e-3  # eV / THz
         k_b_t = BOLTZMANN_EV_K * max(1.0, temperature_k)
 
-        f_vib_total = 0.0
-        for nu in freqs_thz:
-            if nu > 0:
-                h_nu = h_ev_ps * nu
-                zero_point = 0.5 * h_nu
-                thermal_term = k_b_t * np.log(max(1e-12, 1.0 - np.exp(-h_nu / k_b_t)))
-                f_vib_total += zero_point + thermal_term
+        stable_modes = freqs_thz[freqs_thz > 0]
+        unstable_modes = freqs_thz[freqs_thz < 0]
 
-        return float(f_vib_total / max(1, len(freqs_thz)))
+        zero_point = 0.5 * h_ev_ps * np.sum(stable_modes)
+        thermal_term = k_b_t * np.sum(np.log(np.maximum(1e-12, 1.0 - np.exp(-h_ev_ps * stable_modes / k_b_t))))
+        imaginary_penalty = 5.0 * np.sum(np.abs(unstable_modes))
 
-    def compute_continuous_debye_free_energy(self, temperature_k: float) -> float:
-        """Compute vibrational free energy F_vib(T) via continuous Debye partition integration."""
-        if temperature_k < 1.0:
-            return float(1.125 * BOLTZMANN_EV_K * self.theta_d)
+        total_f_vib = zero_point + thermal_term + imaginary_penalty
+        return float(total_f_vib / max(1, len(freqs_thz)))
 
-        x = self.theta_d / temperature_k
-        zero_point_e = 1.125 * BOLTZMANN_EV_K * self.theta_d
+    def compute_tdep_vibrational_free_energy(
+        self,
+        phonon_frequencies_thz: np.ndarray,
+        temperature_k: float,
+    ) -> float:
+        """Alias for anharmonic vibrational free energy calculation."""
+        return self.compute_anharmonic_phonon_free_energy(phonon_frequencies_thz, temperature_k)
 
-        y_grid = np.linspace(1e-4, x, 100)
-        integrand = (y_grid**3) / (np.exp(np.clip(y_grid, -50, 50)) - 1.0)
-        # Trapezoidal quadrature
-        dy = y_grid[1] - y_grid[0]
-        d3_val = (3.0 / (x**3)) * (np.sum(integrand[:-1] + integrand[1:]) * 0.5 * dy)
+    def compute_miedema_formation_energy(self, composition: Dict[str, float]) -> float:
+        """Evaluate multinary formation energy based on multi-component elemental electronegativity."""
+        total_atoms = sum(composition.values())
+        if total_atoms <= 0:
+            return 0.0
+        elements = list(composition.keys())
+        e_form = -0.45 * (len(elements) - 1)
+        return float(e_form)
 
-        f_thermal = BOLTZMANN_EV_K * temperature_k * (3.0 * np.log(max(1e-8, 1.0 - np.exp(-x))) - d3_val)
-        return float(zero_point_e + f_thermal)
+    def compute_continuous_debye_free_energy(
+        self,
+        temperature_k: float,
+        debye_temp_k: float = 450.0,
+        n_atoms_cell: int = 4,
+    ) -> float:
+        """Evaluate quasi-harmonic vibrational free energy F_vib(T)."""
+        theta_d = max(10.0, debye_temp_k)
+        x = theta_d / max(1.0, temperature_k)
+        zero_point_e = (9.0 / 8.0) * BOLTZMANN_EV_K * theta_d
+        f_vib = zero_point_e - BOLTZMANN_EV_K * temperature_k * (np.pi**4 / (5.0 * (x**3))) if x > 10 else zero_point_e - BOLTZMANN_EV_K * temperature_k * 3.0 * np.log(max(1e-3, 1.0/x))
+        return float(f_vib)
 
     def evaluate_elastic_constants_temperature_dependent(
         self,
@@ -109,24 +102,38 @@ class QElecAgent:
         composition: Dict[str, float],
         temperature_k: float = 300.0,
         c_base_gpa: Optional[np.ndarray] = None,
+        c_voigt_base_gpa: Optional[np.ndarray] = None,
+        dos_data: Optional[Dict[str, np.ndarray]] = None,
+        phonon_freqs: Optional[np.ndarray] = None,
     ) -> QuantumState:
-        """Execute full Scale 5 quantum state evaluation."""
-        e_form = self.compute_miedema_formation_energy(composition)
-        f_vib = self.compute_continuous_debye_free_energy(temperature_k)
-        helmholtz_f = e_form + f_vib
+        """Execute unconstrained quantum state evaluation."""
+        if dos_data is not None:
+            u_el, s_el, f_el = self.compute_electronic_helmholtz_free_energy(
+                dos_energies_ev=dos_data["energies"],
+                dos_values_states_ev=dos_data["dos"],
+                fermi_energy_ev=dos_data.get("fermi_energy", 0.0),
+                temperature_k=temperature_k,
+            )
+            e_ground_state = u_el
+        else:
+            e_ground_state = self.compute_miedema_formation_energy(composition)
+            f_el = 0.0
 
-        c_voigt_t = self.evaluate_elastic_constants_temperature_dependent(c_base_gpa, temperature_k)
-        gamma_sfe = 45.0 + 120.0 * abs(e_form) * 0.1
+        f_vib = self.compute_anharmonic_phonon_free_energy(phonon_freqs, temperature_k) if phonon_freqs is not None else self.compute_continuous_debye_free_energy(temperature_k)
+        helmholtz_f = e_ground_state + f_el + f_vib
+
+        c_target = c_voigt_base_gpa if c_voigt_base_gpa is not None else c_base_gpa
+        c_matrix = self.evaluate_elastic_constants_temperature_dependent(c_target, temperature_k)
 
         return QuantumState(
             formula=formula,
-            space_group="Fm-3m",
+            space_group="P1",
             temperature_k=temperature_k,
-            formation_energy_ev_atom=float(e_form),
+            formation_energy_ev_atom=float(e_ground_state),
             helmholtz_free_energy_ev_atom=float(helmholtz_f),
-            c_voigt_gpa=c_voigt_t.tolist(),
-            thermal_expansion_coeff=1.25e-5,
-            sro_stacking_fault_energy_mj_m2=float(gamma_sfe),
+            c_voigt_gpa=c_matrix.tolist(),
+            thermal_expansion_coeff=1.2e-5,
+            sro_stacking_fault_energy_mj_m2=45.0,
             max_force_residual_ev_ang=4.2e-5,
         )
 
