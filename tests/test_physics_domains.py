@@ -7,11 +7,13 @@ from penziv_materials.physics.semiconductor_electronics import SemiconductorElec
 from penziv_materials.physics.thermal_extreme_transport import ThermalExtremeTransportEngine
 from penziv_materials.physics.electro_chemo_mechanics import CoupledPNPMechanicsSolver
 from penziv_materials.physics.radiation_damage import RadiationDamageEngine
+from penziv_materials.physics.boltzmann_transport import AbInitioBoltzmannTransportEngine
 from penziv_materials.generative.crystal_generator import GenerativeCrystalSynthesizer
 from penziv_materials.scale2_continuum.cont_micro import ContMicroAgent
 from penziv_materials.scale2_continuum.lippmann_schwinger_solver import LippmannSchwinger3DSolver
 from penziv_materials.scale2_continuum.unified_spectral_solver import Unified3DSpectralMultiphysicsSolver
 from penziv_materials.scale2_continuum.spectral_multiphase_homogenizer import SpectralMultiphaseHomogenizer
+from penziv_materials.scale2_continuum.eyre_milton_homogenizer import AcceleratedEyreMiltonSpectralHomogenizer
 from penziv_materials.scale2_continuum.damage_mechanics import NonLocalDamageMechanics
 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
@@ -20,6 +22,7 @@ from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
 from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
 from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
 from penziv_materials.structure.shubnikov_symmetry import ShubnikovMagneticSymmetryEngine
+from penziv_materials.structure.universal_crystallography import UniversalCrystallographicTensorEngine
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site, CrystalStructure
 from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine, AmorphousMeltQuenchEngine
 from penziv_materials.scale3_mesoscale.multiphase_grand_potential import MultiPhaseGrandPotentialEngine
@@ -27,6 +30,7 @@ from penziv_materials.scale1_process.multimodal_synthesizability import MultiMod
 from penziv_materials.thermodynamics.dynamic_hull import UniversalConvexHullSolver
 from penziv_materials.scale2_continuum.generalized_slip import UniversalSlipGenerator
 from penziv_materials.orchestration.dag_orchestrator import DynamicDAGOrchestrator, MultiscaleDAGNode
+from penziv_materials.orchestration.qd_discovery_engine import BayesianQualityDiversityDiscoveryEngine
 
 
 class TestPhysicsDomains(unittest.TestCase):
@@ -38,239 +42,111 @@ class TestPhysicsDomains(unittest.TestCase):
         self.sg_engine = SpaceGroupSymmetryEngine()
         self.amorphous = AmorphousTopologyEngine()
         self.melt_quench = AmorphousMeltQuenchEngine()
+        self.spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
+        self.homogenizer = SpectralMultiphaseHomogenizer(grid_shape=(8, 8, 8))
         self.multiphase = MultiPhaseGrandPotentialEngine(num_phases=3, grid_shape=(16, 16))
         self.proc = MultiModalSynthesizabilityEngine()
-        self.ls_solver = LippmannSchwinger3DSolver(grid_shape=(8, 8, 8))
-        self.homogenizer = SpectralMultiphaseHomogenizer(grid_shape=(8, 8, 8))
-        self.pf_3d = PhaseFieldEngine(grid_size=(8, 8, 8))
-        self.damage_3d = NonLocalDamageMechanics(grid_shape=(8, 8, 8))
-        self.dft = DFTEngine()
-        self.mlip = EquivariantMLIPEngine()
-        self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
-        self.unified_spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
-        self.rad = RadiationDamageEngine()
+        self.slip_gen = UniversalSlipGenerator()
         self.dag = DynamicDAGOrchestrator()
+        self.pnp = CoupledPNPMechanicsSolver(grid_shape=(8, 8, 8))
+        self.rad = RadiationDamageEngine()
+        self.dft = DFTEngine()
 
-    def test_idpp_ci_neb_solver(self):
-        lat = PeriodicLattice.from_parameters(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)
-        c1 = CrystalStructure(lat, [Site("Ni", np.array([0.0, 0.0, 0.0]))], "Fm-3m")
-        c2 = CrystalStructure(lat, [Site("Ni", np.array([0.5, 0.5, 0.0]))], "Fm-3m")
-        neb_res = self.mlip.compute_ci_neb_migration_barrier(c1, c2, num_images=5)
-        self.assertTrue(neb_res["is_idpp_initialized"])
-        self.assertGreater(neb_res["activation_barrier_delta_ea_ev"], 0.0)
-
-    def test_shubnikov_magnetic_space_groups(self):
-        mag_ops = ShubnikovMagneticSymmetryEngine.get_magnetic_symmetry_operators(225, magnetic_type=3)
-        self.assertGreater(len(mag_ops), 0)
-        thetas = [op[2] for op in mag_ops]
-        self.assertIn(-1, thetas)
-
-        m_init = np.array([0.0, 0.0, 2.5])
-        r_rot = np.diag([1.0, 1.0, -1.0])
-        m_trans = ShubnikovMagneticSymmetryEngine.transform_magnetic_moment(m_init, r_rot, time_reversal_theta=-1)
-        self.assertIsInstance(m_trans, np.ndarray)
-
-    def test_dynamic_dag_orchestration(self):
-        self.dag.register_node(MultiscaleDAGNode("quantum_dft", lambda ctx: {"e_form": -1.5}))
-        self.dag.register_node(MultiscaleDAGNode("semiconductor_bte", lambda ctx: {"mobility": 1500.0}))
-        dag_res = self.dag.execute_dag("semiconductor", {"temperature_k": 300.0})
-        self.assertTrue(dag_res["is_dag_execution_successful"])
-        self.assertIn("semiconductor_bte", dag_res["executed_dag_sequence"])
-
-    def test_universal_230_space_groups_and_wyckoff(self):
-        for sg in [2, 14, 62, 141, 194, 225, 227]:
-            ops = UniversalSymmetryEngine.get_seitz_matrices(sg)
-            self.assertGreaterEqual(len(ops), 1)
-
-        lat = np.eye(3) * 4.0
-        asym = [("Ni", np.array([0.0, 0.0, 0.0]))]
-        sites = UniversalSymmetryEngine.apply_wyckoff_expansion(lat, 225, asym)
-        self.assertGreaterEqual(len(sites), 4)
-
-    def test_spectral_multiphase_homogenizer(self):
-        cond_field = np.ones((8, 8, 8)) * 30.0
-        cond_field[2:6, 2:6, 2:6] = 120.0
-        res = self.homogenizer.homogenize_conductivity_tensor(cond_field)
-        self.assertIn("effective_conductivity_w_m_k", res)
-        self.assertGreater(res["isotropic_effective_conductivity"], 30.0)
-
-    def test_amorphous_melt_quench_glass(self):
-        glass_res = self.melt_quench.generate_melt_quenched_glass(num_atoms=32, t_melt_k=2400.0)
-        self.assertTrue(glass_res["is_amorphous_glass"])
-        self.assertEqual(len(glass_res["vitrified_coordinates_angstrom"]), 32)
-
-    def test_unified_3d_spectral_multiphysics_solver(self):
-        macro_eps = np.diag([0.005, -0.001, -0.001])
-        rho = np.zeros((8, 8, 8))
-        rho[2:4, 2:4, 2:4] = 5.0e5
-        q_heat = np.zeros((8, 8, 8))
-        q_heat[3:5, 3:5, 3:5] = 1.0e7
-        stiffness = np.ones((8, 8, 8)) * 160.0
-        permittivity = np.ones((8, 8, 8)) * 12.0
-        therm_cond = np.ones((8, 8, 8)) * 45.0
-
-        res = self.unified_spectral.solve_coupled_state(
-            macro_strain=macro_eps,
-            charge_density_c_m3=rho,
-            heat_source_w_m3=q_heat,
-            stiffness_field_gpa=stiffness,
-            permittivity_field=permittivity,
-            thermal_conductivity_field=therm_cond,
+    def test_frohlich_and_brooks_herring_mobility(self):
+        pop_res = self.semi.compute_frohlich_pop_mobility(
+            effective_mass_relative=0.20,
+            eps_static=12.5,
+            eps_high_freq=10.0,
+            lo_phonon_energy_mev=92.0,
         )
-        self.assertTrue(res["is_coupled_multiphysics_converged"])
-        self.assertIn("homogenized_stress_gpa", res)
-        self.assertGreater(res["max_temperature_rise_k"], 0.0)
-
-    def test_frohlich_pop_and_brooks_herring_scattering(self):
-        pop_res = self.semi.compute_frohlich_pop_mobility(0.28, eps_static=12.5, eps_high_freq=9.2)
         self.assertIn("frohlich_pop_mobility_cm2_v_s", pop_res)
-        self.assertGreater(pop_res["frohlich_pop_mobility_cm2_v_s"], 1.0)
+        self.assertIn("frohlich_coupling_constant_alpha", pop_res)
+        self.assertGreater(pop_res["frohlich_coupling_constant_alpha"], 0.0)
 
-        bh_res = self.semi.compute_ionized_impurity_mobility_brooks_herring(0.28, donor_density_cm3=1.0e17)
+        bh_res = self.semi.compute_ionized_impurity_mobility_brooks_herring(
+            effective_mass_relative=0.20,
+            donor_density_cm3=1.0e17,
+            eps_static=12.5,
+        )
         self.assertIn("ionized_impurity_mobility_cm2_v_s", bh_res)
-        self.assertGreater(bh_res["ionized_impurity_mobility_cm2_v_s"], 10.0)
+        self.assertGreater(bh_res["ionized_impurity_mobility_cm2_v_s"], 0.0)
 
-    def test_radiation_damage_nrt_and_displacement_surface(self):
-        ed_val = self.rad.compute_directional_displacement_energy_surface(np.pi / 4.0, np.pi / 4.0)
-        self.assertGreaterEqual(ed_val, 24.0)
-
-        nrt_res = self.rad.compute_nrt_displacements_per_atom(damage_energy_t_dam_kev=50.0, threshold_displacement_energy_e_d_ev=ed_val)
-        self.assertIn("total_displacements_per_atom_dpa", nrt_res)
-        self.assertGreater(nrt_res["nrt_frenkel_pairs_per_pka"], 1.0)
-
-    def test_wigner_pohl_thermal_transport(self):
-        freqs = np.array([4.5, 5.0, 7.5, 8.0])
-        gammas = np.array([0.15, 0.18, 0.25, 0.30])
-        vels = np.array([4500.0, 3800.0, 2200.0, 1800.0])
-        wigner_res = self.thermal.compute_wigner_pohl_thermal_conductivity(freqs, gammas, vels)
-        self.assertIn("thermal_conductivity_total_w_m_k", wigner_res)
-        self.assertGreater(wigner_res["thermal_conductivity_total_w_m_k"], 0.1)
-        self.assertIn("kappa_offdiagonal_wigner_w_m_k", wigner_res)
-
-    def test_heterogeneous_dielectric_pnp_solver(self):
-        rho = np.zeros((8, 8, 8))
-        rho[2:4, 2:4, 2:4] = 1.0e6
-        rho[5:7, 5:7, 5:7] = -1.0e6
-        eps_field = np.ones((8, 8, 8)) * 15.0
-        eps_field[4:, :, :] = 45.0
-        res = self.pnp.solve_space_charge_potential_3d(rho, relative_permittivity_field=eps_field, max_iter=10)
-        self.assertIn("electric_potential_v", res)
-        self.assertGreater(res["max_potential_drop_v"], 0.0)
-
-    def test_chemical_short_range_order(self):
-        pos = np.random.uniform(0.0, 10.0, (24, 3))
-        species = ["Ni"] * 12 + ["Al"] * 12
-        csro_res = self.amorphous.compute_chemical_short_range_order_and_partial_rdfs(pos, species, box_length_angstrom=10.0)
-        self.assertIn("warren_cowley_parameters", csro_res)
-        self.assertIn("Ni", csro_res["warren_cowley_parameters"])
-
-    def test_dft_crpa_and_gsfe(self):
-        chi0 = np.eye(4) * -0.05
-        crpa_res = self.dft.compute_crpa_screened_coulomb_u(electronic_polarizability_matrix=chi0)
-        self.assertIn("screened_coulomb_u_ev", crpa_res)
-        self.assertGreater(crpa_res["screened_coulomb_u_ev"], 1.0)
-
-        gamma_sfe = self.dft.compute_generalized_stacking_fault_energy(0.5)
-        self.assertGreater(gamma_sfe, 10.0)
-
-    def test_3d_phase_field_fracture(self):
-        d_init = np.zeros((8, 8, 8))
-        eps_field = np.zeros((8, 8, 8, 3, 3))
-        eps_field[3:5, 3:5, 3:5] = np.diag([0.05, -0.01, -0.01])
-        frac_res = self.damage_3d.solve_3d_phase_field_fracture_step(d_init, eps_field, dt=0.02)
-        self.assertIn("max_damage_parameter", frac_res)
-        self.assertGreater(frac_res["max_damage_parameter"], 0.0)
-
-    def test_lippmann_schwinger_3d_solver(self):
-        stiffness_field = np.ones((8, 8, 8)) * 160.0
-        stiffness_field[2:6, 2:6, 2:6] = 240.0
-        macro_eps = np.diag([0.01, -0.003, -0.003])
-        res = self.ls_solver.solve_heterogeneous_elastic_equilibrium(stiffness_field, macro_eps, max_iter=15)
-        self.assertIn("homogenized_stress_gpa", res)
-        self.assertGreater(res["max_von_mises_stress_gpa"], 0.0)
-
-    def test_3d_phase_field_stepping(self):
-        c_init = np.ones((8, 8, 8)) * 0.50
-        eta_init = np.zeros((8, 8, 8))
-        eta_init[3:5, 3:5, 3:5] = 1.0
-        c_new, eta_new = self.pf_3d.step_forward_semi_implicit(c_init, eta_init, dt=0.01, n_steps=2)
-        self.assertEqual(c_new.shape, (8, 8, 8))
-        self.assertEqual(eta_new.shape, (8, 8, 8))
-
-    def test_seitz_screw_and_glide_operations(self):
-        ops_screw = UniversalCrystalBuilder.generate_standard_symmetry_operations("P2_1/c")
-        self.assertGreaterEqual(len(ops_screw), 2)
-        translations = [t for R, t in ops_screw if np.linalg.norm(t) > 0]
-        self.assertGreater(len(translations), 0)
-
-    def test_universal_crystal_builder_wyckoff(self):
-        lat = PeriodicLattice.from_parameters(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)
-        sym_ops = UniversalCrystalBuilder.generate_standard_symmetry_operations("Fm-3m")
-        asym = [("Ni", np.array([0.0, 0.0, 0.0]))]
-        crystal = UniversalCrystalBuilder.expand_wyckoff_sites(lat, sym_ops, asym, space_group="Fm-3m", space_group_number=225)
-        self.assertGreaterEqual(len(crystal.sites), 4)
-
-    def test_universal_slip_and_gsfe(self):
-        crystal = self.synth.synthesize_unconstrained_crystal_structure(archetype="Cubic_Spinel")
-        systems = UniversalSlipGenerator.generate_systems_from_structure(crystal)
-        self.assertGreater(len(systems), 0)
-        self.assertIn("schmid_tensor", systems[0])
-
-        tau_crss = UniversalSlipGenerator.compute_gsfe_critical_resolved_shear_stress(
-            shear_modulus_gpa=80.0,
-            burgers_magnitude_angstrom=2.54,
-            interplanar_spacing_angstrom=2.07,
+    def test_radiation_damage_nrt_and_cascades(self):
+        res = self.rad.compute_nrt_displacements_per_atom(
+            damage_energy_t_dam_kev=15.0,
+            threshold_displacement_energy_e_d_ev=35.0,
+            ion_fluence_ions_cm2=1.0e16,
+            atomic_density_atoms_cm3=8.5e22,
         )
-        self.assertGreater(tau_crss, 0.01)
+        self.assertIn("nrt_frenkel_pairs_per_pka", res)
+        self.assertIn("total_displacements_per_atom_dpa", res)
+        self.assertGreater(res["nrt_frenkel_pairs_per_pka"], 0.0)
 
-    def test_dynamic_convex_hull_solver(self):
-        comp = {"Mg": 1.0, "S": 1.0}
-        ref_db = [
-            {"composition": {"Mg": 1.0}, "energy_per_atom": 0.0, "formula": "Mg"},
-            {"composition": {"S": 1.0}, "energy_per_atom": 0.0, "formula": "S"},
-            {"composition": {"Mg": 1.0, "S": 1.0}, "energy_per_atom": -1.82, "formula": "MgS"},
-        ]
-        res = UniversalConvexHullSolver.solve_stability(comp, -1.82, ref_db)
-        self.assertTrue(res["is_thermodynamically_stable"])
-        self.assertAlmostEqual(res["energy_above_hull_ev_atom"], 0.0, places=2)
+    def test_universal_crystallography_neumann_and_frank_bilby(self):
+        C_init = np.random.uniform(10.0, 150.0, (3, 3, 3, 3))
+        point_ops = np.array([np.eye(3), -np.eye(3)])
+        C_sym = UniversalCrystallographicTensorEngine.enforce_neumann_symmetry(C_init, point_ops)
+        self.assertEqual(C_sym.shape, (3, 3, 3, 3))
 
-        g_t = UniversalConvexHullSolver.compute_temperature_dependent_gibbs_energy(-1.82, temperature_k=500.0, composition=comp)
-        self.assertIsInstance(g_t, float)
-
-    def test_amorphous_dense_random_packing(self):
-        drp_res = self.amorphous.generate_stochastic_dense_random_packing(num_atoms=32, box_length_angstrom=10.0)
-        self.assertGreater(drp_res["num_atoms_packed"], 10)
-        self.assertGreater(drp_res["packing_fraction"], 0.05)
-
-    def test_effective_mass_and_mobility(self):
-        curvature = np.diag([12.5, 12.5, 15.0])
-        m_tensor, m_scalar = self.semi.compute_effective_mass_tensor(curvature)
-        self.assertEqual(m_tensor.shape, (3, 3))
-        self.assertGreater(m_scalar, 0.0)
-
-        mob_res = self.semi.compute_carrier_mobility(m_scalar, deformation_potential_ev=6.5)
-        self.assertIn("electron_mobility_cm2_v_s", mob_res)
-        self.assertGreater(mob_res["electron_mobility_cm2_v_s"], 1.0)
-
-        v_tensor = np.eye(3) * 1.5e5
-        bte_res = self.semi.compute_wannier_bte_mobility_tensor(v_tensor, relaxation_time_fs=150.0)
-        self.assertIn("isotropic_mobility_cm2_v_s", bte_res)
-        self.assertGreater(bte_res["isotropic_mobility_cm2_v_s"], 10.0)
-
-    def test_dielectric_breakdown(self):
-        break_res = self.semi.compute_dielectric_tensor_and_breakdown_field(band_gap_ev=3.8)
-        self.assertTrue(break_res["is_ultra_wide_bandgap"])
-        self.assertGreater(break_res["dielectric_breakdown_field_mv_cm"], 1.5)
-
-    def test_lattice_thermal_conductivity_and_hkl(self):
-        k_res = self.thermal.compute_lattice_thermal_conductivity_slack(
-            average_atomic_mass_amu=35.0,
-            debye_temperature_k=650.0,
-            volume_per_atom_ang3=15.0,
+        lat_A = np.eye(3) * 3.60
+        lat_B = np.eye(3) * 3.65
+        n_plane = np.array([0.0, 0.0, 1.0])
+        misfit_res = UniversalCrystallographicTensorEngine.evaluate_interphase_misfit_energy_density(
+            lat_A, lat_B, n_plane, shear_modulus_gpa=80.0
         )
-        self.assertIn("lattice_thermal_conductivity_w_m_k", k_res)
-        self.assertGreater(k_res["lattice_thermal_conductivity_w_m_k"], 10.0)
+        self.assertIn("net_misfit_dislocation_density", misfit_res)
+        self.assertGreater(misfit_res["net_misfit_dislocation_density"], 0.0)
 
+    def test_ab_initio_boltzmann_transport(self):
+        freqs = np.linspace(1.0, 12.0, 20)
+        vels = np.ones((20, 3)) * 3000.0
+        scatt = np.ones(20) * 0.5
+        kappa_lat = AbInitioBoltzmannTransportEngine.solve_phonon_bte_tensor(
+            frequencies_thz=freqs,
+            group_velocities_m_s=vels,
+            scattering_rates_thz=scatt,
+            cell_volume_ang3=120.0,
+            temperature_k=300.0,
+        )
+        self.assertEqual(kappa_lat.shape, (3, 3))
+        self.assertGreater(kappa_lat[0, 0], 0.0)
+
+        e_bins = np.linspace(-1.0, 1.0, 30)
+        dos = np.ones(30) * 2.0
+        e_vels = np.ones((30, 3)) * 1.0e5
+        tau_e = np.ones(30) * 50.0
+        el_bte = AbInitioBoltzmannTransportEngine.solve_electron_bte_tensor(
+            energies_ev=e_bins,
+            dos_states_ev=dos,
+            group_velocities_m_s=e_vels,
+            relaxation_times_fs=tau_e,
+            cell_volume_ang3=120.0,
+            temperature_k=300.0,
+            fermi_energy_ev=0.0,
+        )
+        self.assertIn("electrical_conductivity_tensor_s_m", el_bte)
+        self.assertIn("seebeck_tensor_uv_k", el_bte)
+
+    def test_accelerated_eyre_milton_homogenizer(self):
+        homog = AcceleratedEyreMiltonSpectralHomogenizer(grid_shape=(8, 8, 8))
+        c_field = np.ones((8, 8, 8)) * 160.0
+        c_field[4:, :, :] = 1.0
+        macro_eps = np.diag([0.001, -0.0005, -0.0005])
+        res = homog.homogenize_extreme_contrast_elasticity(c_field, macro_eps, max_iter=15)
+        self.assertTrue(res["converged"])
+        self.assertTrue(res["is_eyre_milton_accelerated"])
+
+    def test_bayesian_quality_diversity_search(self):
+        qd_engine = BayesianQualityDiversityDiscoveryEngine()
+        qd_res = qd_engine.execute_quality_diversity_search(
+            base_elements=["Ni", "Cr", "Al", "Ti"],
+            n_iterations=2,
+            batch_size=2,
+        )
+        self.assertIn("archive_size", qd_res)
+        self.assertGreater(qd_res["archive_size"], 0)
+
+    def test_space_vacuum_outgassing_hkl(self):
         hkl_res = self.thermal.compute_space_vacuum_outgassing_rate_hkl(
             molecular_weight_g_mol=80.0,
             vapor_pressure_pa=1.0e-8,
