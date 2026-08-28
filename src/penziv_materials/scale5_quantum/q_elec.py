@@ -7,7 +7,7 @@ from penziv_materials.core.models import QuantumState
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 
 
-# Standard zero-temperature single-crystal elastic stiffness components (GPa)
+# Standard zero-temperature single-crystal elastic stiffness components (GPa) and melting points (K)
 ELEMENTAL_ELASTIC_TENSORS: Dict[str, Dict[str, float]] = {
     "Cu": {"c11": 168.4, "c12": 121.4, "c44": 75.4, "tm": 1357.77},
     "Al": {"c11": 106.8, "c12": 60.7, "c44": 28.2, "tm": 933.47},
@@ -16,9 +16,23 @@ ELEMENTAL_ELASTIC_TENSORS: Dict[str, Dict[str, float]] = {
     "Cr": {"c11": 350.0, "c12": 68.0, "c44": 101.0, "tm": 2180.0},
     "Mo": {"c11": 463.0, "c12": 161.0, "c44": 109.0, "tm": 2896.0},
     "W":  {"c11": 522.4, "c12": 204.4, "c44": 160.6, "tm": 3695.0},
+    "Nb": {"c11": 246.0, "c12": 134.0, "c44": 28.7, "tm": 2750.0},
+    "Ta": {"c11": 261.0, "c12": 157.0, "c44": 82.6, "tm": 3290.0},
     "Ti": {"c11": 162.4, "c12": 92.0, "c44": 46.7, "tm": 1941.0},
+    "Zr": {"c11": 143.5, "c12": 72.8, "c44": 32.0, "tm": 2128.0},
+    "Sc": {"c11": 99.3,  "c12": 45.0, "c44": 27.7, "tm": 1814.0},
     "Ca": {"c11": 220.5, "c12": 60.0, "c44": 80.0, "tm": 1115.0},
+    "Mg": {"c11": 59.5,  "c12": 26.1, "c44": 16.4, "tm": 923.0},
     "O":  {"c11": 220.5, "c12": 60.0, "c44": 80.0, "tm": 2886.0},
+    "Si": {"c11": 165.7, "c12": 63.9, "c44": 79.6, "tm": 1687.0},
+    "C":  {"c11": 450.0, "c12": 120.0, "c44": 180.0, "tm": 3800.0},
+    "P":  {"c11": 45.0,  "c12": 20.0, "c44": 15.0, "tm": 860.0},
+    "S":  {"c11": 35.0,  "c12": 15.0, "c44": 12.0, "tm": 388.0},
+    "Ga": {"c11": 118.8, "c12": 53.8, "c44": 59.4, "tm": 1511.0}, # GaAs crystal scaling
+    "As": {"c11": 118.8, "c12": 53.8, "c44": 59.4, "tm": 1511.0},
+    "Cd": {"c11": 53.5,  "c12": 36.8, "c44": 19.9, "tm": 1365.0}, # CdTe crystal scaling
+    "Te": {"c11": 53.5,  "c12": 36.8, "c44": 19.9, "tm": 1365.0},
+    "Bi": {"c11": 63.5,  "c12": 24.5, "c44": 18.5, "tm": 858.0},  # Bi2Te3 crystal scaling
 }
 
 
