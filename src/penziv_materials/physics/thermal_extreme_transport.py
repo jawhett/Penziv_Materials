@@ -153,3 +153,46 @@ class ThermalExtremeTransportEngine:
             "is_space_vacuum_stable": is_space_stable,
             "vapor_pressure_pa": float(p_sat),
         }
+
+    def compute_cahill_pohl_minimum_thermal_conductivity(
+        self,
+        number_density_atoms_m3: float,
+        longitudinal_sound_velocity_m_s: float,
+        transverse_sound_velocity_m_s: float,
+        n_integration_steps: int = 50,
+    ) -> Dict[str, float]:
+        """Evaluate Cahill-Pohl minimum thermal conductivity limit for disordered/amorphous media."""
+        n_dens = max(1.0e26, number_density_atoms_m3)
+        v_l = max(500.0, longitudinal_sound_velocity_m_s)
+        v_t = max(300.0, transverse_sound_velocity_m_s)
+
+        # Cutoff Debye temperatures for 1 longitudinal and 2 transverse acoustic polarizations
+        theta_i = [
+            v_i * (HBAR / BOLTZMANN_J_K) * ((6.0 * (np.pi**2) * n_dens) ** (1.0 / 3.0))
+            for v_i in [v_l, v_t, v_t]
+        ]
+        velocities = [v_l, v_t, v_t]
+
+        prefactor = ((np.pi / 6.0) ** (1.0 / 3.0)) * BOLTZMANN_J_K * (n_dens ** (2.0 / 3.0))
+        kappa_min = 0.0
+
+        for v_i, theta in zip(velocities, theta_i):
+            upper_limit = theta / max(1.0, self.T)
+            if upper_limit > 50.0:
+                # Low temperature limit: integral -> pi^4 / 15
+                integral = (np.pi ** 4) / 15.0
+            else:
+                x_vals = np.linspace(1e-4, upper_limit, n_integration_steps)
+                dx = x_vals[1] - x_vals[0]
+                integrand = (x_vals**3 * np.exp(x_vals)) / ((np.exp(x_vals) - 1.0) ** 2)
+                integral = float(np.sum(integrand) * dx)
+
+            term = v_i * ((self.T / max(1.0, theta)) ** 2) * integral
+            kappa_min += term
+
+        kappa_total = prefactor * kappa_min
+        return {
+            "cahill_pohl_kappa_min_w_m_k": float(np.clip(kappa_total, 0.05, 50.0)),
+            "debye_cutoff_longitudinal_k": float(theta_i[0]),
+            "debye_cutoff_transverse_k": float(theta_i[1]),
+        }

@@ -188,6 +188,85 @@ class TestPhysicsDomains(unittest.TestCase):
         melt_res = self.proc.evaluate_melt_spinning_glass_formation(wheel_speed_m_s=40.0)
         self.assertIn("is_vitrified_amorphous_ribbon", melt_res)
 
+    def test_universal_cauchy_born_and_vrh_aggregates(self):
+        from penziv_materials.core.tensors import compute_universal_cauchy_born_stiffness, compute_voigt_reuss_hill_aggregates
+        lat_mono = np.array([[4.2, 0.0, 0.0], [0.0, 4.0, 0.0], [0.5, 0.0, 4.5]])
+        coords_mono = np.array([[0.0, 0.0, 0.0], [2.1, 2.0, 2.2]])
+        species = ["Fe", "Ni"]
+
+        def dummy_pes(lat, coords, spec):
+            r = np.linalg.norm(coords[0] - coords[1])
+            return float(100.0 * (r - 2.5)**2)
+
+        c_voigt = compute_universal_cauchy_born_stiffness(dummy_pes, lat_mono, coords_mono, species, strain_magnitude=0.005)
+        self.assertEqual(c_voigt.shape, (6, 6))
+        np.testing.assert_allclose(c_voigt, c_voigt.T, atol=1e-3)
+
+        c_pos = c_voigt + np.eye(6) * 150.0
+        vrh = compute_voigt_reuss_hill_aggregates(c_pos)
+        self.assertGreater(vrh["bulk_modulus_hill_gpa"], 0.0)
+        self.assertGreater(vrh["shear_modulus_hill_gpa"], 0.0)
+        self.assertIn("pugh_ductility_ratio", vrh)
+
+    def test_relaxed_2d_gamma_surface(self):
+        from penziv_materials.scale5_quantum.gamma_surface import TwoDimensionalGammaSurfaceEngine
+        engine = TwoDimensionalGammaSurfaceEngine(grid_resolution=5, use_mlip=False)
+        res = engine.evaluate_2d_gamma_surface_grid(relax_z=True, relax_z_steps=5)
+        self.assertIn("gamma_surface_grid_mj_m2", res)
+        self.assertIn("unstable_stacking_fault_energy_gamma_usf_mj_m2", res)
+        self.assertGreater(res["unstable_stacking_fault_energy_gamma_usf_mj_m2"], 0.0)
+
+    def test_grand_canonical_charged_defect_energetics(self):
+        defect_res = self.semi.compute_charged_defect_formation_energy(
+            e_defect_dft_ev=-150.2,
+            e_bulk_dft_ev=-155.0,
+            chemical_potentials_ev={"Ga": -3.5, "As": -4.2},
+            stoichiometry_change_delta_n={"Ga": -1},  # Ga vacancy
+            charge_state_q=-1,
+            fermi_energy_ev=0.7,
+            e_vbm_ev=0.0,
+            dielectric_constant_eps_r=12.9,
+            cell_volume_ang3=180.0,
+        )
+        self.assertIn("formation_energy_ev", defect_res)
+        self.assertIn("equilibrium_concentration_cm3", defect_res)
+        self.assertIn("fnv_image_charge_correction_ev", defect_res)
+
+    def test_cahill_pohl_minimum_thermal_conductivity(self):
+        cahill_res = self.thermal.compute_cahill_pohl_minimum_thermal_conductivity(
+            number_density_atoms_m3=6.5e28,
+            longitudinal_sound_velocity_m_s=5500.0,
+            transverse_sound_velocity_m_s=3200.0,
+        )
+        self.assertIn("cahill_pohl_kappa_min_w_m_k", cahill_res)
+        self.assertGreater(cahill_res["cahill_pohl_kappa_min_w_m_k"], 0.0)
+
+    def test_reactive_interdiffusion_stefan_growth(self):
+        from penziv_materials.physics.cohesive_interface import CohesiveZoneInterfaceEngine
+        engine = CohesiveZoneInterfaceEngine(temperature_k=1100.0)
+        growth_res = engine.solve_reactive_interdiffusion_stefan_growth(time_seconds=36000.0)
+        self.assertIn("layer_thickness_microns", growth_res)
+        self.assertIn("growth_rate_microns_per_hour", growth_res)
+        self.assertGreater(growth_res["layer_thickness_microns"], 0.0)
+
+    def test_dynamic_active_convex_hull_and_multivalent_redox(self):
+        from penziv_materials.thermodynamics.convex_hull import GrandCanonicalConvexHull
+        hull = GrandCanonicalConvexHull()
+        v_min, v_max = hull.compute_electrochemical_window_vs_reference_metal(
+            candidate_formula="Al2O3",
+            candidate_formation_energy_ev_atom=-3.45,
+            reference_metal="Al",
+        )
+        self.assertGreater(v_max, v_min)
+
+        active_res = hull.solve_dynamic_active_hull(
+            target_composition={"Al": 2.0, "O": 3.0},
+            target_energy_per_atom=-3.45,
+        )
+        self.assertIn("energy_above_hull_mev_atom", active_res)
+        self.assertIn("is_stable", active_res)
+
 
 if __name__ == "__main__":
     unittest.main()
+

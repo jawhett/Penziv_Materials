@@ -70,3 +70,120 @@ def evaluate_clausius_duhem(
     stress_power = np.sum(cauchy_stress * plastic_strain_rate)
     d_int = stress_power - d_isv_dt
     return float(d_int)
+
+
+def compute_universal_cauchy_born_stiffness(
+    eval_energy_fn,  # Callable[[lattice_matrix, cart_coords, species], float]
+    base_lattice: np.ndarray,
+    base_coords: np.ndarray,
+    species: list,
+    strain_magnitude: float = 0.005,
+) -> np.ndarray:
+    """Evaluate full 21-parameter stiffness tensor C_ij via coordinate-free central finite strain differences."""
+    v0 = float(np.abs(np.linalg.det(base_lattice)))
+    ev_ang3_to_gpa = 160.21766208
+    voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+    c_matrix = np.zeros((6, 6), dtype=np.float64)
+
+    # 1. Diagonal components C_alpha_alpha: (E(+d) - 2E0 + E(-d)) / (d^2 * V0)
+    e0 = eval_energy_fn(base_lattice, base_coords, species)
+    for a in range(6):
+        i, j = voigt_map[a]
+        eps = np.zeros((3, 3))
+        eps[i, j] += strain_magnitude
+        eps[j, i] = eps[i, j]
+
+        lat_p = np.dot(base_lattice, np.eye(3) + eps)
+        pos_p = np.dot(base_coords, np.eye(3) + eps)
+        e_plus = eval_energy_fn(lat_p, pos_p, species)
+
+        lat_m = np.dot(base_lattice, np.eye(3) - eps)
+        pos_m = np.dot(base_coords, np.eye(3) - eps)
+        e_minus = eval_energy_fn(lat_m, pos_m, species)
+
+        d2e = (e_plus - 2.0 * e0 + e_minus) / ((strain_magnitude**2) * v0)
+        c_matrix[a, a] = d2e * ev_ang3_to_gpa
+
+    # 2. Off-diagonal components C_ab: (E(++d) - E(+-d) - E(-+d) + E(--d)) / (4 * d^2 * V0)
+    for a in range(6):
+        i, j = voigt_map[a]
+        for b in range(a + 1, 6):
+            k, l = voigt_map[b]
+            eps_a = np.zeros((3, 3))
+            eps_a[i, j] += strain_magnitude
+            eps_a[j, i] = eps_a[i, j]
+
+            eps_b = np.zeros((3, 3))
+            eps_b[k, l] += strain_magnitude
+            eps_b[l, k] = eps_b[k, l]
+
+            e_pp = eval_energy_fn(
+                np.dot(base_lattice, np.eye(3) + eps_a + eps_b),
+                np.dot(base_coords, np.eye(3) + eps_a + eps_b),
+                species,
+            )
+            e_pm = eval_energy_fn(
+                np.dot(base_lattice, np.eye(3) + eps_a - eps_b),
+                np.dot(base_coords, np.eye(3) + eps_a - eps_b),
+                species,
+            )
+            e_mp = eval_energy_fn(
+                np.dot(base_lattice, np.eye(3) - eps_a + eps_b),
+                np.dot(base_coords, np.eye(3) - eps_a + eps_b),
+                species,
+            )
+            e_mm = eval_energy_fn(
+                np.dot(base_lattice, np.eye(3) - eps_a - eps_b),
+                np.dot(base_coords, np.eye(3) - eps_a - eps_b),
+                species,
+            )
+
+            d2e_ab = (e_pp - e_pm - e_mp + e_mm) / (
+                4.0 * (strain_magnitude**2) * v0
+            )
+            val = d2e_ab * ev_ang3_to_gpa
+            c_matrix[a, b] = val
+            c_matrix[b, a] = val
+
+    # Symmetrize to enforce Voigt major symmetry
+    c_matrix = 0.5 * (c_matrix + c_matrix.T)
+    return c_matrix
+
+
+def compute_voigt_reuss_hill_aggregates(c_matrix: np.ndarray) -> dict:
+    """Compute Voigt-Reuss-Hill polycrystalline aggregate elastic moduli and invariants."""
+    s_matrix = np.linalg.pinv(c_matrix)
+
+    # Voigt bounds
+    k_v = float(((c_matrix[0, 0] + c_matrix[1, 1] + c_matrix[2, 2]) + 2.0 * (c_matrix[0, 1] + c_matrix[1, 2] + c_matrix[0, 2])) / 9.0)
+    g_v = float(((c_matrix[0, 0] + c_matrix[1, 1] + c_matrix[2, 2]) - (c_matrix[0, 1] + c_matrix[1, 2] + c_matrix[0, 2]) + 3.0 * (c_matrix[3, 3] + c_matrix[4, 4] + c_matrix[5, 5])) / 15.0)
+
+    # Reuss bounds
+    k_r = float(1.0 / max(1e-12, (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) + 2.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2])))
+    g_r = float(15.0 / max(1e-12, 4.0 * (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) - 4.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2]) + 3.0 * (s_matrix[3, 3] + s_matrix[4, 4] + s_matrix[5, 5])))
+
+    # Hill aggregates (arithmetic mean)
+    k_h = 0.5 * (k_v + k_r)
+    g_h = 0.5 * (g_v + g_r)
+
+    youngs_modulus_gpa = (9.0 * k_h * g_h) / max(1e-12, 3.0 * k_h + g_h)
+    poissons_ratio = (3.0 * k_h - 2.0 * g_h) / max(1e-12, 2.0 * (3.0 * k_h + g_h))
+    pugh_ratio = k_h / max(1e-12, g_h)
+    cauchy_pressure = c_matrix[0, 1] - c_matrix[3, 3]
+    anisotropy_index = 5.0 * (g_v / max(1e-12, g_r)) + (k_v / max(1e-12, k_r)) - 6.0
+
+    return {
+        "bulk_modulus_voigt_gpa": k_v,
+        "bulk_modulus_reuss_gpa": k_r,
+        "bulk_modulus_hill_gpa": k_h,
+        "shear_modulus_voigt_gpa": g_v,
+        "shear_modulus_reuss_gpa": g_r,
+        "shear_modulus_hill_gpa": g_h,
+        "youngs_modulus_gpa": float(youngs_modulus_gpa),
+        "poissons_ratio": float(poissons_ratio),
+        "pugh_ductility_ratio": float(pugh_ratio),
+        "cauchy_pressure_gpa": float(cauchy_pressure),
+        "universal_anisotropy_index": float(max(0.0, anisotropy_index)),
+        "is_ductile_pugh": bool(pugh_ratio > 1.75),
+    }
+

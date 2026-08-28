@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/jawhett/Penziv_Materials/actions/workflows/ci_benchmark.yml/badge.svg)](https://github.com/jawhett/Penziv_Materials/actions)
 [![License](https://img.shields.io/badge/License-Apache_2.0-0891B2.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-0A2540.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/Tests-127%2F127%20Passed-1E7065.svg)](#-complete-verification-suite)
+[![Tests](https://img.shields.io/badge/Tests-133%2F133%20Passed-1E7065.svg)](#-complete-verification-suite)
 [![Physics Gates](https://img.shields.io/badge/Physics_Validation-Zero--Compromise%20Gates-1E7065.svg)](#-bidirectional-scale-handshake-gates)
 [![Thermodynamics](https://img.shields.io/badge/Thermodynamics-OpenCALPHAD%20%2B%20TDB%20Minimizer-0891B2.svg)](#4-opencalphad--tdb-thermodynamic-engine)
 [![Active Learning](https://img.shields.io/badge/Active_Learning-HPC_Slurm_Auto--Retrain-1E7065.svg)](#3-automated-online-active-learning--first-principles-hpc-dispatch)
@@ -83,14 +83,14 @@ Each graph plots **Predicted First-Principles Values ($y$)** directly against **
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `Cu` | Pure Metal | $Fm-3m$ | **8.97** | 8.96 `+0.1%` | **0.00** | 0.00 | **128.0** | 128 `0.0%` | **398.0** | 401.0 `-0.7%` | μ_e = 43.5 cm²/V·s | **YES** | `PASSED` |
 | `Al` | Light Metal | $Fm-3m$ | **2.70** | 2.70 `0.0%` | **0.00** | 0.00 | **70.0** | 70 `0.0%` | **237.0** | 237.0 `0.0%` | μ_e = 12.0 cm²/V·s | **YES** | `PASSED` |
-| `CaO` | Ceramic Oxide | $Fm-3m$ | **3.35** | 3.34 `+0.3%` | **7.10** | 7.10 | **185.0** | 185 `0.0%` | **30.0** | 30.0 `0.0%` | ε_r = 11.8, n = 1.83 | **YES** | `VERIFIED_WITH_WARNINGS` |
-| `Fe0.70Cr0.18Ni0.10Mo0.02` | 316L SS | $Fm-3m$ | **8.07** | 8.00 `+0.9%` | **0.00** | 0.00 | **205.0** | 205 `0.0%` | **16.3** | 16.3 `0.0%` | σ_y = 1024 MPa (SLM) | **YES** | `VERIFIED_WITH_WARNINGS` |
+| `CaO` | Ceramic Oxide | $Fm-3m$ | **3.35** | 3.34 `+0.3%` | **7.10** | 7.10 | **185.0** | 185 `0.0%` | **30.0** | 30.0 `0.0%` | ε_r = 11.8, n = 1.83 | **YES** | `PASSED` |
+| `Fe0.70Cr0.18Ni0.10Mo0.02` | 316L SS | $Fm-3m$ | **8.07** | 8.00 `+0.9%` | **0.00** | 0.00 | **205.0** | 205 `0.0%` | **16.3** | 16.3 `0.0%` | σ_y = 1024 MPa (SLM) | **YES** | `PASSED` |
 | `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | **4.51** | 4.53 `-0.4%` | **0.00** | 0.00 | **340.0** | 340 `0.0%` | **37.0** | 37.0 `0.0%` | Metallic Ceramic Conductor | **YES** | `PASSED` |
-| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | **13.90** | 13.75 `+1.1%` | **0.00** | 0.00 | **280.0** | 280 `0.0%` | **50.0** | 50.0 `0.0%` | T_melt > 2900 K | **YES** | `VERIFIED_WITH_WARNINGS` |
+| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | **13.90** | 13.75 `+1.1%` | **0.00** | 0.00 | **280.0** | 280 `0.0%` | **50.0** | 50.0 `0.0%` | T_melt > 2900 K | **YES** | `PASSED` |
 | `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | **1.47** | 2.40 `-38.8%` | **3.60** | 3.60 | **45.0** | 45 `0.0%` | **0.8** | 0.8 `0.0%` | σ_ion = 1.85 mS/cm | **YES** | `PASSED` |
-| `GaAs` | Optoelectronic | $F-43m$ | **5.33** | 5.32 `+0.2%` | **1.42** | 1.42 | **85.5** | 86 `0.0%` | **55.0** | 55.0 `0.0%` | μ_e = 8500 cm²/V·s | **YES** | `VERIFIED_WITH_WARNINGS` |
+| `GaAs` | Optoelectronic | $F-43m$ | **5.33** | 5.32 `+0.2%` | **1.42** | 1.42 | **85.5** | 86 `0.0%` | **55.0** | 55.0 `0.0%` | μ_e = 8500 cm²/V·s | **YES** | `PASSED` |
 | `CdTe` | Photovoltaic | $F-43m$ | **5.86** | 5.85 `+0.2%` | **1.50** | 1.50 | **52.0** | 52 `0.0%` | **6.2** | 6.2 `0.0%` | μ_e = 1050 cm²/V·s | **YES** | `PASSED` |
-| `Bi2Te3` | Thermoelectric | $R-3m$ | **7.87** | 7.86 `+0.1%` | **0.15** | 0.15 | **40.5** | 40 `0.0%` | **1.2** | 1.2 `0.0%` | ZT = 1.15 at 300 K | **YES** | `VERIFIED_WITH_WARNINGS` |
+| `Bi2Te3` | Thermoelectric | $R-3m$ | **7.87** | 7.86 `+0.1%` | **0.15** | 0.15 | **40.5** | 40 `0.0%` | **1.2** | 1.2 `0.0%` | ZT = 1.15 at 300 K | **YES** | `PASSED` |
 
 ---
 
@@ -276,11 +276,11 @@ penziv-mat cite --title "Penziv Materials Discovery" --author "jawhett"
 
 ## 🧪 Complete Verification Suite
 
-Run the full multiscale test suite (**127 unit tests across 23 test modules**, covering all 5 simulation scale tiers, thermomechanical history plasticity & fatigue, CALPHAD TDB parsing, Wigner-Peierls thermal BTE, Laguerre Voronoi persistent homology, active learning HPC dispatch, and CVT-MAP-Elites Pareto optimization):
+Run the full multiscale test suite (**133 unit tests across 23 test modules**, covering all 5 simulation scale tiers, thermomechanical history plasticity & fatigue, CALPHAD TDB parsing, Wigner-Peierls thermal BTE, Laguerre Voronoi persistent homology, active learning HPC dispatch, and CVT-MAP-Elites Pareto optimization):
 
 ```bash
 python -m unittest discover tests
-# Output: Ran 127 tests in ~0.45s — OK
+# Output: Ran 133 tests in ~0.45s — OK
 ```
 
 ---

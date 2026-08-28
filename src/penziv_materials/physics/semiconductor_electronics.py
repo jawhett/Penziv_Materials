@@ -207,3 +207,48 @@ class SemiconductorElectronicEngine:
             "baliga_figure_of_merit": float(bfom),
             "is_ultra_wide_bandgap": bool(band_gap_ev >= 3.4),
         }
+
+    def compute_charged_defect_formation_energy(
+        self,
+        e_defect_dft_ev: float,
+        e_bulk_dft_ev: float,
+        chemical_potentials_ev: Dict[str, float],
+        stoichiometry_change_delta_n: Dict[str, int],
+        charge_state_q: int,
+        fermi_energy_ev: float,
+        e_vbm_ev: float = 0.0,
+        potential_alignment_delta_v_ev: float = 0.0,
+        dielectric_constant_eps_r: float = 12.0,
+        cell_volume_ang3: float = 150.0,
+    ) -> Dict[str, Any]:
+        """Compute grand canonical charged defect formation energy:
+
+        Delta H_f(D^q, E_F, mu) = E_tot(D^q) - E_tot(bulk) - sum_i Delta n_i * mu_i + q * (E_F + E_VBM + Delta v) + E_FNV
+        """
+        # 1. Chemical potential sum
+        chempot_term = sum(delta_n * chemical_potentials_ev.get(elem, 0.0) for elem, delta_n in stoichiometry_change_delta_n.items())
+
+        # 2. Fermi energy and band edge term
+        fermi_term = charge_state_q * (fermi_energy_ev + e_vbm_ev + potential_alignment_delta_v_ev)
+
+        # 3. Freysoldt-Neugebauer-Van de Walle (FNV) electrostatic image charge correction
+        # E_FNV = - (q^2 * alpha_Madelung) / (2 * eps_r * L)
+        l_cell = (cell_volume_ang3) ** (1.0 / 3.0)
+        madelung_alpha = 2.8373
+        e_charge_corr_ev = - ( (charge_state_q ** 2) * 14.3996 * madelung_alpha ) / (2.0 * max(1.0, dielectric_constant_eps_r) * l_cell) if charge_state_q != 0 else 0.0
+
+        delta_h_f = (e_defect_dft_ev - e_bulk_dft_ev) - chempot_term + fermi_term + e_charge_corr_ev
+
+        # Equilibrium defect concentration at temperature T
+        kbt_ev = (BOLTZMANN_J_K * max(1.0, self.T)) / E_CHARGE
+        n_sites_cm3 = (1.0 / (cell_volume_ang3 * 1.0e-24))
+        c_defect_cm3 = n_sites_cm3 * np.exp(-max(0.0, delta_h_f) / max(1e-4, kbt_ev))
+
+        return {
+            "formation_energy_ev": float(delta_h_f),
+            "charge_state": int(charge_state_q),
+            "fermi_energy_above_vbm_ev": float(fermi_energy_ev),
+            "fnv_image_charge_correction_ev": float(e_charge_corr_ev),
+            "equilibrium_concentration_cm3": float(np.clip(c_defect_cm3, 1.0, 1.0e22)),
+            "is_spontaneous_doping": bool(delta_h_f <= 0.0),
+        }

@@ -13,13 +13,16 @@ class TwoDimensionalGammaSurfaceEngine:
         self.use_mlip = use_mlip
         self._mlip_engine = None
 
-    def _eval_slab_energy(
+    def _eval_slab_energy_and_forces(
         self,
         cartesian_coords: np.ndarray,
         lattice_matrix: np.ndarray,
         species_list: List[str],
-    ) -> float:
-        """Evaluate potential energy of slab configuration."""
+    ) -> Tuple[float, np.ndarray]:
+        """Evaluate potential energy and forces of slab configuration."""
+        n_atoms = len(cartesian_coords)
+        forces = np.zeros((n_atoms, 3), dtype=np.float64)
+
         if self.use_mlip:
             try:
                 if self._mlip_engine is None:
@@ -31,25 +34,57 @@ class TwoDimensionalGammaSurfaceEngine:
                     lattice_vectors=lattice_matrix,
                 )
                 if "total_energy_ev" in res:
-                    return float(res["total_energy_ev"])
+                    e_val = float(res["total_energy_ev"])
+                    f_val = np.asarray(res.get("forces_ev_ang", forces), dtype=np.float64)
+                    return e_val, f_val
             except Exception:
                 pass
 
-        # Fallback to Buckingham-screened interatomic potential
-        e_tot = 0.0
-        n_atoms = len(cartesian_coords)
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                diff = cartesian_coords[i] - cartesian_coords[j]
-                # Periodic in x and y (slab in-plane)
-                diff[0] -= lattice_matrix[0, 0] * np.round(diff[0] / lattice_matrix[0, 0])
-                diff[1] -= lattice_matrix[1, 1] * np.round(diff[1] / lattice_matrix[1, 1])
-                r = float(np.linalg.norm(diff))
-                if 0.5 < r < 8.0:
-                    e_rep = 1500.0 * np.exp(-r / 0.29)
-                    e_bond = -4.5 * np.exp(-((r - 2.6)**2) / 0.35)
-                    e_tot += (e_rep + e_bond)
+        # Fully vectorized pairwise Buckingham potential and analytical forces
+        diff = cartesian_coords[:, np.newaxis, :] - cartesian_coords[np.newaxis, :, :]  # (N, N, 3)
+        diff[:, :, 0] -= lattice_matrix[0, 0] * np.round(diff[:, :, 0] / max(1e-6, lattice_matrix[0, 0]))
+        diff[:, :, 1] -= lattice_matrix[1, 1] * np.round(diff[:, :, 1] / max(1e-6, lattice_matrix[1, 1]))
+        r = np.linalg.norm(diff, axis=-1)
+
+        mask = (r > 0.5) & (r < 8.0)
+        np.fill_diagonal(mask, False)
+
+        e_rep = np.where(mask, 1500.0 * np.exp(-r / 0.29), 0.0)
+        e_bond = np.where(mask, -4.5 * np.exp(-((r - 2.6)**2) / 0.35), 0.0)
+        e_tot = float(np.sum(e_rep + e_bond) / 2.0)
+
+        r_safe = np.where(mask, r, 1.0)
+        de_dr = np.where(mask, -(1500.0 / 0.29) * np.exp(-r_safe / 0.29) + 4.5 * (2.0 * (r_safe - 2.6) / 0.35) * np.exp(-((r_safe - 2.6)**2) / 0.35), 0.0)
+        f_pairwise = -(de_dr[..., np.newaxis] / r_safe[..., np.newaxis]) * diff
+        forces = np.sum(f_pairwise, axis=1)
+
+        return float(e_tot), forces
+
+    def _eval_slab_energy(
+        self,
+        cartesian_coords: np.ndarray,
+        lattice_matrix: np.ndarray,
+        species_list: List[str],
+    ) -> float:
+        """Evaluate potential energy of slab configuration."""
+        e_tot, _ = self._eval_slab_energy_and_forces(cartesian_coords, lattice_matrix, species_list)
         return float(e_tot)
+
+    def _relax_z_coordinates(
+        self,
+        coords: np.ndarray,
+        lattice_matrix: np.ndarray,
+        species_list: List[str],
+        relax_steps: int = 15,
+        lr: float = 0.02,
+    ) -> Tuple[float, np.ndarray]:
+        """Relax out-of-plane z coordinates to relieve steric overlap across sheared slab."""
+        cur_coords = coords.copy()
+        for _ in range(relax_steps):
+            _, forces = self._eval_slab_energy_and_forces(cur_coords, lattice_matrix, species_list)
+            cur_coords[:, 2] += lr * np.clip(forces[:, 2], -1.5, 1.5)
+        e_final, _ = self._eval_slab_energy_and_forces(cur_coords, lattice_matrix, species_list)
+        return e_final, cur_coords
 
     def evaluate_2d_gamma_surface_grid(
         self,
@@ -61,8 +96,10 @@ class TwoDimensionalGammaSurfaceEngine:
         gamma_usf_multiplier: float = 1.0,
         lattice_constant_angstrom: float = 3.615,
         species: str = "Cu",
+        relax_z: bool = True,
+        relax_z_steps: int = 15,
     ) -> Dict[str, Any]:
-        """Compute the 2D energy landscape gamma(u_1, u_2) (mJ/m^2) by shearing supercell crystal slabs."""
+        """Compute the 2D energy landscape gamma(u_1, u_2) (mJ/m^2) by shearing supercell crystal slabs with z-relaxation."""
         a = lattice_constant_angstrom
         d_hkl = interplanar_spacing_angstrom
 
@@ -113,8 +150,11 @@ class TwoDimensionalGammaSurfaceEngine:
         mid_z = (n_layers // 2) * d_hkl + 2.0
         top_mask = coords_arr[:, 2] >= mid_z
 
-        # Compute reference unshifted slab energy E_0
-        e0 = self._eval_slab_energy(coords_arr, lattice_matrix, species_list)
+        # Compute reference unshifted slab energy E_0 (with relaxation if enabled)
+        if relax_z:
+            e0, coords_arr = self._relax_z_coordinates(coords_arr, lattice_matrix, species_list, relax_steps=relax_z_steps)
+        else:
+            e0 = self._eval_slab_energy(coords_arr, lattice_matrix, species_list)
 
         u_vals = np.linspace(0.0, 1.0, self.grid_res)
         gamma_grid = np.zeros((self.grid_res, self.grid_res))
@@ -128,16 +168,20 @@ class TwoDimensionalGammaSurfaceEngine:
                     gamma_grid[0, 0] = 0.0
                     continue
 
-                # Apply rigid displacement vector u = u1 * b1 + u2 * b2 to the top half
+                # Apply displacement vector u = u1 * b1 + u2 * b2 to the top half
                 disp_vec = u1 * b1 + u2 * b2
                 sheared_coords = coords_arr.copy()
                 sheared_coords[top_mask, 0] += disp_vec[0]
                 sheared_coords[top_mask, 1] += disp_vec[1]
 
-                e_sheared = self._eval_slab_energy(sheared_coords, lattice_matrix, species_list)
+                if relax_z:
+                    e_sheared, _ = self._relax_z_coordinates(sheared_coords, lattice_matrix, species_list, relax_steps=relax_z_steps)
+                else:
+                    e_sheared = self._eval_slab_energy(sheared_coords, lattice_matrix, species_list)
+
                 delta_e_ev = e_sheared - e0
                 # Specific stacking fault energy in mJ/m^2
-                gamma_val = (delta_e_ev * ev_to_mj) / area_m2
+                gamma_val = (delta_e_ev * ev_to_mj) / max(1e-30, area_m2)
                 gamma_grid[i, j] = max(0.0, gamma_val * gamma_usf_multiplier)
 
         # Normalize physical bounds if MLIP is operating in heuristic fallback

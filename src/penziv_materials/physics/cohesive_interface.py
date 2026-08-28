@@ -100,3 +100,29 @@ class CohesiveZoneInterfaceEngine:
             "stress_to_diffusion_ratio": float(np.mean(np.linalg.norm(j_stress, axis=-1)) / max(1e-12, np.mean(np.linalg.norm(j_diff, axis=-1)))),
             "is_space_charge_limited": bool(np.mean(np.linalg.norm(j_mig, axis=-1)) > np.mean(np.linalg.norm(j_diff, axis=-1))),
         }
+
+    def solve_reactive_interdiffusion_stefan_growth(
+        self,
+        time_seconds: float,
+        pre_exponential_k0_m2_s: float = 1.2e-4,
+        activation_energy_q_j_mol: float = 145000.0,
+        intermetallic_phase_name: str = "Ni3Al",
+    ) -> Dict[str, Any]:
+        """Solve Stefan multiphase reactive interdiffusion parabolic layer growth:
+
+        x(t) = sqrt(2 * k_p * t),  k_p = k_0 * exp(-Q / (R * T))
+        """
+        rt = R_GAS * max(1.0, self.T)
+        k_p = pre_exponential_k0_m2_s * np.exp(-activation_energy_q_j_mol / rt)
+        layer_thickness_m = np.sqrt(2.0 * k_p * max(0.0, time_seconds))
+        layer_thickness_um = float(layer_thickness_m * 1.0e6)
+        growth_rate_um_h = float((np.sqrt(k_p / (2.0 * max(1.0, time_seconds))) * 1.0e6 * 3600.0) if time_seconds > 0 else 0.0)
+
+        return {
+            "intermetallic_phase": intermetallic_phase_name,
+            "layer_thickness_microns": layer_thickness_um,
+            "growth_rate_microns_per_hour": growth_rate_um_h,
+            "parabolic_rate_constant_kp_m2_s": float(k_p),
+            "temperature_k": float(self.T),
+            "exposure_time_hours": float(time_seconds / 3600.0),
+        }

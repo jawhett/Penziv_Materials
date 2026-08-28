@@ -190,6 +190,16 @@ class GrandCanonicalConvexHull:
             "decomposition_energy_ev_atom": float(e_hull_baseline),
         }
 
+    ELEMENT_VALENCES: Dict[str, float] = {
+        "H": 1.0, "Li": 1.0, "Na": 1.0, "K": 1.0, "Rb": 1.0, "Cs": 1.0,
+        "Be": 2.0, "Mg": 2.0, "Ca": 2.0, "Sr": 2.0, "Ba": 2.0, "Zn": 2.0, "Cd": 2.0,
+        "B": 3.0, "Al": 3.0, "Ga": 3.0, "In": 3.0, "Sc": 3.0, "Y": 3.0, "La": 3.0,
+        "Ti": 4.0, "Zr": 4.0, "Hf": 4.0, "Si": 4.0, "Ge": 4.0, "Sn": 4.0,
+        "V": 5.0, "Nb": 5.0, "Ta": 5.0, "P": 5.0, "Sb": 3.0, "Bi": 3.0,
+        "Cr": 3.0, "Mo": 6.0, "W": 6.0, "Mn": 2.0, "Fe": 3.0, "Co": 2.0, "Ni": 2.0,
+        "Cu": 2.0, "Ag": 1.0, "Au": 1.0,
+    }
+
     def compute_electrochemical_window_vs_reference_metal(
         self,
         candidate_formula: str,
@@ -197,6 +207,7 @@ class GrandCanonicalConvexHull:
         reference_metal: str = "Li",
         voltage_range: Tuple[float, float] = (0.0, 5.5),
         voltage_step: float = 0.02,
+        custom_metal_valence: Optional[float] = None,
     ) -> Tuple[float, float]:
         """Compute exact grand potential reduction/oxidation bounds via convex hull facet Legendre minimization:
 
@@ -209,7 +220,7 @@ class GrandCanonicalConvexHull:
             return 0.0, 5.0
 
         n_metal_frac = n_metal / max(1e-6, total_atoms)
-        charge_z = 2.0 if reference_metal in ["Mg", "Zn", "Ca"] else 1.0
+        charge_z = custom_metal_valence or self.ELEMENT_VALENCES.get(reference_metal, 1.0)
 
         voltages = np.arange(voltage_range[0], voltage_range[1] + voltage_step, voltage_step)
         stable_voltages = []
@@ -236,3 +247,77 @@ class GrandCanonicalConvexHull:
             v_max = v_min + 3.0
 
         return v_min, v_max
+
+    def solve_dynamic_active_hull(
+        self,
+        target_composition: Dict[str, float],
+        target_energy_per_atom: float,
+        mlip_engine=None,
+        dft_fallback_fn=None,
+        reference_phase_generator_fn=None,
+        tolerance_mev: float = 35.0,
+    ) -> Dict[str, Any]:
+        """Active learning convex hull solver with on-the-fly candidate generation and epistemic uncertainty routing."""
+        elements = sorted(list(target_composition.keys()))
+        tot_target = sum(target_composition.values())
+        cand_fracs = {k: v / max(1e-6, tot_target) for k, v in target_composition.items()}
+
+        pool_energies: List[Dict[str, Any]] = []
+
+        if reference_phase_generator_fn is not None:
+            candidate_pool = reference_phase_generator_fn(elements)
+            for cand in candidate_pool:
+                cand_comp = getattr(cand, "composition", {})
+                e_val = getattr(cand, "energy_per_atom", 0.0)
+                if mlip_engine is not None and hasattr(cand, "lattice_matrix"):
+                    try:
+                        res = mlip_engine.evaluate_total_potential_energy_and_forces(
+                            cartesian_coords=cand.cartesian_coords,
+                            species=[s.species for s in cand.sites] if hasattr(cand, "sites") else list(cand_comp.keys()),
+                            lattice_vectors=cand.lattice_matrix,
+                        )
+                        e_val = float(res.get("total_energy_ev_atom", e_val))
+                        sigma_f = float(res.get("max_force_residual_ev_ang", 0.0))
+                        if sigma_f > 0.05 and dft_fallback_fn is not None:
+                            e_val = float(dft_fallback_fn(cand))
+                    except Exception:
+                        pass
+                pool_energies.append({"composition": cand_comp, "energy_per_atom": e_val})
+
+        # Fallback to local entries if pool is empty
+        if not pool_energies:
+            candidate_set = set(elements)
+            relevant_entries = [e for e in self.entries if set(e.atomic_fractions.keys()).issubset(candidate_set)]
+            if not relevant_entries:
+                relevant_entries = [
+                    ConvexHullEntry(formula=el, formation_energy_per_atom_ev=0.0, is_reference_element=True)
+                    for el in elements
+                ]
+            for ent in relevant_entries:
+                pool_energies.append({"composition": ent.composition, "energy_per_atom": ent.formation_energy_per_atom_ev})
+
+        n_elems = len(elements)
+        n_entries = len(pool_energies)
+        c_vec = np.array([p["energy_per_atom"] for p in pool_energies])
+
+        A_eq = np.zeros((n_elems + 1, n_entries))
+        b_eq = np.zeros(n_elems + 1)
+
+        for i, el in enumerate(elements):
+            b_eq[i] = cand_fracs[el]
+            for j, entry in enumerate(pool_energies):
+                e_tot = sum(entry["composition"].values())
+                A_eq[i, j] = entry["composition"].get(el, 0.0) / max(1e-6, e_tot)
+        A_eq[-1, :] = 1.0
+        b_eq[-1] = 1.0
+
+        res = linprog(c_vec, A_eq=A_eq, b_eq=b_eq, bounds=(0, 1), method="highs")
+        e_hull = float(res.fun) if res.success else float(np.min(c_vec))
+        e_above_hull_mev = max(0.0, (target_energy_per_atom - e_hull) * 1000.0)
+
+        return {
+            "energy_above_hull_mev_atom": float(e_above_hull_mev),
+            "is_stable": bool(e_above_hull_mev <= tolerance_mev),
+            "ground_state_energy_ev_atom": float(e_hull),
+            "target_energy_ev_atom": float(target_energy_per_atom),
+        }

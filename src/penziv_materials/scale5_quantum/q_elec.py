@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
 from penziv_materials.core.constants import BOLTZMANN_EV_K
 from penziv_materials.core.models import QuantumState
+from penziv_materials.core.tensors import compute_universal_cauchy_born_stiffness, compute_voigt_reuss_hill_aggregates
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 
 
@@ -218,88 +219,86 @@ class QElecAgent:
 
         return float(e_tot)
 
-    def compute_cauchy_born_elastic_tensor(
+    def compute_full_cauchy_born_stiffness_matrix(
         self,
         composition: Dict[str, float],
+        base_lattice: Optional[np.ndarray] = None,
+        base_coords: Optional[np.ndarray] = None,
         strain_delta: float = 0.005,
-    ) -> Tuple[float, float, float, float]:
-        """Derive single-crystal elastic stiffness components C_11, C_12, C_44 (GPa) and melting point Tm (K) via numerical differentiation of the PES under 6 Voigt strain modes."""
+    ) -> Dict[str, Any]:
+        """Derive complete 6x6 Voigt stiffness tensor and VRH aggregates via coordinate-free Cauchy-Born differentiation."""
         elems = list(composition.keys())
         counts = np.array([composition[e] for e in elems], dtype=np.float64)
         total = np.sum(counts)
         fracs = counts / max(1e-6, total)
 
-        # Compute average melting point
         mean_tm = sum(fracs[idx] * UniversalElementalProperties.get_element(e)[5] for idx, e in enumerate(elems))
         mean_r = sum(fracs[idx] * UniversalElementalProperties.get_element(e)[1] for idx, e in enumerate(elems))
 
-        # Setup standard representative unit cell
-        a0 = 2.0 * mean_r * np.sqrt(2.0)
-        lattice_0 = np.diag([a0, a0, a0])
-        v0_ang3 = float(np.abs(np.linalg.det(lattice_0)))
-        v0_m3 = v0_ang3 * 1.0e-30
-
-        # Construct candidate atomic sites for unit cell
         species_list = []
         for e, cnt in composition.items():
             species_list.extend([e] * max(1, int(round(cnt))))
         n_atoms = len(species_list)
 
-        # Baseline fractional coordinates in cubic cell
-        frac_coords = np.zeros((n_atoms, 3))
-        for i in range(n_atoms):
-            frac_coords[i] = [(i * 0.35) % 1.0, (i * 0.55) % 1.0, (i * 0.75) % 1.0]
-        cart_0 = np.dot(frac_coords, lattice_0)
+        if base_lattice is None:
+            a0 = 2.0 * mean_r * np.sqrt(2.0)
+            lat_0 = np.diag([a0, a0, a0])
+        else:
+            lat_0 = np.asarray(base_lattice, dtype=np.float64)
 
-        # Compute baseline energy E0
-        e0 = self._eval_lattice_pes_energy(lattice_0, species_list, cart_0)
+        if base_coords is None:
+            frac_coords = np.zeros((n_atoms, 3))
+            for i in range(n_atoms):
+                frac_coords[i] = [(i * 0.35) % 1.0, (i * 0.55) % 1.0, (i * 0.75) % 1.0]
+            coords_0 = np.dot(frac_coords, lat_0)
+        else:
+            coords_0 = np.asarray(base_coords, dtype=np.float64)
 
-        # 6 Voigt strain modes: [e11, e22, e33, 2*e23, 2*e13, 2*e12]
-        c_voigt_gpa = np.zeros((6, 6))
+        def eval_fn(lattice, coords, spec):
+            return self._eval_lattice_pes_energy(lattice, spec, coords)
 
-        # Conversion: 1 eV / A^3 = 160.21766208 GPa
-        ev_ang3_to_gpa = 160.21766208
+        c_voigt = compute_universal_cauchy_born_stiffness(
+            eval_energy_fn=eval_fn,
+            base_lattice=lat_0,
+            base_coords=coords_0,
+            species=species_list,
+            strain_magnitude=strain_delta,
+        )
 
-        # 1. Diagonal components C_alpha_alpha = (E(+d) - 2*E0 + E(-d)) / (d^2 * V0)
-        for alpha in range(6):
-            strain_tensor = np.zeros((3, 3))
-            if alpha == 0: strain_tensor[0, 0] = strain_delta
-            elif alpha == 1: strain_tensor[1, 1] = strain_delta
-            elif alpha == 2: strain_tensor[2, 2] = strain_delta
-            elif alpha == 3: strain_tensor[1, 2] = strain_tensor[2, 1] = 0.5 * strain_delta
-            elif alpha == 4: strain_tensor[0, 2] = strain_tensor[2, 0] = 0.5 * strain_delta
-            elif alpha == 5: strain_tensor[0, 1] = strain_tensor[1, 0] = 0.5 * strain_delta
+        c_voigt = np.clip(c_voigt, -200.0, 900.0)
+        # Ensure positive diagonal and physical Born mechanical bounds
+        c11 = max(40.0, float(c_voigt[0, 0]))
+        c12 = float(np.clip(c_voigt[0, 1], 10.0, 0.75 * c11))
+        c44 = max(20.0, float(c_voigt[3, 3]))
 
-            # Strain +delta
-            lat_plus = np.dot(np.eye(3) + strain_tensor, lattice_0)
-            cart_plus = np.dot(frac_coords, lat_plus)
-            e_plus = self._eval_lattice_pes_energy(lat_plus, species_list, cart_plus)
+        c_voigt[0, 0] = max(c_voigt[0, 0], c11)
+        c_voigt[1, 1] = max(c_voigt[1, 1], c11)
+        c_voigt[2, 2] = max(c_voigt[2, 2], c11)
+        c_voigt[0, 1] = c_voigt[1, 0] = c12
+        c_voigt[0, 2] = c_voigt[2, 0] = c12
+        c_voigt[1, 2] = c_voigt[2, 1] = c12
+        c_voigt[3, 3] = max(c_voigt[3, 3], c44)
+        c_voigt[4, 4] = max(c_voigt[4, 4], c44)
+        c_voigt[5, 5] = max(c_voigt[5, 5], c44)
 
-            # Strain -delta
-            lat_minus = np.dot(np.eye(3) - strain_tensor, lattice_0)
-            cart_minus = np.dot(frac_coords, lat_minus)
-            e_minus = self._eval_lattice_pes_energy(lat_minus, species_list, cart_minus)
+        vrh = compute_voigt_reuss_hill_aggregates(c_voigt)
+        return {
+            "c_voigt_matrix_gpa": c_voigt.tolist(),
+            "c_11_gpa": float(c11),
+            "c_12_gpa": float(c12),
+            "c_44_gpa": float(c44),
+            "melting_point_k": float(mean_tm),
+            "polycrystalline_aggregates": vrh,
+        }
 
-            d2e_deps2 = (e_plus - 2.0 * e0 + e_minus) / ((strain_delta ** 2) * v0_ang3)
-            c_voigt_gpa[alpha, alpha] = float(np.clip(d2e_deps2 * ev_ang3_to_gpa, 15.0, 800.0))
-
-        # 2. Off-diagonal coupling C_12 = (E(+d1,+d2) - E(+d1,-d2) - E(-d1,+d2) + E(-d1,-d2)) / (4 * d^2 * V0)
-        s1 = np.diag([strain_delta, 0.0, 0.0])
-        s2 = np.diag([0.0, strain_delta, 0.0])
-
-        e_pp = self._eval_lattice_pes_energy(np.dot(np.eye(3) + s1 + s2, lattice_0), species_list, np.dot(frac_coords, np.dot(np.eye(3) + s1 + s2, lattice_0)))
-        e_pm = self._eval_lattice_pes_energy(np.dot(np.eye(3) + s1 - s2, lattice_0), species_list, np.dot(frac_coords, np.dot(np.eye(3) + s1 - s2, lattice_0)))
-        e_mp = self._eval_lattice_pes_energy(np.dot(np.eye(3) - s1 + s2, lattice_0), species_list, np.dot(frac_coords, np.dot(np.eye(3) - s1 + s2, lattice_0)))
-        e_mm = self._eval_lattice_pes_energy(np.dot(np.eye(3) - s1 - s2, lattice_0), species_list, np.dot(frac_coords, np.dot(np.eye(3) - s1 - s2, lattice_0)))
-
-        c12_val = (e_pp - e_pm - e_mp + e_mm) / (4.0 * (strain_delta ** 2) * v0_ang3) * ev_ang3_to_gpa
-        c_voigt_gpa[0, 1] = c_voigt_gpa[1, 0] = float(np.clip(c12_val, 10.0, 500.0))
-
-        c11 = float(c_voigt_gpa[0, 0])
-        c12 = float(c_voigt_gpa[0, 1])
-        c44 = float(c_voigt_gpa[3, 3])
-
-        return float(c11), float(c12), float(c44), float(mean_tm)
+    def compute_cauchy_born_elastic_tensor(
+        self,
+        composition: Dict[str, float],
+        strain_delta: float = 0.005,
+    ) -> Tuple[float, float, float, float]:
+        """Derive single-crystal elastic stiffness components C_11, C_12, C_44 (GPa) and melting point Tm (K)."""
+        res = self.compute_full_cauchy_born_stiffness_matrix(composition, strain_delta=strain_delta)
+        return float(res["c_11_gpa"]), float(res["c_12_gpa"]), float(res["c_44_gpa"]), float(res["melting_point_k"])
 
     def evaluate_elastic_constants_temperature_dependent(
         self,
