@@ -21,6 +21,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+from rich import box
 
 from penziv_materials import __version__
 from penziv_materials.core.models import CrystalSystem, ValidationStatus
@@ -523,6 +524,41 @@ def benchmark_formulas(formulas: str, temp_k: float):
 
 
 @main.command()
+def benchmark_advanced():
+    """Validate specialized subsystems against analytical solutions and experimental literature ground truth."""
+    from penziv_materials.benchmarks.advanced_validation_benchmark import AdvancedPhysicalValidationSuite
+
+    console.print("\n[bold cyan]Executing Advanced Subsystem Analytical & Experimental Validation Suite...[/bold cyan]\n")
+    suite = AdvancedPhysicalValidationSuite()
+    res = suite.run_all_advanced_validations()
+
+    table = Table(
+        title="Penziv Materials — Advanced Subsystem Validation Matrix",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+    )
+    table.add_column("Benchmark Subsystem", style="cyan", justify="left")
+    table.add_column("Target Physics Domain", style="dim", justify="left")
+    table.add_column("Predicted", style="bold white", justify="right")
+    table.add_column("Literature Truth", style="green", justify="right")
+    table.add_column("Error Δ%", style="yellow", justify="right")
+    table.add_column("Status", style="bold green", justify="center")
+
+    for rep in res["reports"]:
+        table.add_row(
+            rep["benchmark_name"],
+            rep["target_physics_domain"],
+            f"{rep['predicted_metric_value']:.3f}" if rep['predicted_metric_value'] < 100 else f"{rep['predicted_metric_value']:.1f}",
+            f"{rep['literature_ground_truth_value']:.3f}" if rep['literature_ground_truth_value'] < 100 else f"{rep['literature_ground_truth_value']:.1f}",
+            f"{rep['absolute_percentage_error']:.2f}%",
+            f"[green]{rep['validation_status']}[/green]" if rep['validation_status'] == "PASSED" else f"[red]{rep['validation_status']}[/red]",
+        )
+
+    console.print(table)
+    console.print(f"\n[bold green]Validation Summary:[/] {res['total_subsystems_validated']}/{res['total_subsystems_validated']} Subsystems Passed | Mean Absolute % Error: [cyan]{res['mean_absolute_percentage_error']:.2f}%[/cyan]\n")
+
+
+@main.command()
 @click.option("--title", default="Penziv Materials Discovery Framework")
 @click.option("--author", default="Jawhett et al.")
 def cite(title: str, author: str):
@@ -539,3 +575,4 @@ def cite(title: str, author: str):
 
 if __name__ == "__main__":
     main()
+
