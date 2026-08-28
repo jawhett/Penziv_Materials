@@ -125,23 +125,36 @@ class FormulaPredictionBenchmarkSuite:
             eps_r = 1.0
             n_refr = 1.0
         elif ("La" in elements and "Li" in elements and "Zr" in elements and "O" in elements) or formula in ["La3Li7O12Zr2", "Li7La3Zr2O12"]:
-            mat_class = "Garnet Solid-State Electrolyte (LLZO)"
-            sg = "Ia-3d"
-            c_sys = CrystalSystem.CUBIC
-            lat_params = {"a": 12.98, "b": 12.98, "c": 12.98, "alpha": 90.0, "beta": 90.0, "gamma": 90.0}
-            z_formula_units = 8.0
+            # Pure undoped Li7La3Zr2O12 at room temperature (T < 400K) is tetragonal (I41/acd) with ordered Li+ sites.
+            # The cubic phase (Ia-3d) with ~1 mS/cm superionic conductivity requires T > 400K or extrinsic dopants (Al, Ta, Ga, Nb).
+            is_doped_or_high_t = temperature_k >= 400.0 or any(elem in elements for elem in ["Al", "Ta", "Ga", "Nb"])
+            if is_doped_or_high_t:
+                mat_class = "Cubic Garnet Solid-State Electrolyte (Doped/High-T LLZO)"
+                sg = "Ia-3d"
+                c_sys = CrystalSystem.CUBIC
+                lat_params = {"a": 12.98, "b": 12.98, "c": 12.98, "alpha": 90.0, "beta": 90.0, "gamma": 90.0}
+                z_formula_units = 8.0
+                sigma_ion = 1.05  # Superionic disordered cubic phase
+            else:
+                mat_class = "Tetragonal Garnet Solid-State Electrolyte (Undoped RT LLZO)"
+                sg = "I4_1/acd"
+                c_sys = CrystalSystem.TETRAGONAL
+                lat_params = {"a": 13.13, "b": 13.13, "c": 12.66, "alpha": 90.0, "beta": 90.0, "gamma": 90.0}
+                z_formula_units = 8.0
+                sigma_ion = 0.00016  # ~1.6e-7 S/cm due to ordered Li+ sublattice
+            
             e_g = 6.0
             sigma_el = 1.0e-11
             rho_el = 1.0e17
-            mu_c = 0.001
+            mu_c = 0.0001
             s_seebeck = 0.0
             kappa_th = 2.8
             zt = 0.0
             alpha_th = 14.8
-            sigma_ion = 1.05  # 1.05 mS/cm cubic Li+ conductivity at 300K
             e_window = "0.05 V - 4.50 V vs Li/Li⁺"
             eps_r = 52.0
             n_refr = 2.15
+
         elif "P" in elements and "S" in elements and ("Mg" in elements or "Sc" in elements or "Zr" in elements):
             mat_class = "Superionic Solid-State Electrolyte"
             sg = "R-3c"
