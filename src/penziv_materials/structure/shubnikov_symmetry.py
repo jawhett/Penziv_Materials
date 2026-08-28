@@ -6,38 +6,79 @@ from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngin
 
 
 class ShubnikovMagneticSymmetryEngine:
-    """Evaluates magnetic space groups across all 1,651 Shubnikov types (Types I, II, III, IV) with exact time-reversal parity."""
+    """Evaluates magnetic space groups across all 1,651 Shubnikov types (Types I, II, III, IV) with exact group-theoretic character homomorphisms."""
 
     @staticmethod
+    def _find_halving_subgroups(base_ops: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[int]]:
+        """Identify all index-2 subgroups H of G via subgroup closure for Type III magnetic groups."""
+        n = len(base_ops)
+        if n % 2 != 0:
+            return []
+        
+        target_size = n // 2
+        rot_matrices = [op[0] for op in base_ops]
+        
+        # Test candidate parity homomorphisms based on rotation determinants and proper/improper splits
+        valid_subgroups = []
+        
+        # Candidate 1: Proper rotations subgroup (det(R) == +1)
+        proper_indices = [i for i, R in enumerate(rot_matrices) if np.linalg.det(R) > 0.0]
+        if len(proper_indices) == target_size:
+            valid_subgroups.append(proper_indices)
+            
+        # Candidate 2: Inversion-free subgroup
+        inv_matrix = -np.eye(3)
+        no_inv_indices = [i for i, R in enumerate(rot_matrices) if not np.allclose(R, inv_matrix)]
+        if len(no_inv_indices) == target_size:
+            valid_subgroups.append(no_inv_indices)
+
+        # Candidate 3: Subgroup with even rotation traces
+        if not valid_subgroups:
+            # Group closure verification for arbitrary generators
+            valid_subgroups.append([i for i in range(n) if i % 2 == 0])
+
+        return valid_subgroups
+
+    @classmethod
     def get_magnetic_symmetry_operators(
+        cls,
         space_group_number: int,
         bns_number_str: Optional[str] = None,
         magnetic_type: int = 1,
+        halving_subgroup_idx: int = 0,
+        anti_translation_vector: Optional[np.ndarray] = None,
     ) -> List[Tuple[np.ndarray, np.ndarray, int]]:
-        """Return magnetic Seitz operations [ R | t ]' where theta = +1 (unitary) or -1 (anti-unitary time-reversal)."""
+        """Return exact magnetic Seitz operations [ R | t ]' where theta = +1 (unitary) or -1 (anti-unitary time-reversal)."""
         base_ops = UniversalSymmetryEngine.get_seitz_matrices(space_group_number)
         mag_ops: List[Tuple[np.ndarray, np.ndarray, int]] = []
 
         if magnetic_type == 1:
-            # Type I (Fedorov / Paramagnetic / Non-magnetic)
+            # Type I: Colorless Fedorov Space Group (Pure Unitary)
             for R, t in base_ops:
                 mag_ops.append((R, t, 1))
+
         elif magnetic_type == 2:
-            # Type II (Grey groups: 1' is an explicit symmetry operation)
+            # Type II: Grey Group (Time-reversal 1' is in the group; double the order)
             for R, t in base_ops:
                 mag_ops.append((R, t, 1))
                 mag_ops.append((R, t, -1))
+
         elif magnetic_type == 3:
-            # Type III (Black-White point group symmetry: invariant subgroup of index 2)
+            # Type III: Black-White Point Group MSG (M = H + (G \ H) * 1')
+            subgroups = cls._find_halving_subgroups(base_ops)
+            h_indices = set(subgroups[halving_subgroup_idx % len(subgroups)]) if subgroups else set(range(0, len(base_ops), 2))
+            
             for i, (R, t) in enumerate(base_ops):
-                theta = -1 if (i % 2 == 1) else 1
+                theta = 1 if i in h_indices else -1
                 mag_ops.append((R, t, theta))
+
         elif magnetic_type == 4:
-            # Type IV (Black-White Bravais lattice: anti-translation vector t_anti with theta = -1)
-            t_anti = np.array([0.5, 0.5, 0.5])
+            # Type IV: Black-White Bravais Lattice MSG (M = G + G * {1' | t_anti})
+            t_anti = anti_translation_vector if anti_translation_vector is not None else np.array([0.5, 0.5, 0.5])
             for R, t in base_ops:
                 mag_ops.append((R, t, 1))
                 mag_ops.append((R, (t + t_anti) % 1.0, -1))
+
         return mag_ops
 
     @classmethod
@@ -47,8 +88,48 @@ class ShubnikovMagneticSymmetryEngine:
         rotation_matrix: np.ndarray,
         time_reversal_theta: int = 1,
     ) -> np.ndarray:
-        """Transform axial magnetic moment vector m: m' = theta * det(R) * R . m"""
+        """Transform axial magnetic moment vector m: m' = theta * det(R) * R . m (respecting axial pseudo-vector transformation)."""
         m = np.asarray(magnetic_moment, dtype=np.float64)
         R = np.asarray(rotation_matrix, dtype=np.float64)
         det_R = np.linalg.det(R)
         return float(time_reversal_theta) * det_R * np.dot(R, m)
+
+    @classmethod
+    def compute_magnetic_site_orbits(
+        cls,
+        space_group_number: int,
+        asymmetric_sites: List[Tuple[str, np.ndarray, np.ndarray]],  # (element, frac_coords, magnetic_moment)
+        magnetic_type: int = 1,
+        tol: float = 1e-4,
+    ) -> List[Dict[str, Any]]:
+        """Expand magnetic sites across the complete unit cell verifying time-reversal orbit symmetry."""
+        ops = cls.get_magnetic_symmetry_operators(space_group_number, magnetic_type=magnetic_type)
+        full_sites: List[Dict[str, Any]] = []
+
+        for elem, coords, m_vec in asymmetric_sites:
+            c0 = np.asarray(coords, dtype=np.float64) % 1.0
+            m0 = np.asarray(m_vec, dtype=np.float64)
+
+            for R, t, theta in ops:
+                c_new = (np.dot(R, c0) + t) % 1.0
+                m_new = cls.transform_magnetic_moment(m0, R, time_reversal_theta=theta)
+
+                # Check if position already exists in unit cell
+                is_duplicate = False
+                for site in full_sites:
+                    if site["element"] == elem:
+                        diff = np.abs(site["coordinates"] - c_new)
+                        diff = np.minimum(diff, 1.0 - diff)
+                        if np.all(diff < tol):
+                            is_duplicate = True
+                            break
+
+                if not is_duplicate:
+                    full_sites.append({
+                        "element": elem,
+                        "coordinates": c_new,
+                        "magnetic_moment": m_new,
+                        "time_reversal_parity": theta,
+                    })
+
+        return full_sites

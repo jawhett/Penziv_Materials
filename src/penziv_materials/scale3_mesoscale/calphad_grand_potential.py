@@ -1,7 +1,9 @@
 """Grand-Canonical CALPHAD-Coupled Multi-Phase-Field Engine with Khachaturyan Elasticity & STZ Amorphous Plasticity."""
 
-from typing import Dict, Tuple, List, Optional, Any
+from typing import Dict, Tuple, List, Optional, Any, Union
 import numpy as np
+
+from penziv_materials.thermodynamics.opencalphad_tdb import OpenCALPHADTDBEngine
 
 
 class CALPHADGrandPotentialPhaseFieldEngine:
@@ -13,30 +15,48 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         grid_shape: Tuple[int, int, int] = (16, 16, 16),
         dx_nm: float = 1.0,
         temperature_k: float = 800.0,
+        calphad_engine: Optional[OpenCALPHADTDBEngine] = None,
     ):
         self.num_phases = num_phases
         self.grid_shape = grid_shape
         self.nx, self.ny, self.nz = grid_shape
         self.dx = dx_nm
         self.T = temperature_k
+        self.calphad_engine = calphad_engine or OpenCALPHADTDBEngine()
 
     def compute_calphad_grand_potentials(
         self,
-        chemical_potentials_mu: np.ndarray,      # (num_components,)
-        phase_gibbs_paraboloids: List[Tuple[float, np.ndarray, np.ndarray]], # (G0, c0, d2G/dc2) per phase
+        chemical_potentials_mu: Union[np.ndarray, Dict[str, float]],      # (num_components,) or dict
+        phase_names_or_paraboloids: Optional[Union[List[str], List[Tuple[float, np.ndarray, np.ndarray]]]] = None,
     ) -> np.ndarray:
-        """Compute grand potential densities omega_alpha(mu, T) = G_alpha(c_alpha(mu)) - sum_i mu_i c_{alpha, i} via Legendre transform."""
+        """Compute exact grand potential densities omega_alpha(mu, T) = G_alpha(c_alpha(mu)) - sum_i mu_i c_{alpha, i} via Legendre transform."""
         omega_densities = np.zeros(self.num_phases, dtype=np.float64)
+
+        if isinstance(chemical_potentials_mu, dict) and phase_names_or_paraboloids and isinstance(phase_names_or_paraboloids[0], str):
+            # Exact Symbolic CALPHAD AST Legendre transformation
+            for a, p_name in enumerate(phase_names_or_paraboloids[:self.num_phases]):
+                omega_densities[a] = self.calphad_engine.evaluate_grand_potential_density(
+                    phase_name=p_name,
+                    chemical_potentials=chemical_potentials_mu,
+                    temperature_k=self.T,
+                )
+            return omega_densities
+
+        # Convert to numpy array if dict
+        mu_vec = np.array(list(chemical_potentials_mu.values()) if isinstance(chemical_potentials_mu, dict) else chemical_potentials_mu, dtype=np.float64)
+        parabs = phase_names_or_paraboloids if (phase_names_or_paraboloids and isinstance(phase_names_or_paraboloids[0], tuple)) else None
+
         for a in range(self.num_phases):
-            if a < len(phase_gibbs_paraboloids):
-                g0, c0, d2g = phase_gibbs_paraboloids[a]
+            if parabs and a < len(parabs):
+                g0, c0, d2g = parabs[a]
                 # c_alpha(mu) = c0 + inv(d2g) . mu
-                c_alpha = c0 + chemical_potentials_mu / max(1e-3, float(d2g[0]))
+                c_alpha = c0 + mu_vec / max(1e-3, float(d2g[0]))
                 g_val = g0 + 0.5 * d2g[0] * np.sum((c_alpha - c0)**2)
-                omega_densities[a] = g_val - np.sum(chemical_potentials_mu * c_alpha)
+                omega_densities[a] = g_val - np.sum(mu_vec * c_alpha)
             else:
-                omega_densities[a] = -0.5 * (a + 1) * np.sum(chemical_potentials_mu**2)
+                omega_densities[a] = -0.5 * (a + 1) * np.sum(mu_vec**2)
         return omega_densities
+
 
     def compute_stz_plastic_strain_rate(
         self,

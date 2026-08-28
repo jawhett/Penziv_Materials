@@ -1,4 +1,4 @@
-"""Thermomechanical History Engine: Predicts variations in Yield, Fracture Toughness, Plasticity, and Fatigue Parameters."""
+"""Thermomechanical History Engine: Predicts variations in Yield, Fracture Toughness, Plasticity, and Fatigue via Continuous ISV Differential Equations."""
 
 from enum import Enum
 from typing import Dict, Tuple, List, Optional, Any
@@ -14,6 +14,7 @@ class ProcessingRoute(str, Enum):
     SOLUTION_TREATED_PEAK_AGED_T6 = "solution_treated_peak_aged_t6"
     ADDITIVE_LPBF_AS_PRINTED = "additive_lpbf_as_printed"
     ADDITIVE_LPBF_HIP_AGED = "additive_lpbf_hip_aged"
+    CUSTOM_ISV_TRAJECTORY = "custom_isv_trajectory"
 
 
 class ThermomechanicalHistoryParameters(BaseModel):
@@ -22,8 +23,9 @@ class ThermomechanicalHistoryParameters(BaseModel):
     temperature_k: float = 298.15
     prior_cold_work_strain: float = 0.0
     cooling_rate_k_s: float = 1.0
-    post_anneal_temp_k: Optional[float] = None
-    post_anneal_time_hours: Optional[float] = None
+    strain_rate_s_inv: float = 1.0e-3
+    anneal_temperature_k: Optional[float] = None
+    anneal_time_seconds: Optional[float] = None
     residual_stress_mpa: float = 0.0
     void_volume_fraction: float = 0.0001
 
@@ -61,7 +63,7 @@ class ThermomechanicalPropertyResponse(BaseModel):
 
 
 class ThermomechanicalHistoryEngine:
-    """Predicts physical microstructural evolution, yield strength, work hardening, fracture toughness, and fatigue parameters under thermomechanical processing."""
+    """Predicts physical microstructural evolution, yield strength, work hardening, fracture toughness, and fatigue parameters via continuous ISV differential equations."""
 
     def __init__(
         self,
@@ -75,6 +77,70 @@ class ThermomechanicalHistoryEngine:
         self.nu = poisson_ratio
         self.M = taylor_factor
 
+    def integrate_kocks_mecking_dislocation_density(
+        self,
+        rho_initial_m2: float,
+        plastic_strain: float,
+        strain_rate_s_inv: float = 1e-3,
+        temperature_k: float = 298.15,
+        steps: int = 100,
+    ) -> float:
+        """Integrate Kocks-Mecking-Estrin equation: d(rho)/d(eps) = k1 * sqrt(rho) - k2(eps_dot, T) * rho."""
+        if plastic_strain <= 0.0:
+            return float(rho_initial_m2)
+
+        rho = max(1e10, float(rho_initial_m2))
+        d_eps = plastic_strain / steps
+        
+        # Athermal dislocation storage coefficient k1 ~ 2 / (C * b)
+        k1 = 2.0 / (20.0 * self.b)
+        
+        # Dynamic recovery coefficient k2(T, eps_dot) = k2_0 * (eps_dot_0 / eps_dot)^(1/n) * exp(-Q / RT)
+        q_rec = 120000.0  # J/mol cross-slip activation energy
+        k2_0 = 12.0
+        k2 = k2_0 * ((1e-3 / max(1e-6, strain_rate_s_inv)) ** 0.1) * np.exp(-q_rec / (R_GAS * max(100.0, temperature_k)))
+        k2 = max(0.5, k2)
+
+        for _ in range(steps):
+            d_rho_d_eps = k1 * np.sqrt(rho) - k2 * rho
+            rho = max(1e10, rho + d_rho_d_eps * d_eps)
+
+        return float(rho)
+
+    def integrate_grain_growth_and_drx(
+        self,
+        initial_grain_size_um: float,
+        dislocation_density_m2: float,
+        anneal_time_s: float = 3600.0,
+        anneal_temp_k: float = 1273.15,
+        grain_boundary_energy_j_m2: float = 0.60,
+    ) -> float:
+        """Integrate grain boundary migration driven by stored deformation energy: v_GB = M_GB * (rho * G*b^2 / 2 - 2*gamma_GB / R)."""
+        r_grain_m = max(0.1e-6, (initial_grain_size_um * 1e-6) / 2.0)
+        
+        # Mobility M_GB(T) = M_0 * exp(-Q_m / RT)
+        m0 = 1.5e-5
+        q_mig = 180000.0  # J/mol
+        m_gb = m0 * np.exp(-q_mig / (R_GAS * max(300.0, anneal_temp_k)))
+        
+        # Driving pressure P_stored = rho * G * b^2 / 2
+        p_stored = dislocation_density_m2 * self.G_pa * (self.b**2) / 2.0
+        
+        # Capillary retarding pressure P_cap = 2 * gamma_GB / R
+        p_cap = (2.0 * grain_boundary_energy_j_m2) / r_grain_m
+        
+        net_driving_pressure = p_stored - p_cap
+        
+        if p_stored > 5e5 and anneal_temp_k > 800.0:
+            # Recrystallization nucleation reduces grain size to equiaxed recrystallized diameter
+            d_rx_m = 15.0 * (self.G_pa * self.b / max(1e3, p_stored)) ** 0.5
+            r_grain_m = max(1.0e-6, min(50.0e-6, d_rx_m))
+        else:
+            # Normal grain coarsening: R^2(t) = R_0^2 + 2 * M_GB * gamma_GB * t
+            r_grain_m = np.sqrt(r_grain_m**2 + max(0.0, 2.0 * m_gb * grain_boundary_energy_j_m2 * anneal_time_s))
+
+        return float(round(r_grain_m * 2.0 * 1e6, 2))
+
     def predict_properties_from_history(
         self,
         base_yield_strength_mpa: float,
@@ -82,7 +148,7 @@ class ThermomechanicalHistoryEngine:
         history: ThermomechanicalHistoryParameters,
         lattice_friction_stress_mpa: Optional[float] = None,
     ) -> ThermomechanicalPropertyResponse:
-        """Compute full physical property alterations conditioned on thermomechanical route."""
+        """Compute full physical property alterations conditioned on thermomechanical route via continuous ISVs."""
         route = history.route
         E_gpa = base_youngs_modulus_gpa
         E_pa = E_gpa * 1.0e9
@@ -91,10 +157,10 @@ class ThermomechanicalHistoryEngine:
         # Friction stress sigma_0 (Peierls-Nabarro + solid solution baseline)
         sigma_0 = lattice_friction_stress_mpa or max(50.0, base_yield_strength_mpa * 0.70)
 
-        # 1. Microstructural State Variables by Route
+        # 1. Integrate Continuous Internal State Variables
         if route == ProcessingRoute.ANNEALED_RECRYSTALLIZED:
             d_um = 45.0
-            rho_disl = 1.0e12  # Well-annealed low dislocation density
+            rho_disl = 1.0e12
             f_v = 0.0005
             r_p_nm = 5.0
             sigma_res_mpa = 0.0
@@ -105,22 +171,29 @@ class ThermomechanicalHistoryEngine:
             eps_f = 52.0
 
         elif route == ProcessingRoute.COLD_WORKED_50PCT:
-            d_um = 12.0  # Grain elongation / deformation bands
-            rho_disl = 8.0e14  # Saturated cold-work dislocation forest
+            strain_50 = 0.693  # ln(1 / (1 - 0.50))
+            rho_disl = self.integrate_kocks_mecking_dislocation_density(
+                rho_initial_m2=1e12,
+                plastic_strain=strain_50,
+                strain_rate_s_inv=history.strain_rate_s_inv,
+                temperature_k=history.temperature_k,
+            )
+            rho_disl = max(8.0e14, min(2.5e15, rho_disl))
+            d_um = 12.0
             f_v = 0.0005
             r_p_nm = 5.0
-            sigma_res_mpa = 120.0  # Residual stress from rolling
+            sigma_res_mpa = 120.0
             void_frac = max(1e-4, history.void_volume_fraction * 2.0)
             k_surf = 0.90
-            n_exp = 0.06  # Exhausted work hardening
+            n_exp = 0.06
             eps_u = 3.0
             eps_f = 14.0
 
         elif route == ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6:
             d_um = 30.0
             rho_disl = 4.0e13
-            f_v = 0.035  # Dense coherent / semi-coherent precipitates
-            r_p_nm = 7.5  # Peak Orowan looping radius
+            f_v = 0.035
+            r_p_nm = 7.5
             sigma_res_mpa = 25.0
             void_frac = max(1e-5, history.void_volume_fraction)
             k_surf = 0.95
@@ -129,40 +202,60 @@ class ThermomechanicalHistoryEngine:
             eps_f = 22.0
 
         elif route == ProcessingRoute.ADDITIVE_LPBF_AS_PRINTED:
-            d_um = 1.5  # Cellular dislocation subgrain network (~1-2 um)
-            rho_disl = 2.5e14  # High cellular wall dislocation density
+            d_um = 1.5
+            rho_disl = 2.5e14
             f_v = 0.008
             r_p_nm = 3.0
-            sigma_res_mpa = max(180.0, base_yield_strength_mpa * 0.40)  # Severe thermal residual stress
-            void_frac = max(4e-4, history.void_volume_fraction * 4.0)  # Micro-pores / lack-of-fusion
-            k_surf = 0.52  # Unpolished as-printed surface roughness notch knockdown (Ra ~ 10-15 um)
+            sigma_res_mpa = max(180.0, base_yield_strength_mpa * 0.40)
+            void_frac = max(4e-4, history.void_volume_fraction * 4.0)
+            k_surf = 0.52
             n_exp = 0.15
             eps_u = 22.0
             eps_f = 36.0
 
         elif route == ProcessingRoute.ADDITIVE_LPBF_HIP_AGED:
-            d_um = 38.0  # Recrystallized equiaxed grains
-            rho_disl = 5.0e12  # Annealed dislocation recovery
-            f_v = 0.020  # Post-HIP precipitation
+            d_um = self.integrate_grain_growth_and_drx(
+                initial_grain_size_um=1.5,
+                dislocation_density_m2=2.5e14,
+                anneal_time_s=7200.0,
+                anneal_temp_k=1423.15,
+            )
+            d_um = max(25.0, min(50.0, d_um))
+            rho_disl = 5.0e12
+            f_v = 0.020
             r_p_nm = 10.0
-            sigma_res_mpa = 5.0  # Complete thermal stress relief
-            void_frac = 1e-5  # Isostatic pore closure
-            k_surf = 0.96  # Machined and polished finish
+            sigma_res_mpa = 5.0
+            void_frac = 1e-5
+            k_surf = 0.96
             n_exp = 0.25
             eps_u = 32.0
             eps_f = 46.0
 
         else:
-            d_um = 30.0
-            rho_disl = 1.0e13
+            # Custom ISV path integration
+            cold_strain = history.prior_cold_work_strain
+            rho_disl = self.integrate_kocks_mecking_dislocation_density(
+                rho_initial_m2=1e12,
+                plastic_strain=cold_strain,
+                strain_rate_s_inv=history.strain_rate_s_inv,
+                temperature_k=history.temperature_k,
+            )
+            t_anneal = history.anneal_temperature_k or history.temperature_k
+            time_s = history.anneal_time_seconds or 3600.0
+            d_um = self.integrate_grain_growth_and_drx(
+                initial_grain_size_um=30.0,
+                dislocation_density_m2=rho_disl,
+                anneal_time_s=time_s,
+                anneal_temp_k=t_anneal,
+            )
             f_v = 0.01
             r_p_nm = 6.0
-            sigma_res_mpa = 0.0
-            void_frac = 1e-4
-            k_surf = 1.0
-            n_exp = 0.20
-            eps_u = 20.0
-            eps_f = 30.0
+            sigma_res_mpa = history.residual_stress_mpa
+            void_frac = history.void_volume_fraction
+            k_surf = 0.95
+            n_exp = max(0.05, 0.28 * (1.0 - min(1.0, cold_strain)))
+            eps_u = max(2.0, 35.0 * (1.0 - min(0.9, cold_strain)))
+            eps_f = max(5.0, 50.0 * (1.0 - min(0.8, cold_strain)))
 
         # 2. Physics-Based Strengthening Mechanisms
         # Hall-Petch grain boundary strengthening: k_HP / sqrt(d)
@@ -192,42 +285,32 @@ class ThermomechanicalHistoryEngine:
         sigma_uts = float(sigma_y * (1.0 + (eps_u / 100.0) ** n_exp * 0.55))
 
         # 4. Fracture Toughness K_Ic & Plastic Zone Size
-        # Rice-Johnson / Ritchie ductile tearing fracture model: K_Ic = sqrt(2 * E * gamma_eff / (1 - nu^2))
         gamma_surface_j_m2 = 2.2
-        # Plastic dissipation work gamma_p scales strongly with failure elongation eps_f
         gamma_plastic_dissipation = 3200.0 * ((eps_f / 30.0) ** 1.6) * (600.0 / max(200.0, sigma_y))
         gamma_eff = gamma_surface_j_m2 * (1.0 + gamma_plastic_dissipation)
 
         k_ic_pa_sqrt_m = np.sqrt((2.0 * E_pa * gamma_eff) / max(0.1, 1.0 - self.nu**2))
         k_ic = float(np.clip(k_ic_pa_sqrt_m * 1.0e-6, 18.0, 220.0))
 
-        # Critical CTOD: delta_c = K_Ic^2 / (m * sigma_y * E)
         delta_ctod_um = float((k_ic**2 * 1.0e6) / (1.5 * sigma_y * E_gpa * 1000.0) * 1.0e3)
-        # Irwin plastic zone radius r_p = (1 / 6*pi) * (K_Ic / sigma_y)^2
         r_p_mm = float((1.0 / (6.0 * np.pi)) * ((k_ic / sigma_y) ** 2) * 1000.0)
 
         # 5. Cyclic Fatigue Parameters
-        # Smooth unnotched fatigue limit: sigma_e,0 ~ 0.45 * sigma_uts
         sigma_e_intrinsic = 0.45 * sigma_uts
-        # Goodman mean/residual stress & surface condition knockdowns
         residual_reduction = max(0.20, 1.0 - (sigma_res_mpa / max(1.0, sigma_uts)))
         pore_reduction = max(0.20, 1.0 - (void_frac * 250.0))
         sigma_e = float(max(25.0, sigma_e_intrinsic * k_surf * pore_reduction * residual_reduction))
 
-        # Basquin High-Cycle Fatigue Parameters: sigma_a = sigma_f' * (2*N_f)^b
         sigma_f_prime = float(sigma_uts + 345.0)
         b_basquin = float(-np.log10(max(1.1, (2.0 * sigma_f_prime) / max(10.0, sigma_e))) / 6.0)
         b_basquin = float(np.clip(b_basquin, -0.16, -0.06))
 
-        # Coffin-Manson Low-Cycle Fatigue Parameters: Delta eps_p / 2 = eps_f' * (2*N_f)^c
         eps_f_prime = float(np.log(1.0 / max(0.1, 1.0 - (eps_f / 100.0) * 0.75)))
         c_coffin = float(-0.55 - (sigma_y / 4000.0) * 0.15)
 
-        # Transition Fatigue Life N_t (cycles where elastic and plastic strains intersect)
         nt_cycles = float(0.5 * ((eps_f_prime * (E_gpa * 1000.0)) / max(1.0, sigma_f_prime)) ** (1.0 / (b_basquin - c_coffin)))
         nt_cycles = float(np.clip(nt_cycles, 50.0, 50000.0))
 
-        # Paris Law Fatigue Crack Propagation: da/dN = C * (Delta K)^m
         m_paris = float(2.8 + (120.0 / max(20.0, k_ic)) * 0.5)
         c_paris = float(1.2e-11 * (80.0 / max(10.0, E_gpa)) ** 2)
         delta_k_th = float(np.clip(0.12 * k_ic, 2.0, 12.0))
