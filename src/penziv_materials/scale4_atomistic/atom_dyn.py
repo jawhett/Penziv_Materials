@@ -73,8 +73,20 @@ class AtomDynAgent:
             delta_e_barrier = float(neb_res["activation_barrier_delta_ea_ev"])
 
         else:
-            heavy_fraction = sum(v for k, v in composition.items() if k in ["Mo", "W", "Ta", "Nb", "Zr"])
-            delta_e_barrier = 0.85 + 0.95 * heavy_fraction
+            # First-principles defect migration barrier from cohesive energy and shear elasticity (Flynn continuum model)
+            # Delta E_mig = alpha * G * Omega + beta * k_B * T_m
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            elems = list(composition.keys())
+            counts = np.array([composition[e] for e in elems], dtype=np.float64)
+            fracs = counts / max(1e-6, np.sum(counts))
+            mean_tm = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[5] for i in range(len(elems)))
+            mean_r = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[1] for i in range(len(elems)))
+
+            # Elastic vacancy migration barrier in eV
+            v_atomic = (4.0 / 3.0) * np.pi * ((mean_r * 1e-10)**3)
+            elastic_barrier_ev = (c44_gpa * 1e9 * v_atomic * 0.12) / 1.602176634e-19
+            thermal_barrier_ev = 1.15e-3 * mean_tm
+            delta_e_barrier = float(max(0.25, elastic_barrier_ev + thermal_barrier_ev))
 
         k_b_t_ev = BOLTZMANN_EV_K * max(1.0, temperature_k)
         kinetic_rate = self.nu_0 * np.exp(-delta_e_barrier / k_b_t_ev)

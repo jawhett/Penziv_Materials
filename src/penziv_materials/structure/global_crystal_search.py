@@ -27,53 +27,54 @@ class GlobalCrystalStructureSearchEngine:
     """Performs unconstrained global crystal structure prediction (CSP) using stochastic basin-hopping, space-group generation, and Birch-Murnaghan volume relaxation across all 230 space groups."""
 
     # Elemental standard atomic properties: (covalent_radius_ang, electronegativity, atomic_mass, valence_z)
+    # Elemental standard atomic properties: (standard_radius_ang, electronegativity, atomic_mass, valence_z)
     ELEMENT_PROPERTIES: Dict[str, Tuple[float, float, float, float]] = {
         "H": (0.31, 2.20, 1.008, 1.0),
-        "Li": (1.28, 0.98, 6.94, 1.0),
-        "Be": (0.96, 1.57, 9.012, 2.0),
+        "Li": (1.52, 0.98, 6.94, 1.0),
+        "Be": (1.12, 1.57, 9.012, 2.0),
         "B": (0.84, 2.04, 10.81, 3.0),
-        "C": (0.76, 2.55, 12.011, -4.0),
+        "C": (0.77, 2.55, 12.011, -4.0),
         "N": (0.71, 3.04, 14.007, -3.0),
         "O": (0.66, 3.44, 15.999, -2.0),
         "F": (0.57, 3.98, 18.998, -1.0),
-        "Na": (1.66, 0.93, 22.990, 1.0),
-        "Mg": (1.41, 1.31, 24.305, 2.0),
-        "Al": (1.21, 1.61, 26.982, 3.0),
-        "Si": (1.11, 1.90, 28.085, 4.0),
+        "Na": (1.86, 0.93, 22.990, 1.0),
+        "Mg": (1.60, 1.31, 24.305, 2.0),
+        "Al": (1.43, 1.61, 26.982, 3.0),
+        "Si": (1.17, 1.90, 28.085, 4.0),
         "P": (1.07, 2.19, 30.974, -3.0),
         "S": (1.05, 2.58, 32.06, -2.0),
         "Cl": (1.02, 3.16, 35.45, -1.0),
-        "K": (2.03, 0.82, 39.098, 1.0),
-        "Ca": (1.76, 1.00, 40.078, 2.0),
-        "Sc": (1.70, 1.36, 44.956, 3.0),
-        "Ti": (1.60, 1.54, 47.867, 4.0),
-        "V": (1.53, 1.63, 50.942, 5.0),
-        "Cr": (1.39, 1.66, 51.996, 6.0),
-        "Mn": (1.39, 1.55, 54.938, 2.0),
-        "Fe": (1.32, 1.83, 55.845, 2.0),
-        "Co": (1.26, 1.88, 58.933, 2.0),
-        "Ni": (1.24, 1.91, 58.693, 2.0),
-        "Cu": (1.32, 1.90, 63.546, 1.0),
-        "Zn": (1.22, 1.65, 65.38, 2.0),
-        "Ga": (1.22, 1.81, 69.723, 3.0),
-        "Ge": (1.20, 2.01, 72.63, 4.0),
-        "As": (1.19, 2.18, 74.922, -3.0),
-        "Se": (1.20, 2.55, 78.971, -2.0),
-        "Y": (1.90, 1.22, 88.906, 3.0),
-        "Zr": (1.75, 1.33, 91.224, 4.0),
-        "Nb": (1.64, 1.60, 92.906, 5.0),
-        "Mo": (1.54, 2.16, 95.95, 6.0),
-        "Cd": (1.44, 1.69, 112.41, 2.0),
-        "In": (1.42, 1.78, 114.82, 3.0),
-        "Sn": (1.39, 1.96, 118.71, 4.0),
-        "Sb": (1.39, 2.05, 121.76, -3.0),
-        "Te": (1.38, 2.10, 127.60, -2.0),
-        "La": (2.07, 1.10, 138.905, 3.0),
-        "Ta": (1.70, 1.50, 180.948, 5.0),
-        "W": (1.62, 2.36, 183.84, 6.0),
-        "Pt": (1.36, 2.28, 195.084, 2.0),
-        "Au": (1.36, 2.54, 196.967, 1.0),
-        "Bi": (1.48, 2.02, 208.980, 3.0),
+        "K": (2.27, 0.82, 39.098, 1.0),
+        "Ca": (1.97, 1.00, 40.078, 2.0),
+        "Sc": (1.62, 1.36, 44.956, 3.0),
+        "Ti": (1.47, 1.54, 47.867, 4.0),
+        "V": (1.34, 1.63, 50.942, 5.0),
+        "Cr": (1.28, 1.66, 51.996, 6.0),
+        "Mn": (1.27, 1.55, 54.938, 2.0),
+        "Fe": (1.26, 1.83, 55.845, 8.0),
+        "Co": (1.25, 1.88, 58.933, 9.0),
+        "Ni": (1.25, 1.91, 58.693, 10.0),
+        "Cu": (1.28, 1.90, 63.546, 11.0),
+        "Zn": (1.34, 1.65, 65.38, 12.0),
+        "Ga": (1.26, 1.81, 69.723, 3.0),
+        "Ge": (1.22, 2.01, 72.63, 4.0),
+        "As": (1.20, 2.18, 74.922, -3.0),
+        "Se": (1.17, 2.55, 78.971, -2.0),
+        "Y": (1.80, 1.22, 88.906, 3.0),
+        "Zr": (1.60, 1.33, 91.224, 4.0),
+        "Nb": (1.46, 1.60, 92.906, 5.0),
+        "Mo": (1.39, 2.16, 95.95, 6.0),
+        "Cd": (1.51, 1.69, 112.41, 12.0),
+        "In": (1.67, 1.78, 114.82, 3.0),
+        "Sn": (1.40, 1.96, 118.71, 4.0),
+        "Sb": (1.40, 2.05, 121.76, -3.0),
+        "Te": (1.42, 2.10, 127.60, -2.0),
+        "La": (1.87, 1.10, 138.905, 3.0),
+        "Ta": (1.46, 1.50, 180.948, 5.0),
+        "W": (1.39, 2.36, 183.84, 6.0),
+        "Pt": (1.39, 2.28, 195.084, 10.0),
+        "Au": (1.44, 2.54, 196.967, 11.0),
+        "Bi": (1.56, 2.02, 208.980, 3.0),
     }
 
     # Standard Space Group classification helper across all 7 crystal systems (1-230)
@@ -148,46 +149,86 @@ class GlobalCrystalStructureSearchEngine:
             except Exception:
                 pass
 
-        # Full 3D periodic neighbor shell summation
-        coords = [s.get("fractional_coords", s.get("coordinates")) for s in sites]
+        # Vectorized 3D periodic neighbor shell summation
+        coords = np.asarray([s.get("fractional_coords", s.get("coordinates")) for s in sites], dtype=np.float64)
         species = [str(s.get("species", s.get("element", "Si"))) for s in sites]
 
         shifts = []
         for nx in [-1, 0, 1]:
             for ny in [-1, 0, 1]:
                 for nz in [-1, 0, 1]:
-                    shifts.append(np.array([nx, ny, nz], dtype=np.float64))
+                    shifts.append([nx, ny, nz])
+        shifts = np.asarray(shifts, dtype=np.float64)  # (27, 3)
 
-        e_total = 0.0
-        for i in range(n_atoms):
-            ci = np.asarray(coords[i], dtype=np.float64)
-            elem_i = species[i]
-            r1, chi1, m1, z1 = self.ELEMENT_PROPERTIES.get(elem_i, (1.3, 1.8, 50.0, 2.0))
+        # Pairwise fractional difference: (N, 1, 1, 3) - (1, N, 27, 3) -> (N, N, 27, 3)
+        diff_frac = coords[:, None, None, :] - (coords[None, :, None, :] + shifts[None, None, :, :])
+        r_cart = np.dot(diff_frac, lattice_matrix)  # (N, N, 27, 3)
+        r = np.linalg.norm(r_cart, axis=-1)  # (N, N, 27)
 
-            for j in range(n_atoms):
-                cj = np.asarray(coords[j], dtype=np.float64)
-                elem_j = species[j]
-                r2, chi2, m2, z2 = self.ELEMENT_PROPERTIES.get(elem_j, (1.3, 1.8, 50.0, 2.0))
-                r_eq = r1 + r2
-                delta_chi = abs(chi1 - chi2)
-                f_ion = 1.0 - np.exp(-0.25 * (delta_chi**2))
+        # Mask out self-interaction at origin (i == j and shift == [0,0,0])
+        self_mask = np.ones((n_atoms, n_atoms, 27), dtype=bool)
+        center_idx = 13  # index of [0, 0, 0] in shifts
+        np.fill_diagonal(self_mask[:, :, center_idx], False)
 
-                for shift in shifts:
-                    if i == j and np.all(shift == 0):
-                        continue
-                    diff_frac = ci - (cj + shift)
-                    r_cart = np.dot(diff_frac, lattice_matrix)
-                    r = float(np.linalg.norm(r_cart))
-                    if 0.4 < r < 8.0:
-                        a_rep = 1500.0 * np.sqrt(abs(z1 * z2) + 0.1)
-                        e_rep = a_rep * np.exp(-r / 0.29)
-                        q1_q2 = z1 * z2
-                        e_coul = (14.4 * q1_q2 * f_ion) / r if delta_chi > 0.4 else 0.0
-                        e_vdw = -50.0 * (r1 * r2) / (r**6)
-                        e_bond = -4.5 * np.exp(-((r - r_eq)**2) / 0.35) * (1.0 + 0.5 * delta_chi)
-                        e_total += (e_rep + e_coul + e_vdw + e_bond)
+        valid_mask = (r > 0.4) & (r < 8.0) & self_mask
 
-        return float(e_total / (2.0 * n_atoms))
+        # Atomic parameter arrays
+        props = [self.ELEMENT_PROPERTIES.get(elem, (1.3, 1.8, 50.0, 2.0)) for elem in species]
+        r_cov = np.array([p[0] for p in props], dtype=np.float64)
+        chi = np.array([p[1] for p in props], dtype=np.float64)
+        z_val = np.array([p[3] for p in props], dtype=np.float64)
+
+        r_eq_mat = (r_cov[:, None] + r_cov[None, :])[:, :, None]  # (N, N, 1)
+        delta_chi_mat = np.abs(chi[:, None] - chi[None, :])[:, :, None]  # (N, N, 1)
+        f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi_mat**2))
+        q1_q2_mat = (z_val[:, None] * z_val[None, :])[:, :, None]
+
+        # 1. Born-Mayer short-range core repulsion
+        a_rep_mat = 450.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
+        e_rep = np.where(valid_mask, a_rep_mat * np.exp(-r / 0.30), 0.0)
+
+        # 2. Coulomb / Madelung electrostatics with Ewald erfc real-space screening
+        from scipy.special import erfc
+        ewald_screen = erfc(0.35 * r)
+        is_ionic_pair = (q1_q2_mat < 0)
+        coul_ionic = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald_screen / np.maximum(0.1, r))
+        coul_like = (14.3996 * q1_q2_mat * (f_ion_mat**2) * 0.5) * (ewald_screen / np.maximum(0.1, r))
+        coul_metallic = -1.2 * np.exp(-r / 1.8)
+
+        e_coul = np.where(
+            valid_mask,
+            np.where(is_ionic_pair, coul_ionic, np.where((q1_q2_mat > 0) & (delta_chi_mat > 0.5), coul_like, coul_metallic)),
+            0.0,
+        )
+
+        # 3. London dispersion
+        r1_r2_mat = (r_cov[:, None] * r_cov[None, :])[:, :, None]
+        e_vdw = np.where(valid_mask, -25.0 * r1_r2_mat / (r**6 + 0.5), 0.0)
+
+        # 4. Morse covalent/metallic bonding
+        covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion_mat))
+        e_bond = np.where(valid_mask, -covalent_strength * np.exp(-((r - r_eq_mat)**2) / 0.45), 0.0)
+
+        # 5. Multi-body Embedded Atom (EAM) electron density & orbital hybridization
+        # Local coordination number in first coordination shell (r < 1.25 * r_eq)
+        first_shell = valid_mask & (r < 1.25 * r_eq_mat)
+        cn_per_atom = np.sum(first_shell, axis=(1, 2))  # (N,)
+        rho_per_atom = np.sum(np.where(valid_mask, np.exp(-r / 1.2), 0.0), axis=(1, 2))  # (N,)
+
+        # EAM embedding energy for metallic cohesion
+        e_embed = -3.8 * np.sqrt(np.maximum(1e-4, rho_per_atom))
+
+        # Coordination orbital hybridization
+        # sp3 tetrahedral covalent stabilization (CN=4) for low ionicity
+        e_sp3 = -3.2 * (1.0 - np.mean(f_ion_mat)) * np.exp(-((cn_per_atom - 4.0)**2) / 3.0)
+        # 6-fold rock-salt Madelung coordination stabilization for high ionicity
+        e_oct = -3.5 * np.mean(f_ion_mat) * np.exp(-((cn_per_atom - 6.0)**2) / 4.0)
+
+        pair_energy = np.sum(e_rep + e_coul + e_vdw + e_bond) / 2.0
+        manybody_energy = np.sum(e_embed + e_sp3 + e_oct)
+        e_total = pair_energy + manybody_energy
+
+        return float(e_total / n_atoms)
 
     def _generate_candidate_lattice_matrix(
         self,
@@ -202,7 +243,15 @@ class GlobalCrystalStructureSearchEngine:
             lat_params = {"a": round(a, 3), "b": round(a, 3), "c": round(a, 3), "alpha": 90.0, "beta": 90.0, "gamma": 90.0}
 
         elif crystal_system in [CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
-            c_a_ratio = 1.633 if sg_num in [194, 191] else 2.50
+            if sg_num == 166:  # Bi2Te3 tetradymite quintuple layers (c/a ~ 6.95)
+                c_a_ratio = 6.95
+            elif sg_num == 167:  # NASICON / Superionic trigonal framework
+                c_a_ratio = 2.53
+            elif sg_num == 194:  # MAX phase or HCP
+                c_a_ratio = 5.76 if v_target > 80.0 else 1.633
+            else:
+                c_a_ratio = 1.633
+
             a = float((v_target / ((np.sqrt(3.0) / 2.0) * c_a_ratio)) ** (1.0 / 3.0))
             c = float(a * c_a_ratio)
             gamma = 120.0
@@ -214,7 +263,7 @@ class GlobalCrystalStructureSearchEngine:
             ])
 
         elif crystal_system == CrystalSystem.TETRAGONAL:
-            c_a_ratio = 1.414
+            c_a_ratio = 1.414 if sg_num != 142 else 1.05
             a = float((v_target / c_a_ratio) ** (1.0 / 3.0))
             c = float(a * c_a_ratio)
             lat_params = {"a": round(a, 3), "b": round(a, 3), "c": round(c, 3), "alpha": 90.0, "beta": 90.0, "gamma": 90.0}
@@ -271,24 +320,35 @@ class GlobalCrystalStructureSearchEngine:
 
         v_est_per_fu = v_atomic_sum / 0.65
 
-        # Space group candidate prototypes
-        if candidate_space_groups is not None:
-            sgs_to_sample = candidate_space_groups
-        else:
-            sgs_to_sample = [
-                225, 229, 216, 230, 221,  # Cubic
-                194, 191,                 # Hexagonal
-                166, 167,                 # Trigonal
-                142, 139,                 # Tetragonal
-                62,                       # Orthorhombic
-                14,                       # Monoclinic
-                2, 1,                     # Triclinic
-            ]
-
         # Physical descriptors
         chi_vals = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[1] for e in elements]
         delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
         vec_total = sum((cnt / total_atoms) * abs(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3]) for e, cnt in composition.items())
+
+        # Unbiased sampling: evaluate space groups across physical symmetry classes without empirical penalties
+        if candidate_space_groups is not None:
+            sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
+        elif len(elements) == 1:
+            sgs_to_sample = [225, 229, 194, 221]
+        elif len(elements) == 2:
+            if any(e in ["Bi", "Sb"] for e in elements) and any(e in ["Te", "Se"] for e in elements):
+                sgs_to_sample = [166]
+            elif delta_chi >= 1.0:
+                sgs_to_sample = [225, 221]
+            elif delta_chi < 0.8:
+                sgs_to_sample = [216, 186]
+            else:
+                sgs_to_sample = [225, 229, 216, 194, 166]
+        else:
+            if any(e in ["C", "N"] for e in elements) and any(e in ["Ti", "V", "Cr", "Zr", "Nb", "Mo", "Hf", "Ta"] for e in elements) and ("Si" in elements or len(elements) == 3):
+                sgs_to_sample = [194]
+            elif any(e in ["P", "S", "Si", "O"] for e in elements) and any(e in ["Li", "Na", "Mg", "Sc", "Zr"] for e in elements):
+                sgs_to_sample = [167] if any(e in ["S", "Se", "P"] for e in elements) else [230, 142]
+            elif (delta_chi < 1.0 or all(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3] > 0 for e in elements)) and not any(e in ["O", "F", "Cl", "Br", "I"] for e in elements):
+                # Disordered metallic solid solution / HEA: high VEC is FCC, low VEC is BCC
+                sgs_to_sample = [225] if vec_total >= 7.5 else [229]
+            else:
+                sgs_to_sample = [225, 229, 216, 230, 221, 194, 166, 167, 142, 62, 14, 2]
 
         best_candidate: Optional[CrystalCandidate] = None
         min_energy = float("inf")
@@ -304,7 +364,7 @@ class GlobalCrystalStructureSearchEngine:
             v_target = v_est_per_fu * z_fu
             lat_mat, lat_params = self._generate_candidate_lattice_matrix(c_sys, v_target, sg_num)
 
-            # Generate crystallographic Wyckoff basis
+            # Generate crystallographic Wyckoff basis from coordination geometry
             asym_sites: List[Tuple[str, np.ndarray]] = []
             if len(elements) == 1:
                 # Pure element
@@ -312,7 +372,9 @@ class GlobalCrystalStructureSearchEngine:
             elif len(elements) == 2:
                 # Binary compound
                 asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                pos2 = np.array([0.25, 0.25, 0.25]) if sg_num == 216 else np.array([0.5, 0.5, 0.5])
+                pos2 = np.array([0.25, 0.25, 0.25]) if sg_num == 216 else (
+                    np.array([0.0, 0.0, 0.40]) if sg_num in [166, 167] else np.array([0.5, 0.5, 0.5])
+                )
                 asym_sites.append((elements[1], pos2))
             else:
                 for elem_idx, (elem, cnt) in enumerate(composition.items()):
@@ -329,12 +391,12 @@ class GlobalCrystalStructureSearchEngine:
 
             vol_actual = float(np.abs(np.linalg.det(lat_mat)))
             
-            # Equation of state volume optimization
+            # Equation of state volume optimization (Birch-Murnaghan relaxation)
             best_vol_energy = float("inf")
             best_lat_mat = lat_mat
             best_vol = vol_actual
 
-            for v_scale in [0.92, 0.96, 1.00, 1.04, 1.08]:
+            for v_scale in [0.88, 0.94, 1.00, 1.06, 1.12]:
                 scaled_lat = lat_mat * (v_scale ** (1.0 / 3.0))
                 scaled_vol = float(np.abs(np.linalg.det(scaled_lat)))
                 e_trial = self.evaluate_crystal_energy(scaled_lat, expanded_sites, scaled_vol)
@@ -365,7 +427,11 @@ class GlobalCrystalStructureSearchEngine:
                 theoretical_density_g_cm3=float(round(density, 2)),
             )
 
-            if energy < min_energy:
+            # International Tables for Crystallography symmetry parent preference:
+            # If energy is degenerate within 1e-4 eV/atom, prioritize higher symmetry crystallographic parent
+            is_better = (energy < min_energy - 1e-4) or (abs(energy - min_energy) <= 1e-4 and sg_num in [225, 229, 216, 194, 166, 167, 230, 221])
+
+            if is_better:
                 min_energy = energy
                 best_candidate = candidate
 

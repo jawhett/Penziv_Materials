@@ -39,9 +39,57 @@ class MulticomponentLaguerreVoronoiEngine:
         contact_matrix = dists - (radii[:, np.newaxis] + radii[np.newaxis, :])
         np.fill_diagonal(contact_matrix, np.inf)
 
-        # Coordination numbers based on Laguerre neighbor contacts (within 0.4 Å overlap)
-        coordination_numbers = [int(np.sum(contact_matrix[i] < 0.40)) for i in range(n_atoms)]
-        voronoi_volumes = [(4.0 / 3.0) * np.pi * (radii[i] ** 3) * (1.0 + 0.1 * coordination_numbers[i]) for i in range(n_atoms)]
+        # Compute exact radical Voronoi polyhedral cells via HalfspaceIntersection:
+        # H_ij: 2*(p_j - p_i) . x <= ||p_j||^2 - ||p_i||^2 + r_i^2 - r_j^2
+        from scipy.spatial import HalfspaceIntersection, ConvexHull
+
+        voronoi_volumes = []
+        coordination_numbers = []
+
+        for i in range(n_atoms):
+            p0 = coords[i]
+            r0 = radii[i]
+            halfspaces = []
+
+            # 1. Radical half-space planes with neighbor periodic images
+            for j in range(n_atoms):
+                if i == j:
+                    continue
+                # Minimum image convention displacement
+                d_ij = coords[j] - p0
+                d_ij -= self.box_len * np.round(d_ij / self.box_len)
+                pj = p0 + d_ij
+                dist_ij = float(np.linalg.norm(d_ij))
+                if dist_ij > (r0 + radii[j] + 4.5):
+                    continue
+
+                n_vec = 2.0 * (pj - p0)
+                d_val = -(np.dot(pj, pj) - np.dot(p0, p0) + (r0**2) - (radii[j]**2))
+                halfspaces.append(np.append(n_vec, d_val))
+
+            # 2. Bounding domain box halfspaces around atom
+            box_half = self.box_len / 2.0
+            for axis in range(3):
+                e = np.zeros(3)
+                e[axis] = 1.0
+                halfspaces.append(np.append(e, -(p0[axis] + box_half)))
+                halfspaces.append(np.append(-e, p0[axis] - box_half))
+
+            hs_arr = np.array(halfspaces, dtype=np.float64)
+            try:
+                hs = HalfspaceIntersection(hs_arr, p0)
+                hull = ConvexHull(hs.intersections)
+                vol = float(hull.volume)
+                # Facets forming actual Voronoi boundary
+                n_boundary_planes = len(hs_arr) - 6
+                cn = int(sum(1 for facet in hs.dual_facets if any(v < n_boundary_planes for v in facet)))
+            except Exception:
+                # Fallback to standard spherical packing volume
+                vol = float((4.0 / 3.0) * np.pi * (r0**3) / 0.74)
+                cn = int(np.sum(contact_matrix[i] < 0.40))
+
+            voronoi_volumes.append(vol)
+            coordination_numbers.append(cn)
 
         return {
             "mean_laguerre_coordination": float(np.mean(coordination_numbers)),

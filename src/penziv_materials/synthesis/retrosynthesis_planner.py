@@ -187,8 +187,14 @@ class RetrosynthesisAssemblyPlanner:
 
         leftover_elements = [f"{v} {k}" for k, v in remaining_comp.items() if v > 0]
         leftover_str = " + ".join(leftover_elements) if leftover_elements else "Intermediate precursors"
-        
-        net_consolidation_dg = -120.0
+
+        h_target, s_target, _ = self.EXTENDED_THERMO_DATABASE.get(target_compound, (-350.0, 60.0, 1500.0))
+        g_target = h_target - temperature_k * s_target * 1.0e-3
+        g_consumed = sum(
+            used_precursors[p] * (self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[0] - temperature_k * self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[1] * 1.0e-3)
+            for p in used_precursors
+        )
+        net_consolidation_dg = float(g_target - g_consumed)
 
         intermediate_steps.append({
             "step": step_idx,
@@ -228,7 +234,9 @@ class RetrosynthesisAssemblyPlanner:
         homologous_sinter_temp_c = 0.68 * t_melt_target_k - 273.15
         rec_sinter_temp_c = max(450.0, min(1450.0, homologous_sinter_temp_c))
 
-        q_diff_kj = 220.0
+        # Dynamic Master Sintering Curve activation energy from homologous bonding physics
+        # Q_diff = 18.0 * R_GAS * T_m (kJ/mol) (Ashby-Frost / MSC sintering kinetics)
+        q_diff_kj = float(max(90.0, 18.0 * R_GAS * t_melt_target_k * 1.0e-3))
         t_k = ceramic_sintering_temp_c + 273.15
         theta_msc = hold_time_hours * np.exp(- (q_diff_kj * 1000.0) / (R_GAS * t_k))
         rel_density_pct = float(np.clip(80.0 + 19.5 * (1.0 - np.exp(- (theta_msc * 1.0e8)**0.35)), 85.0, 99.5))

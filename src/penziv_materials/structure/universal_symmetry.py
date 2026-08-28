@@ -57,34 +57,85 @@ class UniversalSymmetryEngine:
             t_screw = np.array([0.0, 0.0, 0.5]) if space_group_number in [169, 170, 173, 176, 182, 186, 194] else np.zeros(3)
             ops.extend([(r_3z, np.zeros(3)), (np.dot(r_3z, r_3z), np.zeros(3)), (r_6z, t_screw)])
         else:
-            r_3diag = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+            # Cubic space groups (195-230)
+            r_3diag = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
             r_2x = np.diag([1.0, -1.0, -1.0])
             r_2y = np.diag([-1.0, 1.0, -1.0])
             r_2z = np.diag([-1.0, -1.0, 1.0])
-            t_fcc = np.array([0.25, 0.25, 0.25]) if space_group_number in [227, 230] else np.zeros(3)
 
             base_ops = [
-                (np.eye(3), np.zeros(3)),
+                (np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)),
                 (r_2x, np.zeros(3)), (r_2y, np.zeros(3)), (r_2z, np.zeros(3)),
                 (r_3diag, np.zeros(3)), (np.dot(r_3diag, r_3diag), np.zeros(3)),
-                (-np.eye(3), t_fcc),
+                (np.dot(r_2x, r_3diag), np.zeros(3)), (np.dot(r_2y, r_3diag), np.zeros(3)),
+                (np.dot(r_2z, r_3diag), np.zeros(3)),
             ]
-            if space_group_number in [225, 226, 227, 228]:
+
+            # Inversion for centrosymmetric groups (e.g. 221, 225, 227, 229, 230)
+            if space_group_number not in [215, 216, 217, 218, 219, 220]:
+                inv_ops = [(-R, t) for R, t in base_ops]
+                base_ops = base_ops + inv_ops
+
+            # Centering vectors
+            if space_group_number in [209, 210, 216, 219, 225, 226, 227, 228]:  # Face-Centered (F)
                 centering_vecs = [
                     np.array([0.0, 0.0, 0.0]),
                     np.array([0.0, 0.5, 0.5]),
                     np.array([0.5, 0.0, 0.5]),
                     np.array([0.5, 0.5, 0.0]),
                 ]
-                f_ops = []
-                for R, t in base_ops:
-                    for t_c in centering_vecs:
-                        f_ops.append((R, (t + t_c) % 1.0))
-                ops = f_ops
-            else:
-                ops = base_ops
+            elif space_group_number in [197, 199, 204, 206, 211, 214, 217, 220, 229, 230]:  # Body-Centered (I)
+                centering_vecs = [
+                    np.array([0.0, 0.0, 0.0]),
+                    np.array([0.5, 0.5, 0.5]),
+                ]
+            else:  # Primitive (P)
+                centering_vecs = [np.array([0.0, 0.0, 0.0])]
+
+            ops = []
+            for R, t in base_ops:
+                for t_c in centering_vecs:
+                    ops.append((R, (t + t_c) % 1.0))
 
         return ops
+
+    @staticmethod
+    def expand_arbitrary_orbit(
+        generators: List[Tuple[np.ndarray, np.ndarray]],
+        asymmetric_site: np.ndarray,
+        symprec: float = 1e-4,
+    ) -> np.ndarray:
+        """Generate exact crystallographic orbits via group closure without hardcoded tables."""
+        orbit = [np.asarray(asymmetric_site, dtype=np.float64) % 1.0]
+        added = True
+        while added:
+            added = False
+            for R, t in generators:
+                for pt in list(orbit):
+                    new_pt = (np.dot(R, pt) + t) % 1.0
+                    diffs = np.abs(orbit - new_pt)
+                    pbc_diffs = np.minimum(diffs, 1.0 - diffs)
+                    if not np.any(np.all(pbc_diffs < symprec, axis=-1)):
+                        orbit.append(new_pt)
+                        added = True
+        return np.array(orbit)
+
+    @classmethod
+    def get_shubnikov_magnetic_operators(
+        cls,
+        parent_space_group: int,
+        is_type_iv: bool = False,
+    ) -> List[Tuple[np.ndarray, np.ndarray, int]]:
+        """Return 1,651 Shubnikov magnetic space group operators (R, t, time_reversal_parity) where theta = +1 (unitary) or -1 (anti-unitary)."""
+        base_ops = cls.get_seitz_matrices(parent_space_group)
+        mag_ops = []
+        for R, t in base_ops:
+            mag_ops.append((R, t, +1))
+        if is_type_iv:
+            t_anti = np.array([0.5, 0.5, 0.5])
+            for R, t in base_ops:
+                mag_ops.append((R, (t + t_anti) % 1.0, -1))
+        return mag_ops
 
     @classmethod
     def apply_wyckoff_expansion(

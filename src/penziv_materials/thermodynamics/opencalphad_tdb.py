@@ -393,24 +393,128 @@ class OpenCALPHADTDBEngine:
         temperature_k: float = 1000.0,
         candidate_phases: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Compute multi-component thermodynamic equilibrium phase fractions via convex Gibbs energy minimization."""
-        phases = candidate_phases or (list(self.phases.keys()) if self.phases else ["FCC_A1", "BCC_A2", "HCP_A3", "SIGMA", "L1_2"])
-        g_vals = {p: self.evaluate_phase_gibbs_energy(p, overall_composition, temperature_k) for p in phases}
+        """Compute multi-component thermodynamic equilibrium phase fractions via true constrained Gibbs energy minimization with exact mass balance."""
+        from scipy.optimize import minimize
 
-        min_g = min(g_vals.values())
-        kbt = R_GAS * max(1.0, temperature_k)
-        weights = {p: np.exp(-np.clip((g - min_g) / (0.15 * kbt), 0.0, 50.0)) for p, g in g_vals.items()}
-        total_w = sum(weights.values())
-        phase_fractions = {p: float(w / total_w) for p, w in weights.items()}
-        stable_phase = min(g_vals, key=g_vals.get)
+        elems = sorted(list(overall_composition.keys()))
+        n_elems = len(elems)
+        x_tot = np.array([max(1e-9, float(overall_composition[e])) for e in elems], dtype=np.float64)
+        x_tot = x_tot / np.sum(x_tot)
+
+        phases = candidate_phases or (list(self.phases.keys()) if self.phases else ["FCC_A1", "BCC_A2", "HCP_A3", "SIGMA", "L1_2"])
+        n_phases = len(phases)
+
+        # Baseline single-phase Gibbs energies
+        g_single = {}
+        for p in phases:
+            g_single[p] = self.evaluate_phase_gibbs_energy(p, {elems[i]: x_tot[i] for i in range(n_elems)}, temperature_k)
+
+        # Decision vector z: [Phi_0, ..., Phi_{P-1}, x_{0,0}, ..., x_{0,N-1}, ..., x_{P-1,N-1}]
+        # Length: n_phases + n_phases * n_elems
+        
+        # Initial guess: dominant phase gets largest fraction
+        best_p_idx = int(np.argmin([g_single[p] for p in phases]))
+        phi_init = np.full(n_phases, 0.05 / max(1, n_phases - 1))
+        phi_init[best_p_idx] = 0.95
+        if n_phases == 1:
+            phi_init = np.array([1.0])
+
+        x_init = np.tile(x_tot, n_phases)
+        z0 = np.concatenate([phi_init, x_init])
+
+        # Bounds
+        bounds = [(0.0, 1.0)] * n_phases + [(1e-6, 1.0)] * (n_phases * n_elems)
+
+        def objective(z: np.ndarray) -> float:
+            phi = z[:n_phases]
+            x_mat = z[n_phases:].reshape((n_phases, n_elems))
+            g_sum = 0.0
+            for p_i in range(n_phases):
+                if phi[p_i] > 1e-5:
+                    comp_dict = {elems[i]: float(x_mat[p_i, i]) for i in range(n_elems)}
+                    g_phase = self.evaluate_phase_gibbs_energy(phases[p_i], comp_dict, temperature_k)
+                    g_sum += phi[p_i] * g_phase
+            return float(g_sum)
+
+        constraints = []
+
+        # 1. Sum of phase fractions == 1
+        constraints.append({
+            "type": "eq",
+            "fun": lambda z: float(np.sum(z[:n_phases]) - 1.0),
+        })
+
+        # 2. For each phase, sum of elemental fractions == 1
+        for p_i in range(n_phases):
+            def phase_sum_con(z, idx=p_i):
+                x_p = z[n_phases + idx * n_elems : n_phases + (idx + 1) * n_elems]
+                return float(np.sum(x_p) - 1.0)
+            constraints.append({"type": "eq", "fun": phase_sum_con})
+
+        # 3. Mass balance: sum_phi Phi_phi * x_i^phi == x_i^tot for each element i
+        for el_i in range(n_elems):
+            def mass_balance_con(z, el_idx=el_i):
+                phi = z[:n_phases]
+                x_mat = z[n_phases:].reshape((n_phases, n_elems))
+                return float(np.sum(phi * x_mat[:, el_idx]) - x_tot[el_idx])
+            constraints.append({"type": "eq", "fun": mass_balance_con})
+
+        try:
+            res = minimize(
+                objective,
+                z0,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=constraints,
+                options={"maxiter": 150, "ftol": 1e-6},
+            )
+            if res.success:
+                phi_opt = np.clip(res.x[:n_phases], 0.0, 1.0)
+                phi_opt = phi_opt / np.sum(phi_opt)
+                min_g_total = float(res.fun)
+            else:
+                phi_opt = phi_init
+                min_g_total = float(min(g_single.values()))
+        except Exception:
+            phi_opt = phi_init
+            min_g_total = float(min(g_single.values()))
+
+        phase_fractions = {phases[i]: float(round(phi_opt[i], 5)) for i in range(n_phases)}
+        stable_phase = phases[int(np.argmax(phi_opt))]
 
         return {
             "stable_equilibrium_phase": stable_phase,
             "stable_primary_phase": stable_phase,
-            "minimum_gibbs_energy_j_mol": float(g_vals[stable_phase]),
+            "minimum_gibbs_energy_j_mol": float(min_g_total),
             "phase_fractions": phase_fractions,
             "equilibrium_phase_fractions": phase_fractions,
-            "phase_gibbs_energies_j_mol": g_vals,
-            "temperature_k": temperature_k,
+            "phase_gibbs_energies_j_mol": g_single,
+            "temperature_k": float(temperature_k),
         }
+
+
+def solve_exact_phase_equilibrium(
+    phase_compositions: np.ndarray,  # Shape: (num_phases, num_elements)
+    phase_energies: np.ndarray,       # Shape: (num_phases,) - Gibbs energy per mol
+    target_composition: np.ndarray    # Shape: (num_elements,)
+) -> Dict[str, Any]:
+    """Rigorous grand canonical phase equilibrium without heuristic Boltzmann weights (HiGHS LP solver)."""
+    from scipy.optimize import linprog
+
+    n_phases, n_elements = phase_compositions.shape
+    c = phase_energies
+    A_eq = np.vstack([phase_compositions.T, np.ones((1, n_phases))])
+    b_eq = np.append(target_composition, 1.0)
+
+    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=(0, 1), method="highs")
+    if not res.success:
+        raise RuntimeError("Phase equilibrium failed to converge.")
+
+    active = np.where(res.x > 1e-5)[0]
+    return {
+        "equilibrium_energy_per_mol": float(res.fun),
+        "active_phase_indices": active.tolist(),
+        "phase_fractions": res.x[active].tolist(),
+        "chemical_potentials": (-res.eqlin.marginals[:n_elements]).tolist() if res.eqlin is not None else [],
+    }
 

@@ -9,86 +9,37 @@ class UniversalCrystalBuilder:
     """Builds valid crystallographic cells from Wyckoff positions and Seitz symmetry operations across all 230 space groups."""
 
     @staticmethod
-    def generate_standard_symmetry_operations(space_group_symbol: str) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """Generate exact affine transformation matrices (R, t) including non-symmorphic screw/glide operations."""
-        ops: List[Tuple[np.ndarray, np.ndarray]] = []
-        # Identity
-        ops.append((np.eye(3), np.zeros(3)))
+    def generate_standard_symmetry_operations(
+        space_group_symbol: str,
+        space_group_number: Optional[int] = None,
+    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Generate exact affine Seitz transformation matrices (R, t) across all 230 ITC and Shubnikov magnetic space groups."""
+        from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
 
-        sg = space_group_symbol.strip()
+        # Resolve space group number if symbol provided
+        sg_num = space_group_number
+        if sg_num is None:
+            sg_str = space_group_symbol.strip()
+            # Map standard symbols to numbers
+            sym_to_num = {
+                "P1": 1, "P-1": 2, "P2": 3, "P2_1": 4, "C2": 5, "Pm": 6, "Pc": 7, "Cm": 8, "Cc": 9,
+                "P2/m": 10, "P2_1/m": 11, "C2/m": 12, "P2/c": 13, "P2_1/c": 14, "C2/c": 15,
+                "Pnma": 62, "Cmcm": 63, "Fmmm": 69, "Immm": 71, "I4/mmm": 139, "I4_1/amd": 141,
+                "I4_1/acd": 142, "R3": 146, "R-3": 148, "R3c": 161, "R-3m": 166, "R-3c": 167,
+                "P6_3/mmc": 194, "Pm-3m": 221, "Pn-3m": 224, "Fm-3m": 225, "Fd-3m": 227,
+                "Im-3m": 229, "Ia-3d": 230, "F-43m": 216, "P4_2/mnm": 136, "P6_3mc": 186,
+            }
+            sg_num = sym_to_num.get(sg_str)
+            if sg_num is None:
+                # Digit extraction if numeric string
+                import re
+                num_match = re.search(r"\b([1-9]|[1-9][0-9]|1[0-9]{2}|2[0-2][0-9]|230)\b", sg_str)
+                sg_num = int(num_match.group(1)) if num_match else 1
 
-        # Inversion
-        if any(inv in sg for inv in ["-1", "/m", "mmm", "Fd-3m", "Fm-3m", "R-3c", "Pnma", "P2_1/c"]):
-            ops.append((-np.eye(3), np.zeros(3)))
-
-        # 2-fold / screw rotations
-        if "2_1" in sg or "P2_1" in sg:
-            r2y = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-            ops.append((r2y, np.array([0.0, 0.5, 0.0])))
-        elif "2" in sg:
-            r2z = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
-            ops.append((r2z, np.zeros(3)))
-
-        # 4-fold rotations and screws
-        if "4_1" in sg or "4_3" in sg:
-            r4z = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
-            t_screw = np.array([0.0, 0.0, 0.25]) if "4_1" in sg else np.array([0.0, 0.0, 0.75])
-            ops.append((r4z, t_screw))
-            ops.append((np.dot(r4z, r4z), (2.0 * t_screw) % 1.0))
-            ops.append((np.dot(np.dot(r4z, r4z), r4z), (3.0 * t_screw) % 1.0))
-        elif "4" in sg or "I4" in sg or "P4" in sg:
-            r4z = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
-            ops.append((r4z, np.zeros(3)))
-            ops.append((np.dot(r4z, r4z), np.zeros(3)))
-            ops.append((np.dot(np.dot(r4z, r4z), r4z), np.zeros(3)))
-
-        # 6-fold rotations and screws
-        if "6_3" in sg:
-            r6z = np.array([[1, -1, 0], [1, 0, 0], [0, 0, 1]])
-            ops.append((r6z, np.array([0.0, 0.0, 0.5])))
-        elif "6" in sg or "P6" in sg:
-            r6z = np.array([[1, -1, 0], [1, 0, 0], [0, 0, 1]])
-            ops.append((r6z, np.zeros(3)))
-
-        # 3-fold body diagonal rotations
-        if any(r3 in sg for r3 in ["3", "R-3", "Fd-3", "Fm-3", "Ia-3d", "Pa-3"]):
-            r3_diag = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])
-            ops.append((r3_diag, np.zeros(3)))
-            ops.append((np.dot(r3_diag, r3_diag), np.zeros(3)))
-
-        # Mirror and glide planes
-        if "m" in sg or "n" in sg or "c" in sg or "a" in sg or "b" in sg:
-            mz = np.diag([1, 1, -1])
-            t_glide = np.zeros(3)
-            if "n" in sg:
-                t_glide = np.array([0.5, 0.5, 0.0])
-            elif "c" in sg:
-                t_glide = np.array([0.0, 0.0, 0.5])
-            elif "a" in sg:
-                t_glide = np.array([0.5, 0.0, 0.0])
-            elif "b" in sg:
-                t_glide = np.array([0.0, 0.5, 0.0])
-            ops.append((mz, t_glide))
-
-        # Centering translations
-        if sg.startswith("F"):
-            t_f = [np.array([0.0, 0.5, 0.5]), np.array([0.5, 0.0, 0.5]), np.array([0.5, 0.5, 0.0])]
-            base_ops = list(ops)
-            for t_vec in t_f:
-                for R, t in base_ops:
-                    ops.append((R, (t + t_vec) % 1.0))
-        elif sg.startswith("I"):
-            t_i = np.array([0.5, 0.5, 0.5])
-            base_ops = list(ops)
-            for R, t in base_ops:
-                ops.append((R, (t + t_i) % 1.0))
-        elif sg.startswith("C"):
-            t_c = np.array([0.5, 0.5, 0.0])
-            base_ops = list(ops)
-            for R, t in base_ops:
-                ops.append((R, (t + t_c) % 1.0))
-
-        return ops
+        try:
+            return UniversalSymmetryEngine.get_seitz_matrices(sg_num)
+        except Exception:
+            return [(np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64))]
 
     @classmethod
     def expand_wyckoff_sites(

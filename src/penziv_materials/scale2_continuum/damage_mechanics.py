@@ -26,20 +26,42 @@ class NonLocalDamageMechanics:
         self.lam = lambda_lame_gpa * 1.0e9
         self.mu = mu_shear_gpa * 1.0e9
 
-    def spectral_strain_decomposition(self, strain_tensor: np.ndarray) -> Tuple[float, float]:
-        """Spectral decomposition into tensile psi_+ and compressive psi_- elastic energy densities (Miehe/Amor formulation)."""
+    def spectral_strain_decomposition(
+        self,
+        strain_tensor: np.ndarray,
+        c_voigt_matrix_gpa: Optional[np.ndarray] = None,
+    ) -> Tuple[float, float]:
+        """Spectral decomposition into tensile psi_+ and compressive psi_- elastic energy densities with fourth-order tensor support:
+
+        psi_+ = 0.5 * eps_+ : C : eps_+,   psi_- = 0.5 * eps_- : C : eps_-
+        """
         eps_sym = 0.5 * (strain_tensor + strain_tensor.T)
         eigvals, eigvecs = np.linalg.eigh(eps_sym)
-
-        tr_eps = float(np.sum(eigvals))
-        tr_pos = max(0.0, tr_eps)
-        tr_neg = min(0.0, tr_eps)
 
         eig_pos = np.maximum(0.0, eigvals)
         eig_neg = np.minimum(0.0, eigvals)
 
-        psi_plus = 0.5 * self.lam * (tr_pos**2) + self.mu * np.sum(eig_pos**2)
-        psi_minus = 0.5 * self.lam * (tr_neg**2) + self.mu * np.sum(eig_neg**2)
+        # Reconstruct positive and negative spectral strain projection tensors
+        eps_plus = np.zeros((3, 3), dtype=np.float64)
+        eps_minus = np.zeros((3, 3), dtype=np.float64)
+        for a in range(3):
+            n_a = eigvecs[:, a]
+            proj_a = np.outer(n_a, n_a)
+            eps_plus += eig_pos[a] * proj_a
+            eps_minus += eig_neg[a] * proj_a
+
+        if c_voigt_matrix_gpa is not None and c_voigt_matrix_gpa.shape == (6, 6):
+            # Anisotropic fourth-order elasticity projection (Voigt notation conversion)
+            c_pa = c_voigt_matrix_gpa * 1.0e9
+            v_plus = np.array([eps_plus[0, 0], eps_plus[1, 1], eps_plus[2, 2], 2*eps_plus[1, 2], 2*eps_plus[0, 2], 2*eps_plus[0, 1]])
+            v_minus = np.array([eps_minus[0, 0], eps_minus[1, 1], eps_minus[2, 2], 2*eps_minus[1, 2], 2*eps_minus[0, 2], 2*eps_minus[0, 1]])
+            psi_plus = 0.5 * float(np.dot(v_plus, np.dot(c_pa, v_plus)))
+            psi_minus = 0.5 * float(np.dot(v_minus, np.dot(c_pa, v_minus)))
+        else:
+            tr_pos = max(0.0, float(np.sum(eigvals)))
+            tr_neg = min(0.0, float(np.sum(eigvals)))
+            psi_plus = 0.5 * self.lam * (tr_pos**2) + self.mu * np.sum(eig_pos**2)
+            psi_minus = 0.5 * self.lam * (tr_neg**2) + self.mu * np.sum(eig_neg**2)
 
         return float(psi_plus), float(psi_minus)
 
