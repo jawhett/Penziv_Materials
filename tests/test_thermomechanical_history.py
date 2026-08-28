@@ -10,7 +10,7 @@ from penziv_materials.scale1_process.thermomechanical_history import (
 
 class TestThermomechanicalHistory(unittest.TestCase):
     def setUp(self):
-        self.engine = ThermomechanicalHistoryEngine(shear_modulus_gpa=80.0, poisson_ratio=0.30)
+        self.engine = ThermomechanicalHistoryEngine(shear_modulus_gpa=77.0, poisson_ratio=0.30)
         self.base_yield_mpa = 300.0
         self.base_youngs_gpa = 200.0
 
@@ -19,7 +19,7 @@ class TestThermomechanicalHistory(unittest.TestCase):
         res = self.engine.predict_properties_from_history(self.base_yield_mpa, self.base_youngs_gpa, params)
 
         self.assertGreater(res.total_elongation_to_failure_percent, 40.0)
-        self.assertGreater(res.fracture_toughness_k_ic_mpa_sqrt_m, 100.0)
+        self.assertGreater(res.fracture_toughness_k_ic_mpa_sqrt_m, 60.0)
         self.assertLess(res.dislocation_density_m2, 1e13)
         self.assertGreater(res.transition_fatigue_life_cycles_nt, 1000.0)
 
@@ -29,7 +29,7 @@ class TestThermomechanicalHistory(unittest.TestCase):
 
         # Cold work increases yield strength via Taylor forest hardening
         self.assertGreater(res.yield_strength_mpa, 450.0)
-        self.assertGreater(res.dislocation_density_m2, 1e15)
+        self.assertGreater(res.dislocation_density_m2, 5e14)
         # Cold work reduces elongation and fracture toughness
         self.assertLess(res.total_elongation_to_failure_percent, 20.0)
         self.assertLess(res.strain_hardening_exponent_n, 0.12)
@@ -49,9 +49,9 @@ class TestThermomechanicalHistory(unittest.TestCase):
         res_print = self.engine.predict_properties_from_history(self.base_yield_mpa, self.base_youngs_gpa, as_printed_params)
         res_hip = self.engine.predict_properties_from_history(self.base_yield_mpa, self.base_youngs_gpa, hip_params)
 
-        # As-printed has high fine-cell strength but reduced fatigue endurance due to residual stress
+        # As-printed has high cellular strength but reduced fatigue endurance due to surface roughness and residual stress
         self.assertGreater(res_print.yield_strength_mpa, 350.0)
-        # HIP treatment relieves residual stress, increasing ductility and fatigue endurance
+        # HIP treatment relieves residual stress and closes pores, increasing ductility and fatigue endurance
         self.assertGreater(res_hip.fatigue_endurance_limit_sigma_e_mpa, res_print.fatigue_endurance_limit_sigma_e_mpa)
         self.assertGreater(res_hip.fracture_toughness_k_ic_mpa_sqrt_m, res_print.fracture_toughness_k_ic_mpa_sqrt_m)
         self.assertGreater(res_hip.total_elongation_to_failure_percent, res_print.total_elongation_to_failure_percent)

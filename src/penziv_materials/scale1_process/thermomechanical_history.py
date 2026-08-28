@@ -66,7 +66,7 @@ class ThermomechanicalHistoryEngine:
     def __init__(
         self,
         burgers_vector_m: float = 2.54e-10,
-        shear_modulus_gpa: float = 80.0,
+        shear_modulus_gpa: float = 77.0,
         poisson_ratio: float = 0.30,
         taylor_factor: float = 3.067,
     ):
@@ -87,53 +87,70 @@ class ThermomechanicalHistoryEngine:
         E_gpa = base_youngs_modulus_gpa
         E_pa = E_gpa * 1.0e9
         G_pa = E_pa / (2.0 * (1.0 + self.nu))
-        sigma_0 = lattice_friction_stress_mpa or max(20.0, base_yield_strength_mpa * 0.35)
+        
+        # Friction stress sigma_0 (Peierls-Nabarro + solid solution baseline)
+        sigma_0 = lattice_friction_stress_mpa or max(50.0, base_yield_strength_mpa * 0.70)
 
         # 1. Microstructural State Variables by Route
         if route == ProcessingRoute.ANNEALED_RECRYSTALLIZED:
-            d_um = 55.0
+            d_um = 45.0
             rho_disl = 1.0e12  # Well-annealed low dislocation density
-            f_v = 0.001
+            f_v = 0.0005
             r_p_nm = 5.0
             sigma_res_mpa = 0.0
             void_frac = max(1e-5, history.void_volume_fraction)
             k_surf = 1.0
+            n_exp = 0.28
+            eps_u = 38.0
+            eps_f = 52.0
 
         elif route == ProcessingRoute.COLD_WORKED_50PCT:
-            d_um = 18.0  # Grain elongation / subdivision
-            rho_disl = 2.5e15  # Heavy dislocation forest
-            f_v = 0.001
+            d_um = 12.0  # Grain elongation / deformation bands
+            rho_disl = 8.0e14  # Saturated cold-work dislocation forest
+            f_v = 0.0005
             r_p_nm = 5.0
-            sigma_res_mpa = 180.0  # High tensile residual stress
-            void_frac = max(2e-4, history.void_volume_fraction * 2.0)
-            k_surf = 0.85
+            sigma_res_mpa = 120.0  # Residual stress from rolling
+            void_frac = max(1e-4, history.void_volume_fraction * 2.0)
+            k_surf = 0.90
+            n_exp = 0.06  # Exhausted work hardening
+            eps_u = 3.0
+            eps_f = 14.0
 
         elif route == ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6:
-            d_um = 35.0
-            rho_disl = 5.0e13
-            f_v = 0.045  # Dense nanoscale precipitation
-            r_p_nm = 8.0  # Optimal Orowan looping radius
-            sigma_res_mpa = 40.0
+            d_um = 30.0
+            rho_disl = 4.0e13
+            f_v = 0.035  # Dense coherent / semi-coherent precipitates
+            r_p_nm = 7.5  # Peak Orowan looping radius
+            sigma_res_mpa = 25.0
             void_frac = max(1e-5, history.void_volume_fraction)
             k_surf = 0.95
+            n_exp = 0.14
+            eps_u = 12.0
+            eps_f = 22.0
 
         elif route == ProcessingRoute.ADDITIVE_LPBF_AS_PRINTED:
-            d_um = 8.0  # Rapid solidification fine cell structure
-            rho_disl = 8.0e14  # High cellular dislocation density
-            f_v = 0.010
+            d_um = 1.5  # Cellular dislocation subgrain network (~1-2 um)
+            rho_disl = 2.5e14  # High cellular wall dislocation density
+            f_v = 0.008
             r_p_nm = 3.0
-            sigma_res_mpa = max(220.0, base_yield_strength_mpa * 0.65)  # Severe thermal tensile stress
-            void_frac = max(5e-4, history.void_volume_fraction * 5.0)  # Gas/lack-of-fusion pores
-            k_surf = 0.42  # Severe as-printed unmachined surface roughness / notch knockdown
+            sigma_res_mpa = max(180.0, base_yield_strength_mpa * 0.40)  # Severe thermal residual stress
+            void_frac = max(4e-4, history.void_volume_fraction * 4.0)  # Micro-pores / lack-of-fusion
+            k_surf = 0.52  # Unpolished as-printed surface roughness notch knockdown (Ra ~ 10-15 um)
+            n_exp = 0.15
+            eps_u = 22.0
+            eps_f = 36.0
 
         elif route == ProcessingRoute.ADDITIVE_LPBF_HIP_AGED:
-            d_um = 42.0  # Recrystallized / coarsened
-            rho_disl = 8.0e12  # Dislocation recovery
-            f_v = 0.035  # Post-HIP precipitation
-            r_p_nm = 12.0
-            sigma_res_mpa = 15.0  # Complete residual stress relief
+            d_um = 38.0  # Recrystallized equiaxed grains
+            rho_disl = 5.0e12  # Annealed dislocation recovery
+            f_v = 0.020  # Post-HIP precipitation
+            r_p_nm = 10.0
+            sigma_res_mpa = 5.0  # Complete thermal stress relief
             void_frac = 1e-5  # Isostatic pore closure
-            k_surf = 0.95  # Machined & polished finish
+            k_surf = 0.96  # Machined and polished finish
+            n_exp = 0.25
+            eps_u = 32.0
+            eps_f = 46.0
 
         else:
             d_um = 30.0
@@ -143,14 +160,17 @@ class ThermomechanicalHistoryEngine:
             sigma_res_mpa = 0.0
             void_frac = 1e-4
             k_surf = 1.0
+            n_exp = 0.20
+            eps_u = 20.0
+            eps_f = 30.0
 
         # 2. Physics-Based Strengthening Mechanisms
-        # Hall-Petch grain boundary strengthening
-        k_hp_mpa_sqrt_um = 12.5
-        delta_sigma_hp = k_hp_mpa_sqrt_um / np.sqrt(max(0.5, d_um))
+        # Hall-Petch grain boundary strengthening: k_HP / sqrt(d)
+        k_hp_mpa_sqrt_um = 10.5
+        delta_sigma_hp = k_hp_mpa_sqrt_um / np.sqrt(max(0.2, d_um))
 
         # Taylor dislocation forest hardening: Delta sigma_T = M * alpha * G * b * sqrt(rho)
-        alpha_taylor = 0.33
+        alpha_taylor = 0.28
         delta_sigma_taylor = (self.M * alpha_taylor * (G_pa * 1e-6) * self.b * np.sqrt(rho_disl))
 
         # Orowan precipitation strengthening: Delta sigma_Orowan
@@ -167,40 +187,19 @@ class ThermomechanicalHistoryEngine:
         # Total Yield Strength
         sigma_y = float(sigma_0 + delta_sigma_hp + delta_sigma_taylor + delta_sigma_orowan)
 
-        # 3. Plasticity, Work Hardening & Ductility
-        if route == ProcessingRoute.COLD_WORKED_50PCT:
-            n_exp = 0.08  # Saturated work hardening
-            eps_u = 3.5  # Uniform elongation %
-            eps_f = 12.0  # Total failure elongation %
-        elif route == ProcessingRoute.ADDITIVE_LPBF_AS_PRINTED:
-            n_exp = 0.12
-            eps_u = 8.0
-            eps_f = 16.0
-        elif route == ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6:
-            n_exp = 0.16
-            eps_u = 14.0
-            eps_f = 24.0
-        elif route == ProcessingRoute.ADDITIVE_LPBF_HIP_AGED:
-            n_exp = 0.18
-            eps_u = 18.0
-            eps_f = 32.0
-        else:  # Annealed
-            n_exp = 0.26  # High strain hardening capacity
-            eps_u = 32.0
-            eps_f = 48.0
-
-        K_work_hard = float(sigma_y * 1.65)
-        sigma_uts = float(sigma_y * (1.0 + (eps_u / 100.0) ** n_exp * 0.45))
+        # 3. Plasticity, Work Hardening & Ultimate Tensile Strength
+        K_work_hard = float(sigma_y * (1.0 + n_exp * 2.5))
+        sigma_uts = float(sigma_y * (1.0 + (eps_u / 100.0) ** n_exp * 0.55))
 
         # 4. Fracture Toughness K_Ic & Plastic Zone Size
-        # Rice-Johnson ductile fracture model: K_Ic = sqrt(2 * E * gamma_eff / (1 - nu^2))
+        # Rice-Johnson / Ritchie ductile tearing fracture model: K_Ic = sqrt(2 * E * gamma_eff / (1 - nu^2))
         gamma_surface_j_m2 = 2.2
-        # Plastic work of dissipation scales with ductility eps_f
-        gamma_plastic_dissipation = 2200.0 * ((eps_f / 30.0) ** 1.5) * (800.0 / max(250.0, sigma_y))
+        # Plastic dissipation work gamma_p scales strongly with failure elongation eps_f
+        gamma_plastic_dissipation = 3200.0 * ((eps_f / 30.0) ** 1.6) * (600.0 / max(200.0, sigma_y))
         gamma_eff = gamma_surface_j_m2 * (1.0 + gamma_plastic_dissipation)
 
         k_ic_pa_sqrt_m = np.sqrt((2.0 * E_pa * gamma_eff) / max(0.1, 1.0 - self.nu**2))
-        k_ic = float(np.clip(k_ic_pa_sqrt_m * 1.0e-6, 15.0, 250.0))
+        k_ic = float(np.clip(k_ic_pa_sqrt_m * 1.0e-6, 18.0, 220.0))
 
         # Critical CTOD: delta_c = K_Ic^2 / (m * sigma_y * E)
         delta_ctod_um = float((k_ic**2 * 1.0e6) / (1.5 * sigma_y * E_gpa * 1000.0) * 1.0e3)
@@ -208,11 +207,11 @@ class ThermomechanicalHistoryEngine:
         r_p_mm = float((1.0 / (6.0 * np.pi)) * ((k_ic / sigma_y) ** 2) * 1000.0)
 
         # 5. Cyclic Fatigue Parameters
-        # Unnotched smooth endurance limit sigma_e,0 ~ 0.45 * sigma_uts
+        # Smooth unnotched fatigue limit: sigma_e,0 ~ 0.45 * sigma_uts
         sigma_e_intrinsic = 0.45 * sigma_uts
-        # Modified by Goodman mean/residual stress & surface condition
-        residual_reduction = max(0.15, 1.0 - (sigma_res_mpa / max(1.0, sigma_uts)))
-        pore_reduction = max(0.20, 1.0 - (void_frac * 200.0))
+        # Goodman mean/residual stress & surface condition knockdowns
+        residual_reduction = max(0.20, 1.0 - (sigma_res_mpa / max(1.0, sigma_uts)))
+        pore_reduction = max(0.20, 1.0 - (void_frac * 250.0))
         sigma_e = float(max(25.0, sigma_e_intrinsic * k_surf * pore_reduction * residual_reduction))
 
         # Basquin High-Cycle Fatigue Parameters: sigma_a = sigma_f' * (2*N_f)^b
@@ -229,7 +228,7 @@ class ThermomechanicalHistoryEngine:
         nt_cycles = float(np.clip(nt_cycles, 50.0, 50000.0))
 
         # Paris Law Fatigue Crack Propagation: da/dN = C * (Delta K)^m
-        m_paris = float(2.8 + (150.0 / max(20.0, k_ic)) * 0.6)
+        m_paris = float(2.8 + (120.0 / max(20.0, k_ic)) * 0.5)
         c_paris = float(1.2e-11 * (80.0 / max(10.0, E_gpa)) ** 2)
         delta_k_th = float(np.clip(0.12 * k_ic, 2.0, 12.0))
 
