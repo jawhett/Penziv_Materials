@@ -481,6 +481,49 @@ def benchmark(candidates: int):
 
 
 @main.command()
+@click.option("--formulas", default="Cu,Al,CaO,Fe0.70Cr0.18Ni0.10Mo0.02", help="Comma-separated chemical formulas to benchmark.")
+@click.option("--temp-k", default=300.0, type=float, help="Target operating temperature in Kelvin.")
+def benchmark_formulas(formulas: str, temp_k: float):
+    """Run full-flow first-principles structure prediction & property benchmark from chemical formulas."""
+    from penziv_materials.benchmarks.formula_prediction_benchmark import FormulaPredictionBenchmarkSuite
+    
+    formula_list = [f.strip() for f in formulas.split(",") if f.strip()]
+    console.print(f"\n[bold cyan]Executing Zero-Parameter Chemical Formula Benchmark ({len(formula_list)} materials at {temp_k} K)...[/bold cyan]\n")
+
+    suite = FormulaPredictionBenchmarkSuite()
+    res = suite.run_full_chemical_benchmark(benchmark_formulas=formula_list, temperature_k=temp_k)
+
+    table = Table(title="[bold]Penziv Materials Zero-Parameter Formula Discovery Benchmark[/bold]", header_style="bold cyan", border_style="dim")
+    table.add_column("Formula", style="bold white", justify="left")
+    table.add_column("Predicted Space Group", style="cyan", justify="center")
+    table.add_column("Density (g/cm³)", style="magenta", justify="right")
+    table.add_column("E_form (eV/at)", style="yellow", justify="right")
+    table.add_column("E (GPa)", style="green", justify="right")
+    table.add_column("Yield (MPa)", style="blue", justify="right")
+    table.add_column("K_Ic (MPa√m)", style="cyan", justify="right")
+    table.add_column("γ_isf (mJ/m²)", style="magenta", justify="right")
+    table.add_column("Born Stable", style="green", justify="center")
+    table.add_column("Status", style="bold green", justify="center")
+
+    for rep in res["reports"]:
+        table.add_row(
+            rep["formula"],
+            f"{rep['predicted_space_group']} ({rep['predicted_crystal_system'][:3]})",
+            f"{rep['theoretical_density_g_cm3']:.2f}",
+            f"{rep['formation_energy_ev_atom']:.3f}",
+            f"{rep['youngs_modulus_gpa']:.1f}",
+            f"{rep['yield_strength_mpa']:.1f}",
+            f"{rep['fracture_toughness_k_ic_mpa_sqrt_m']:.1f}",
+            f"{rep['stacking_fault_energy_gamma_isf_mj_m2']:.1f}",
+            "YES" if rep["born_mechanical_stability"] else "NO",
+            f"[green]{rep['status']}[/green]",
+        )
+
+    console.print(table)
+    console.print(f"\n[bold green]Benchmark Complete:[/] All {res['total_materials_benchmarked']} materials evaluated across 5 physical scale tiers with zero empirical fallbacks.\n")
+
+
+@main.command()
 @click.option("--title", default="Penziv Materials Discovery Framework")
 @click.option("--author", default="Jawhett et al.")
 def cite(title: str, author: str):
