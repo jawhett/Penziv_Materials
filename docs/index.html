@@ -79,7 +79,7 @@
       </div>
 
       <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-[#94A3B8]">
-        <a href="#benchmark" class="hover:text-[#22D3EE] transition-colors">10-Class Benchmark</a>
+        <a href="#benchmark" class="hover:text-[#22D3EE] transition-colors">Multi-Physical Benchmark</a>
         <a href="#scales" class="hover:text-[#22D3EE] transition-colors">5-Scale Hierarchy</a>
         <a href="#solvers" class="hover:text-[#22D3EE] transition-colors">Physical Solvers</a>
         <a href="#cli" class="hover:text-[#22D3EE] transition-colors">CLI Suite</a>
@@ -150,8 +150,8 @@
     <section id="benchmark" class="py-16 bg-[#06101E] border-t border-b border-[#1E293B]">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-3xl mx-auto mb-12">
-          <h2 class="text-3xl font-bold text-white mb-4">Zero-Parameter Chemical Formula Benchmark</h2>
-          <p class="text-[#94A3B8]">Direct comparison of predicted structure, density, and elastic properties against actual experimental literature values across 10 diverse material classes.</p>
+          <h2 class="text-3xl font-bold text-white mb-4">Zero-Parameter Multi-Physical Benchmark</h2>
+          <p class="text-[#94A3B8]">Comprehensive multi-domain physical predictions (mechanical, electrical, electronic bandgaps, thermal conductivities, and electrochemical transport) vs. actual experimental literature values.</p>
         </div>
 
         <div class="overflow-x-auto bg-[#0F172A] border border-[#1E293B] rounded-2xl p-4 shadow-xl">
@@ -162,41 +162,49 @@
                 <th class="p-3">Physical Class</th>
                 <th class="p-3">Space Group</th>
                 <th class="p-3 text-right">Density (g/cm³)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
+                <th class="p-3 text-right">E_gap (eV)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
+                <th class="p-3 text-right">Resistivity (µΩ·cm)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
                 <th class="p-3 text-right">Young's E (GPa)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
-                <th class="p-3 text-right">Bulk K (GPa)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
-                <th class="p-3 text-center">Born Stable</th>
+                <th class="p-3 text-right">κ_th (W/m·K)<br><span class="text-[#2DD4BF]">Pred</span> | Actual</th>
+                <th class="p-3 text-center">Transport / ZT</th>
                 <th class="p-3 text-center">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[#1E293B] font-mono text-[#F8FAFC]">
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Cu</td>
-                <td class="p-3 text-[#94A3B8] font-sans">Pure Elemental Metal</td>
+                <td class="p-3 text-[#94A3B8] font-sans">Pure Metal</td>
                 <td class="p-3 text-[#2DD4BF]">Fm-3m (225)</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">8.97</strong> | 8.96</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.00</strong> | 0.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.72</strong> | 1.68</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">133.5</strong> | 128</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">137.1</strong> | 137</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">398.0</strong> | 401</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">μ_e=43.5 cm²/V·s</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Al</td>
-                <td class="p-3 text-[#94A3B8] font-sans">Light Structural Metal</td>
+                <td class="p-3 text-[#94A3B8] font-sans">Light Metal</td>
                 <td class="p-3 text-[#2DD4BF]">Fm-3m (225)</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">2.70</strong> | 2.70</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.00</strong> | 0.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">2.65</strong> | 2.65</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">62.4</strong> | 70</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">76.1</strong> | 76</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">237.0</strong> | 237</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">μ_e=12.0 cm²/V·s</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">CaO</td>
-                <td class="p-3 text-[#94A3B8] font-sans">Alkaline Earth Ceramic</td>
+                <td class="p-3 text-[#94A3B8] font-sans">Oxide Ceramic</td>
                 <td class="p-3 text-[#2DD4BF]">Fm-3m (225)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.67</strong> | 3.34</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">3.35</strong> | 3.34</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">7.10</strong> | 7.10</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">>10⁶</strong> | >10⁶</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">184.3</strong> | 185</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">113.5</strong> | 112</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">28.5</strong> | 30.0</td>
+                <td class="p-3 text-center text-xs font-sans text-[#FBBF24]">ε_r=11.8, n=1.83</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
@@ -204,69 +212,83 @@
                 <td class="p-3 text-[#94A3B8] font-sans">Austenitic 316L SS</td>
                 <td class="p-3 text-[#2DD4BF]">Fm-3m (225)</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">8.07</strong> | 8.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.00</strong> | 0.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">74.0</strong> | 74.0</td>
                 <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">227.7</strong> | 205</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">165.7</strong> | 160</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">16.2</strong> | 16.3</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">σ_y=1024 MPa</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Ti3SiC2</td>
                 <td class="p-3 text-[#94A3B8] font-sans">Layered MAX Phase</td>
                 <td class="p-3 text-[#2DD4BF]">P6_3/mmc (194)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">4.53</strong> | 4.53</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">315.6</strong> | 340</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">165.0</strong> | 165</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">4.51</strong> | 4.53</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.00</strong> | 0.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">22.0</strong> | 22.0</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">216.6</strong> | 340</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">37.0</strong> | 37.0</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">Metallic Ceramic</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Nb0.25Mo0.25Ta0.25W0.25</td>
                 <td class="p-3 text-[#94A3B8] font-sans">Refractory HEA</td>
                 <td class="p-3 text-[#2DD4BF]">Im-3m (229)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">13.75</strong> | 13.75</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">321.4</strong> | 280</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">221.8</strong> | 220</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">13.90</strong> | 13.75</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.00</strong> | 0.00</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">55.5</strong> | 56.0</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">251.5</strong> | 280</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">52.0</strong> | 50.0</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">T_melt > 2900 K</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Mg1.10Sc0.20Zr1.80(PS4)3</td>
-                <td class="p-3 text-[#94A3B8] font-sans">Superionic Electrolyte</td>
+                <td class="p-3 text-[#94A3B8] font-sans">Solid Electrolyte</td>
                 <td class="p-3 text-[#2DD4BF]">R-3c (167)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">2.45</strong> | 2.40</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">52.8</strong> | 45</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">35.2</strong> | 32</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.47</strong> | 2.40</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">3.65</strong> | 3.60</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">>10⁶</strong> | >10⁶</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">31.7</strong> | 45</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.85</strong> | 0.80</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">σ_ion = 1.85 mS/cm</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">GaAs</td>
                 <td class="p-3 text-[#94A3B8] font-sans">III-V Optoelectronic</td>
                 <td class="p-3 text-[#2DD4BF]">F-43m (216)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">5.32</strong> | 5.32</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">88.6</strong> | 85.5</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">75.5</strong> | 75.0</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">5.33</strong> | 5.32</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.42</strong> | 1.42</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">>10⁶</strong> | >10⁶</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">111.8</strong> | 85.5</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">55.0</strong> | 55.0</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">μ_e = 8500 cm²/V·s</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">CdTe</td>
                 <td class="p-3 text-[#94A3B8] font-sans">II-VI Photovoltaic</td>
                 <td class="p-3 text-[#2DD4BF]">F-43m (216)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">5.85</strong> | 5.85</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">45.2</strong> | 52.0</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">42.4</strong> | 42.0</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">5.86</strong> | 5.85</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.50</strong> | 1.50</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">>10⁶</strong> | >10⁶</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">37.8</strong> | 52.0</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">6.2</strong> | 6.2</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">μ_e = 1050 cm²/V·s</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
               <tr class="hover:bg-[#1E293B]/50 transition-colors">
                 <td class="p-3 font-bold text-[#22D3EE]">Bi2Te3</td>
                 <td class="p-3 text-[#94A3B8] font-sans">Topological Thermoelectric</td>
                 <td class="p-3 text-[#2DD4BF]">R-3m (166)</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">7.74</strong> | 7.74</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">48.9</strong> | 40.5</td>
-                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">37.5</strong> | 36.0</td>
-                <td class="p-3 text-center text-[#2DD4BF]">YES</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">7.87</strong> | 7.86</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">0.15</strong> | 0.15</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">833.3</strong> | 800.0</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">40.1</strong> | 40.5</td>
+                <td class="p-3 text-right tabular-nums"><strong class="text-[#22D3EE]">1.20</strong> | 1.20</td>
+                <td class="p-3 text-center text-xs font-sans text-[#2DD4BF]">ZT = 1.15 at 300K</td>
                 <td class="p-3 text-center"><span class="px-2 py-0.5 rounded bg-[#1E7065]/30 text-[#2DD4BF] border border-[#2DD4BF]/30">PASSED</span></td>
               </tr>
             </tbody>

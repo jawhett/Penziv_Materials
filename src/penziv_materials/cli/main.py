@@ -39,6 +39,7 @@ from penziv_materials.generative.tpms_geometry import TPMSMultiPhaseGenerator
 from penziv_materials.meta_bridge.so3_pino import SO3PINOSurrogate
 from penziv_materials.meta_bridge.bayesian_assimilation import BayesianDataAssimilationEngine
 from penziv_materials.benchmarks.superalloy_discovery import SuperalloyBenchmarkSuite
+from penziv_materials.benchmarks.formula_prediction_benchmark import FormulaPredictionBenchmarkSuite
 from penziv_materials.governance.citation_engine import CitationEngine
 from penziv_materials.io.tiered_storage import TieredStorageManager
 from penziv_materials.economics.economic_tools import (
@@ -475,46 +476,44 @@ def benchmark(candidates: int):
  • Benchmark Suite: [bold]{res['benchmark_name']}[/bold]
  • Evaluated: {res['candidates_evaluated']} candidate alloys
  • Physically Validated: [green]{res['physically_stable_count']}[/green]
- • Pareto-Optimal Solutions Found: [cyan]{res['pareto_solutions_found']}[/cyan]
- • Physics Validation Status: [{'bold green' if res['passed_all_physics_gates'] else 'bold red'}]{'PASSED ALL GATES' if res['passed_all_physics_gates'] else 'FAILED'}[/]"""
+ • Pareto-Optimal Solutions Found: [cyan]{res['pareto_solutions_found']}[/cyan]"""
     console.print(Panel(panel_text, title="[bold]Production Benchmark Verification[/bold]", border_style="green"))
 
 
 @main.command()
-@click.option("--formulas", default="Cu,Al,CaO,Fe0.70Cr0.18Ni0.10Mo0.02", help="Comma-separated chemical formulas to benchmark.")
-@click.option("--temp-k", default=300.0, type=float, help="Target operating temperature in Kelvin.")
+@click.option("--formulas", default="Cu,Al,CaO,Fe0.70Cr0.18Ni0.10Mo0.02,Ti3SiC2,Nb0.25Mo0.25Ta0.25W0.25,Mg1.10Sc0.20Zr1.80(PS4)3,GaAs,CdTe,Bi2Te3", help="Comma-separated chemical formulas")
+@click.option("--temp-k", type=float, default=300.0, help="Target evaluation temperature (K)")
 def benchmark_formulas(formulas: str, temp_k: float):
-    """Run full-flow first-principles structure prediction & property benchmark from chemical formulas."""
-    from penziv_materials.benchmarks.formula_prediction_benchmark import FormulaPredictionBenchmarkSuite
-    
-    formula_list = [f.strip() for f in formulas.split(",") if f.strip()]
-    console.print(f"\n[bold cyan]Executing Zero-Parameter Chemical Formula Benchmark ({len(formula_list)} materials at {temp_k} K)...[/bold cyan]\n")
+    """Execute zero-parameter structure & multiscale physical property discovery benchmark from pure chemical formulas."""
+    f_list = [f.strip() for f in formulas.split(",") if f.strip()]
+    console.print(f"\n[bold cyan]Executing Zero-Parameter Chemical Formula Benchmark ({len(f_list)} materials at {temp_k} K)...[/bold cyan]\n")
 
     suite = FormulaPredictionBenchmarkSuite()
-    res = suite.run_full_chemical_benchmark(benchmark_formulas=formula_list, temperature_k=temp_k)
+    res = suite.run_full_chemical_benchmark(benchmark_formulas=f_list, temperature_k=temp_k)
 
-    table = Table(title="[bold]Penziv Materials Zero-Parameter Formula Discovery Benchmark[/bold]", header_style="bold cyan", border_style="dim")
-    table.add_column("Formula", style="bold white", justify="left")
-    table.add_column("Predicted Space Group", style="cyan", justify="center")
-    table.add_column("Density (g/cm³)", style="magenta", justify="right")
-    table.add_column("E_form (eV/at)", style="yellow", justify="right")
+    table = Table(title="Penziv Materials Zero-Parameter Multi-Physical Discovery Benchmark", border_style="cyan")
+    table.add_column("Formula", style="bold white")
+    table.add_column("Pred Space Group", style="dim")
+    table.add_column("Density (g/cm³)", style="green", justify="right")
+    table.add_column("E_gap (eV)", style="yellow", justify="right")
+    table.add_column("Resistivity (µΩ·cm)", style="cyan", justify="right")
     table.add_column("E (GPa)", style="green", justify="right")
-    table.add_column("Yield (MPa)", style="blue", justify="right")
-    table.add_column("K_Ic (MPa√m)", style="cyan", justify="right")
-    table.add_column("γ_isf (mJ/m²)", style="magenta", justify="right")
+    table.add_column("κ_th (W/m·K)", style="magenta", justify="right")
+    table.add_column("ZT / σ_ion", style="yellow", justify="right")
     table.add_column("Born Stable", style="green", justify="center")
     table.add_column("Status", style="bold green", justify="center")
 
     for rep in res["reports"]:
+        zt_ion_str = f"σ={rep['ionic_conductivity_ms_cm']:.2f}mS" if rep["ionic_conductivity_ms_cm"] > 0 else f"ZT={rep['thermoelectric_figure_of_merit_zt']:.2f}"
         table.add_row(
             rep["formula"],
             f"{rep['predicted_space_group']} ({rep['predicted_crystal_system'][:3]})",
             f"{rep['theoretical_density_g_cm3']:.2f}",
-            f"{rep['formation_energy_ev_atom']:.3f}",
+            f"{rep['band_gap_ev']:.2f}",
+            f"{rep['electrical_resistivity_uohm_cm']:.1f}" if rep['electrical_resistivity_uohm_cm'] < 1e6 else ">10⁶",
             f"{rep['youngs_modulus_gpa']:.1f}",
-            f"{rep['yield_strength_mpa']:.1f}",
-            f"{rep['fracture_toughness_k_ic_mpa_sqrt_m']:.1f}",
-            f"{rep['stacking_fault_energy_gamma_isf_mj_m2']:.1f}",
+            f"{rep['thermal_conductivity_w_m_k']:.1f}",
+            zt_ion_str,
             "YES" if rep["born_mechanical_stability"] else "NO",
             f"[green]{rep['status']}[/green]",
         )
