@@ -48,16 +48,30 @@ class AtomDynAgent:
     ) -> AtomisticState:
         """Execute Scale 4 atomistic state evaluation deriving barriers directly from automated CI-NEB on the MLIP PES."""
         if crystal_structure is not None:
-            # Construct endpoint crystal with displaced interstitial/vacancy for CI-NEB
-            initial_crystal = crystal_structure
+            # Construct endpoint crystal with displaced interstitial/vacancy via Voronoi cavity geometry
+            lat_matrix = np.array(crystal_structure.lattice.matrix)
+            frac_coords = np.array([s.fractional_coords for s in crystal_structure.sites])
+            from penziv_materials.scale4_atomistic.path_sampling import TransitionPathSamplingEngine
+            tps = TransitionPathSamplingEngine()
+            cavities = tps.find_voronoi_interstitial_cavities(frac_coords, lat_matrix)
+
+            if cavities:
+                target_hop = cavities[0]["coordinates_frac"]
+            else:
+                target_hop = (frac_coords[0] + np.array([0.5, 0.5, 0.5])) % 1.0
+
             final_sites = []
-            for s in crystal_structure.sites:
-                disp_frac = (s.fractional_coords + np.array([0.15, 0.15, 0.0])) % 1.0
+            for idx, s in enumerate(crystal_structure.sites):
+                if idx == 0:
+                    disp_frac = target_hop
+                else:
+                    disp_frac = s.fractional_coords
                 final_sites.append(Site(s.species, disp_frac, s.occupancy, s.wyckoff_label))
             final_crystal = CrystalStructure(crystal_structure.lattice, final_sites, crystal_structure.space_group)
 
-            neb_res = self.mlip.compute_ci_neb_migration_barrier(initial_crystal, final_crystal, num_images=5)
+            neb_res = self.mlip.compute_ci_neb_migration_barrier(initial_crystal=crystal_structure, final_crystal=final_crystal, num_images=5)
             delta_e_barrier = float(neb_res["activation_barrier_delta_ea_ev"])
+
         else:
             heavy_fraction = sum(v for k, v in composition.items() if k in ["Mo", "W", "Ta", "Nb", "Zr"])
             delta_e_barrier = 0.85 + 0.95 * heavy_fraction

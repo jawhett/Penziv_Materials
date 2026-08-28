@@ -49,19 +49,24 @@ class PhaseFieldEngine:
         c: np.ndarray,
         eta: np.ndarray,
         w_barrier: float = 1.0,
+        c_alpha_eq: float = 0.05,
+        c_beta_eq: float = 0.95,
+        curvature_alpha: float = 1.0,
+        curvature_beta: float = 1.0,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate variational derivatives delta F_chem / delta c and delta F_chem / delta eta."""
+        """Evaluate exact variational derivatives delta F_chem / delta c and delta F_chem / delta eta from phase equilibria."""
         dg_deta = 2.0 * eta * (1.0 - eta) * (1.0 - 2.0 * eta)
         h_eta = eta**3 * (10.0 - 15.0 * eta + 6.0 * eta**2)
         dh_deta = 30.0 * (eta**2) * ((1.0 - eta) ** 2)
 
-        f_alpha = 0.5 * (c - 0.10) ** 2
-        f_beta = 0.5 * (c - 0.90) ** 2
+        f_alpha = 0.5 * curvature_alpha * (c - c_alpha_eq) ** 2
+        f_beta = 0.5 * curvature_beta * (c - c_beta_eq) ** 2
 
-        df_dc = (1.0 - h_eta) * (c - 0.10) + h_eta * (c - 0.90)
+        df_dc = (1.0 - h_eta) * curvature_alpha * (c - c_alpha_eq) + h_eta * curvature_beta * (c - c_beta_eq)
         df_deta = w_barrier * dg_deta + (f_beta - f_alpha) * dh_deta
 
         return df_dc, df_deta
+
 
     def compute_khachaturyan_elastic_driving_force(
         self,

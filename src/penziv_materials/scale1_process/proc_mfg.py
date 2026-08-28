@@ -62,15 +62,29 @@ class ProcMfgAgent:
         composition: Dict[str, float],
         temperature_k: float = 298.15,
     ) -> float:
-        """Compute minimum thermodynamic work required to extract and reduce metals from crustal oxide ores."""
-        element_reduction_exergy_mj_kg = {
-            "Fe": 7.5, "Al": 32.0, "Cu": 12.0, "Ni": 28.0, "Cr": 35.0, "Ti": 65.0,
-            "Mo": 45.0, "W": 55.0, "Nb": 85.0, "Sc": 320.0, "Zr": 78.0, "Mg": 42.0,
-            "Na": 24.0, "Li": 68.0, "Si": 22.0, "P": 18.0, "S": 2.5, "B": 45.0,
-        }
+        """Compute minimum thermodynamic work required to extract and reduce metals from crustal oxide ores using Ellingham thermodynamics."""
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        total_atoms = sum(composition.values())
+        if total_atoms <= 0:
+            return 0.0
 
-        total_exergy_mj_kg = sum(w * element_reduction_exergy_mj_kg.get(elem, 40.0) for elem, w in composition.items())
-        return float(total_exergy_mj_kg)
+        total_exergy_mj_kg = 0.0
+        chi_oxygen = 3.44
+
+        for elem, cnt in composition.items():
+            frac = cnt / total_atoms
+            mass, _, chi, _, z_val, _ = UniversalElementalProperties.get_element(elem)
+            
+            # Standard enthalpy of oxide formation per mole: Delta H_f ~ 260 * (chi_O - chi_elem)^2 * |Z| kJ/mol
+            delta_chi = max(0.2, chi_oxygen - chi)
+            delta_h_f_kj_mol = 260.0 * (delta_chi**2) * max(1.0, abs(z_val))
+            
+            # Thermodynamic exergy per kg: Ex = Delta H_f / Mass (MJ/kg)
+            exergy_mj_kg = delta_h_f_kj_mol / max(1.0, mass)
+            total_exergy_mj_kg += frac * exergy_mj_kg
+
+        return float(round(total_exergy_mj_kg, 2))
+
 
     def execute_process_evaluation(
         self,
