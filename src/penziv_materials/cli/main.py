@@ -524,6 +524,33 @@ def benchmark_formulas(formulas: str, temp_k: float):
 
 
 @main.command()
+def generate_readme():
+    """Dynamically regenerate README.md and residual error SVG graphs from the latest codebase."""
+    from penziv_materials.benchmarks.dynamic_readme_generator import DynamicReadmeGenerator, PROPERTIES_META
+
+    console.print("\n[bold cyan]Executing Dynamic README & 12-Property Parity Scatter Synthesis...[/bold cyan]\n")
+    generator = DynamicReadmeGenerator()
+    res = generator.execute_and_update()
+
+    table = Table(title="Synthesized Multiscale Parity Benchmark Metrics (12 Properties)", box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Property", style="bold white")
+    table.add_column("Unit", style="dim", justify="center")
+    table.add_column("MAPE (%)", style="green", justify="right")
+    table.add_column("Parity Vector Graph Asset", style="cyan", justify="left")
+
+    for prop in PROPERTIES_META:
+        pkey = prop["key"]
+        pname = prop["name"]
+        punit = prop["unit"] or "—"
+        mape_v = res["mapes"][pkey]
+        gpath = res["graphs_generated"].get(pkey, "")
+        table.add_row(pname, punit, f"{mape_v:.2f}%", gpath)
+
+    console.print(table)
+    console.print(f"\n[bold green]✔ Successfully compiled dynamic README.md[/bold green] ({res['total_tests']} unit tests verified across {res['test_modules']} modules).\n")
+
+
+@main.command()
 def benchmark_advanced():
     """Validate specialized subsystems against analytical solutions and experimental literature ground truth."""
     from penziv_materials.benchmarks.advanced_validation_benchmark import AdvancedPhysicalValidationSuite

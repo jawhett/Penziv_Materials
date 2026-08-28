@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" width="100%" height="auto" style="background-color: #040D18; border-radius: 12px; font-family: Inter, -apple-system, sans-serif;">
+
+        <defs>
+          <linearGradient id="gradCard" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0F172A" />
+            <stop offset="100%" stop-color="#0B1324" />
+          </linearGradient>
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+        
+<rect x="2" y="2" width="956" height="456" rx="12" fill="url(#gradCard)" stroke="#1E293B" stroke-width="1.5" />
+<text x="90" y="36" fill="#F8FAFC" font-size="16" font-weight="700" letter-spacing="-0.01em">Young&#x27;s Modulus (E) Residual Errors (Δ = Pred − Actual) [GPa]</text>
+<text x="90" y="56" fill="#94A3B8" font-size="11">Zero-Parameter First-Principles Validation • 10 Benchmark Material Classes</text>
+<g transform="translate(770, 22)"><rect width="150" height="28" rx="6" fill="#1E293B" stroke="#2DD4BF" stroke-width="1" /><circle cx="14" cy="14" r="4" fill="#2DD4BF" /><text x="26" y="18" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">MAPE: 16.17%</text></g>
+<line x1="90" y1="109.5" x2="920" y2="109.5" stroke="#1E293B" stroke-width="1" stroke-dasharray="4,4" opacity="0.7" />
+<text x="80" y="113.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">+133</text>
+<line x1="90" y1="168.5" x2="920" y2="168.5" stroke="#1E293B" stroke-width="1" stroke-dasharray="4,4" opacity="0.7" />
+<text x="80" y="172.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">+66.6</text>
+<line x1="90" y1="227.5" x2="920" y2="227.5" stroke="#64748B" stroke-width="1.5"  opacity="0.7" />
+<text x="80" y="231.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">0.00</text>
+<line x1="90" y1="286.5" x2="920" y2="286.5" stroke="#1E293B" stroke-width="1" stroke-dasharray="4,4" opacity="0.7" />
+<text x="80" y="290.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">-66.6</text>
+<line x1="90" y1="345.5" x2="920" y2="345.5" stroke="#1E293B" stroke-width="1" stroke-dasharray="4,4" opacity="0.7" />
+<text x="80" y="349.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">-133</text>
+<text x="925" y="230.5" fill="#2DD4BF" font-size="9" font-family="JetBrains Mono, monospace" text-anchor="start">0.0</text>
+<rect x="113.5" y="222.6" width="36.0" height="4.9" rx="4" fill="#22D3EE" opacity="0.85" stroke="#22D3EE" stroke-width="1" />
+<circle cx="131.5" cy="222.6" r="4.5" fill="#22D3EE" stroke="#040D18" stroke-width="1.5" />
+<text x="131.5" y="210.6" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">+5.50 <tspan fill="#94A3B8" font-size="8.5">(+4.3%)</tspan></text>
+<text x="131.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Cu</text>
+<text x="131.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Pure Metal</text>
+<text x="131.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:134|A:128</text>
+<rect x="196.5" y="227.5" width="36.0" height="6.7" rx="4" fill="#FBBF24" opacity="0.85" stroke="#FBBF24" stroke-width="1" />
+<circle cx="214.5" cy="234.2" r="4.5" fill="#FBBF24" stroke="#040D18" stroke-width="1.5" />
+<text x="214.5" y="252.2" fill="#FBBF24" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-7.60 <tspan fill="#94A3B8" font-size="8.5">(-10.9%)</tspan></text>
+<text x="214.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Al</text>
+<text x="214.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Light Metal</text>
+<text x="214.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:62.40|A:70.00</text>
+<rect x="279.5" y="226.0" width="36.0" height="3.0" rx="4" fill="#2DD4BF" opacity="0.85" stroke="#2DD4BF" stroke-width="1" />
+<circle cx="297.5" cy="228.1" r="4.5" fill="#2DD4BF" stroke="#040D18" stroke-width="1.5" />
+<text x="297.5" y="246.1" fill="#2DD4BF" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-0.70 <tspan fill="#94A3B8" font-size="8.5">(-0.4%)</tspan></text>
+<text x="297.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">CaO</text>
+<text x="297.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Ceramic Oxid</text>
+<text x="297.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:184|A:185</text>
+<rect x="362.5" y="207.4" width="36.0" height="20.1" rx="4" fill="#FBBF24" opacity="0.85" stroke="#FBBF24" stroke-width="1" />
+<circle cx="380.5" cy="207.4" r="4.5" fill="#FBBF24" stroke="#040D18" stroke-width="1.5" />
+<text x="380.5" y="195.4" fill="#FBBF24" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">+22.7 <tspan fill="#94A3B8" font-size="8.5">(+11.1%)</tspan></text>
+<text x="380.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Fe0.70Cr0.18Ni0.10Mo0.02</text>
+<text x="380.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">316L SS</text>
+<text x="380.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:228|A:205</text>
+<rect x="445.5" y="227.5" width="36.0" height="109.3" rx="4" fill="#FB7185" opacity="0.85" stroke="#FB7185" stroke-width="1" />
+<circle cx="463.5" cy="336.8" r="4.5" fill="#FB7185" stroke="#040D18" stroke-width="1.5" />
+<text x="463.5" y="354.8" fill="#FB7185" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-123.4 <tspan fill="#94A3B8" font-size="8.5">(-36.3%)</tspan></text>
+<text x="463.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Ti3SiC2</text>
+<text x="463.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Layered MAX</text>
+<text x="463.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:217|A:340</text>
+<rect x="528.5" y="227.5" width="36.0" height="25.2" rx="4" fill="#FBBF24" opacity="0.85" stroke="#FBBF24" stroke-width="1" />
+<circle cx="546.5" cy="252.7" r="4.5" fill="#FBBF24" stroke="#040D18" stroke-width="1.5" />
+<text x="546.5" y="270.7" fill="#FBBF24" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-28.5 <tspan fill="#94A3B8" font-size="8.5">(-10.2%)</tspan></text>
+<text x="546.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Nb0.25Mo0.25Ta0.25W0.25</text>
+<text x="546.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Refractory H</text>
+<text x="546.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:252|A:280</text>
+<rect x="611.5" y="227.5" width="36.0" height="11.8" rx="4" fill="#FB7185" opacity="0.85" stroke="#FB7185" stroke-width="1" />
+<circle cx="629.5" cy="239.3" r="4.5" fill="#FB7185" stroke="#040D18" stroke-width="1.5" />
+<text x="629.5" y="257.3" fill="#FB7185" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-13.3 <tspan fill="#94A3B8" font-size="8.5">(-29.6%)</tspan></text>
+<text x="629.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Mg1.10Sc0.20Zr1.80(PS4)3</text>
+<text x="629.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Solid Electr</text>
+<text x="629.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:31.70|A:45.00</text>
+<rect x="694.5" y="204.2" width="36.0" height="23.3" rx="4" fill="#FB7185" opacity="0.85" stroke="#FB7185" stroke-width="1" />
+<circle cx="712.5" cy="204.2" r="4.5" fill="#FB7185" stroke="#040D18" stroke-width="1.5" />
+<text x="712.5" y="192.2" fill="#FB7185" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">+26.3 <tspan fill="#94A3B8" font-size="8.5">(+30.8%)</tspan></text>
+<text x="712.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">GaAs</text>
+<text x="712.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Optoelectron</text>
+<text x="712.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:112|A:85.50</text>
+<rect x="777.5" y="227.5" width="36.0" height="12.6" rx="4" fill="#FB7185" opacity="0.85" stroke="#FB7185" stroke-width="1" />
+<circle cx="795.5" cy="240.1" r="4.5" fill="#FB7185" stroke="#040D18" stroke-width="1.5" />
+<text x="795.5" y="258.1" fill="#FB7185" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-14.2 <tspan fill="#94A3B8" font-size="8.5">(-27.3%)</tspan></text>
+<text x="795.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">CdTe</text>
+<text x="795.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Photovoltaic</text>
+<text x="795.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:37.80|A:52.00</text>
+<rect x="860.5" y="226.0" width="36.0" height="3.0" rx="4" fill="#2DD4BF" opacity="0.85" stroke="#2DD4BF" stroke-width="1" />
+<circle cx="878.5" cy="227.9" r="4.5" fill="#2DD4BF" stroke="#040D18" stroke-width="1.5" />
+<text x="878.5" y="245.9" fill="#2DD4BF" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600" text-anchor="middle">-0.40 <tspan fill="#94A3B8" font-size="8.5">(-1.0%)</tspan></text>
+<text x="878.5" y="397.0" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">Bi2Te3</text>
+<text x="878.5" y="411.0" fill="#64748B" font-size="9" text-anchor="middle">Thermoelectr</text>
+<text x="878.5" y="423.0" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="8" text-anchor="middle">P:40.10|A:40.50</text>
+<g transform="translate(90, 448)" font-size="9.5"><rect x="0" y="-8" width="10" height="10" rx="2" fill="#2DD4BF" /><text x="14" y="0" fill="#94A3B8">|Δ| ≤ 3% (Exact)</text><rect x="130" y="-8" width="10" height="10" rx="2" fill="#22D3EE" /><text x="144" y="0" fill="#94A3B8">|Δ| ≤ 8% (High Precision)</text><rect x="290" y="-8" width="10" height="10" rx="2" fill="#FBBF24" /><text x="304" y="0" fill="#94A3B8">|Δ| ≤ 15% (DFT/VRH Bound)</text><rect x="470" y="-8" width="10" height="10" rx="2" fill="#FB7185" /><text x="484" y="0" fill="#94A3B8">|Δ| &gt; 15% (Anisotropic / Porous)</text></g>
+</svg>

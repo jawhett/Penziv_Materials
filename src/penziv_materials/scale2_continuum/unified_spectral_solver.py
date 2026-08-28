@@ -1,4 +1,4 @@
-"""Monolithic 3D Spectral Multiphysics Solver for Coupled Mechanics, Electrostatics, Heat & Diffusion."""
+"""Monolithic 3D Spectral Multiphysics Solver for Coupled Mechanics, Electrostatics, Heat & Diffusion across Arbitrary N-Phase Anisotropic Media."""
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
@@ -6,7 +6,7 @@ from penziv_materials.core.constants import EPSILON_0, E_CHARGE, BOLTZMANN_J_K
 
 
 class Unified3DSpectralMultiphysicsSolver:
-    """Monolithic 3D FFT solver for coupled Thermo-Electro-Chemo-Mechanical boundary value problems."""
+    """Monolithic 3D FFT solver for coupled Thermo-Electro-Chemo-Mechanical boundary value problems across arbitrary N-phase anisotropic microstructures."""
 
     def __init__(
         self,
@@ -66,20 +66,13 @@ class Unified3DSpectralMultiphysicsSolver:
                     eps_hat[..., i, j] = -(term1 - term2)
         else:
             # Exact anisotropic Green's operator: Gamma_ik^0(k) = [K_j C^0_jikl K_l]^-1
-            eps_hat = np.zeros_like(tau_hat)
-            # Flatten grid for tensor inversion
             K_vec = np.stack(K, axis=-1)  # (nx, ny, nz, 3)
-            # Acoustic tensor: A_ik(k) = K_j C^0_jikl K_l
             A_matrix = np.einsum("...j,jikl,...l->...ik", K_vec, c0_anisotropic_rank4, K_vec)
-            # Add identity on [0,0,0] to prevent singular inversion
             A_matrix[0, 0, 0] = np.eye(3) * self.k0
             A_inv = np.linalg.pinv(A_matrix)
 
-            # Tau divergence: div_tau_k = K_l * tau_hat_kl
             div_tau = np.einsum("...l,...kl->...k", K_vec, tau_hat)
-            # u_hat_i = - A_inv_ik * div_tau_k
             u_hat = - np.einsum("...ik,...k->...i", A_inv, div_tau)
-            # eps_hat_ij = 0.5 * (u_hat_i K_j + u_hat_j K_i)
             eps_hat = 0.5 * (np.einsum("...i,...j->...ij", u_hat, K_vec) + np.einsum("...j,...i->...ij", u_hat, K_vec))
 
         eps_hat[0, 0, 0, :, :] = 0.0
@@ -91,15 +84,16 @@ class Unified3DSpectralMultiphysicsSolver:
         charge_density_c_m3: np.ndarray,                 # (nx, ny, nz)
         heat_source_w_m3: np.ndarray,                    # (nx, ny, nz)
         stiffness_field_gpa: Optional[np.ndarray] = None,# (nx, ny, nz)
-        stiffness_tensor_field_pa: Optional[np.ndarray] = None,
-        permittivity_field: Optional[np.ndarray] = None, # (nx, ny, nz)
-        thermal_conductivity_field: Optional[np.ndarray] = None, # (nx, ny, nz)
-        piezoelectric_tensor_field: Optional[np.ndarray] = None,
+        stiffness_tensor_field_pa: Optional[np.ndarray] = None, # (nx, ny, nz, 3, 3, 3, 3)
+        permittivity_field: Optional[np.ndarray] = None, # (nx, ny, nz) or (nx, ny, nz, 3, 3)
+        thermal_conductivity_field: Optional[np.ndarray] = None, # (nx, ny, nz) or (nx, ny, nz, 3, 3)
+        eigenstrain_field: Optional[np.ndarray] = None,  # (nx, ny, nz, 3, 3)
+        piezoelectric_tensor_field: Optional[np.ndarray] = None, # (nx, ny, nz, 3, 3, 3)
         thermal_expansion_tensor: Optional[np.ndarray] = None,   # (3, 3) or scalar
         max_iter: int = 50,
         tol: float = 1.0e-5,
     ) -> Dict[str, Any]:
-        """Execute coupled Lippmann-Schwinger spectral iterations with two-way multi-field polarization updating."""
+        """Execute coupled Lippmann-Schwinger spectral iterations with N-phase anisotropic property maps and two-way polarization updating."""
         nx, ny, nz = self.nx, self.ny, self.nz
         K_sq_safe = self.K_sq.copy()
         K_sq_safe[0, 0, 0] = 1.0
@@ -136,19 +130,24 @@ class Unified3DSpectralMultiphysicsSolver:
             # Electric field E = -grad(phi)
             E_field = -np.stack(np.gradient(phi, self.dx_m), axis=-1)
 
-            # 3. Two-Way Coupled Multi-Field Polarization Stress with Anisotropic Thermal Expansion
+            # 3. Anisotropic Thermal Expansion & Local Eigenstrains
             delta_T = T_field - 300.0
-            eps_eigen = delta_T[..., np.newaxis, np.newaxis] * alpha_tensor
+            eps_thermal = delta_T[..., np.newaxis, np.newaxis] * alpha_tensor
+            eps_eigen_total = eps_thermal if eigenstrain_field is None else (eps_thermal + eigenstrain_field)
 
-            elastic_strain = strain - eps_eigen
-            tr_elastic_strain = np.trace(elastic_strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
+            elastic_strain = strain - eps_eigen_total
 
-            c0_stress = elastic_strain * 2.0 * self.g0 + tr_elastic_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
-            if stiffness_field_gpa is not None:
+            # 4. Stress evaluation under local anisotropic stiffness tensor field C_ijkl(x)
+            if stiffness_tensor_field_pa is not None:
+                stress = np.einsum("...ijkl,...kl->...ij", stiffness_tensor_field_pa, elastic_strain)
+            elif stiffness_field_gpa is not None:
+                tr_elastic_strain = np.trace(elastic_strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
+                c0_stress = elastic_strain * 2.0 * self.g0 + tr_elastic_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
                 mod_factor = (stiffness_field_gpa[..., np.newaxis, np.newaxis] * 1.0e9) / max(1.0, self.k0)
                 stress = c0_stress * mod_factor
             else:
-                stress = c0_stress
+                tr_elastic_strain = np.trace(elastic_strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis]
+                stress = elastic_strain * 2.0 * self.g0 + tr_elastic_strain * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
 
             # Piezoelectric coupling: sigma_pz = - e_kij * E_k
             if piezoelectric_tensor_field is not None:
@@ -157,10 +156,17 @@ class Unified3DSpectralMultiphysicsSolver:
 
             # Electrostatic Maxwell Stress Tensor: T_ij = eps * (E_i E_j - 0.5 * |E|^2 delta_ij)
             E_sq = np.sum(E_field**2, axis=-1, keepdims=True)
-            maxwell_stress = self.eps0 * (np.einsum("...i,...j->...ij", E_field, E_field) - 0.5 * E_sq[..., np.newaxis] * np.eye(3))
+            if permittivity_field is not None and permittivity_field.ndim == 5:
+                # Anisotropic dielectric tensor eps_ij
+                d_field = np.einsum("...ij,...j->...i", permittivity_field, E_field)
+                maxwell_stress = np.einsum("...i,...j->...ij", d_field, E_field) - 0.5 * np.sum(d_field * E_field, axis=-1)[..., np.newaxis, np.newaxis] * np.eye(3)
+            else:
+                maxwell_stress = self.eps0 * (np.einsum("...i,...j->...ij", E_field, E_field) - 0.5 * E_sq[..., np.newaxis] * np.eye(3))
             stress += maxwell_stress
 
-            tau = stress - (strain * 2.0 * self.g0 + np.trace(strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis] * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0))
+            # 5. Reference stress polarization & Green's operator correction
+            ref_stress = strain * 2.0 * self.g0 + np.trace(strain, axis1=-2, axis2=-1)[..., np.newaxis, np.newaxis] * np.eye(3) * (self.k0 - (2.0 / 3.0) * self.g0)
+            tau = stress - ref_stress
             tau_hat = np.fft.fftn(tau, axes=(0, 1, 2))
             gamma_tau_hat = self.apply_acoustic_greens_operator(tau_hat)
             strain_correction = np.real(np.fft.ifftn(gamma_tau_hat, axes=(0, 1, 2)))

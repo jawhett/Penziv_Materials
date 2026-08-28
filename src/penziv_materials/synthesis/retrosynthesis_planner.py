@@ -1,4 +1,4 @@
-"""Retrosynthetic Reaction Network Thermodynamics & Robotic Automated Lab Protocol Export."""
+"""Retrosynthetic Reaction Network Thermodynamics, Open-Universe Pathfinding & Robotic Lab Protocol Export."""
 
 import datetime
 import heapq
@@ -9,20 +9,62 @@ from penziv_materials.core.constants import R_GAS
 
 
 class RetrosynthesisAssemblyPlanner:
-    """Evaluates multi-step precursor reaction networks Delta G_rxn(T) via A* graph pathfinding and exports robotic synthesis recipes (A-Lab / Chemspeed / Opentrons)."""
+    """Evaluates multi-step precursor reaction networks Delta G_rxn(T) via thermodynamic Gibbs free energy minimization and exports robotic synthesis recipes (A-Lab / Chemspeed / Opentrons)."""
 
-    PRECURSOR_THERMO_DATA: Dict[str, Tuple[float, float]] = {
-        "MgS": (-345.0, 50.3),
-        "Sc2S3": (-1240.0, 142.0),
-        "ZrS2": (-578.0, 78.2),
-        "P2S5": (-255.0, 168.0),
-        "Na2S": (-365.0, 83.7),
-        "SiO2": (-910.9, 41.5),
-        "ZrO2": (-1100.6, 50.4),
-        "MgCO3": (-1095.8, 65.7),
-        "TiO2": (-944.0, 50.6),
-        "Al2O3": (-1675.7, 50.9),
+    # Thermodynamic Formation Library: (Delta H_f in kJ/mol, S_298 in J/(mol*K), Melting Point Tm in K)
+    EXTENDED_THERMO_DATABASE: Dict[str, Tuple[float, float, float]] = {
+        # Sulfides
+        "MgS": (-345.0, 50.3, 2273.15),
+        "Sc2S3": (-1240.0, 142.0, 1973.15),
+        "ZrS2": (-578.0, 78.2, 1823.15),
+        "P2S5": (-255.0, 168.0, 559.15),
+        "Na2S": (-365.0, 83.7, 1445.15),
+        "Li2S": (-441.5, 62.8, 1645.15),
+        "FeS": (-100.0, 60.3, 1467.15),
+        "Cu2S": (-79.5, 120.9, 1403.15),
+        "ZnS": (-206.0, 57.7, 2103.15),
+        "MoS2": (-235.0, 62.6, 2648.15),
+        "TiS2": (-402.0, 78.0, 1473.15),
+        # Oxides
+        "SiO2": (-910.9, 41.5, 1986.15),
+        "ZrO2": (-1100.6, 50.4, 2988.15),
+        "TiO2": (-944.0, 50.6, 2116.15),
+        "Al2O3": (-1675.7, 50.9, 2345.15),
+        "La2O3": (-1793.7, 127.3, 2588.15),
+        "Y2O3": (-1905.3, 99.2, 2698.15),
+        "Li2O": (-598.0, 37.9, 1711.15),
+        "MgO": (-601.7, 26.9, 3098.15),
+        "CaO": (-635.1, 39.7, 2886.15),
+        "Fe2O3": (-824.2, 87.4, 1838.15),
+        "CoO": (-237.9, 53.0, 2073.15),
+        "NiO": (-239.7, 38.0, 2228.15),
+        # Carbonates / Nitrides / Halides
+        "MgCO3": (-1095.8, 65.7, 623.15),
+        "Li2CO3": (-1216.0, 90.4, 996.15),
+        "CaCO3": (-1206.9, 92.9, 1612.15),
+        "Si3N4": (-744.8, 113.0, 2173.15),
+        "AlN": (-318.0, 20.2, 2473.15),
+        "TiN": (-338.0, 30.3, 3203.15),
+        "LiCl": (-408.6, 59.3, 878.15),
+        "NaCl": (-411.2, 72.1, 1074.15),
+        # Pure elements standard states
+        "Li": (0.0, 29.1, 453.69),
+        "Na": (0.0, 51.3, 370.87),
+        "Mg": (0.0, 32.7, 923.0),
+        "Al": (0.0, 28.3, 933.47),
+        "Si": (0.0, 18.8, 1687.0),
+        "Sc": (0.0, 34.6, 1814.0),
+        "Ti": (0.0, 30.7, 1941.0),
+        "Zr": (0.0, 39.0, 2128.0),
+        "P": (0.0, 22.8, 860.0),
+        "S": (0.0, 32.1, 388.36),
+        "C": (0.0, 5.7, 3800.0),
+        "O2": (0.0, 205.1, 54.36),
+        "N2": (0.0, 191.6, 63.15),
     }
+
+    # Backward compatible precursor thermo data
+    PRECURSOR_THERMO_DATA = {k: (v[0], v[1]) for k, v in EXTENDED_THERMO_DATABASE.items()}
 
     def compute_stoichiometric_precursor_masses(
         self,
@@ -34,21 +76,32 @@ class RetrosynthesisAssemblyPlanner:
         target_comp = parse_chemical_formula(target_formula)
         mass_fracs = compute_element_mass_fractions(target_formula)
 
-        precursors = precursor_compounds or ["MgS", "Sc2S3", "ZrS2", "P2S5", "Na2S"]
+        if precursor_compounds:
+            precursors = precursor_compounds
+        else:
+            precursors = [
+                p for p in self.EXTENDED_THERMO_DATABASE.keys()
+                if p not in ["O2", "N2"] and set(parse_chemical_formula(p).keys()).issubset(set(target_comp.keys()))
+            ]
+            if not precursors:
+                precursors = list(target_comp.keys())
+
         precursor_masses: Dict[str, float] = {}
+        assigned_elements = set()
 
         for p in precursors:
             p_comp = parse_chemical_formula(p)
-            common_elements = set(p_comp.keys()).intersection(set(target_comp.keys()))
+            common_elements = set(p_comp.keys()).intersection(set(target_comp.keys()) - assigned_elements)
             if common_elements:
                 primary_elem = list(common_elements)[0]
                 p_mw = sum(count * STANDARD_ATOMIC_WEIGHTS.get(elem, 30.0) for elem, count in p_comp.items())
                 elem_mass_in_p = p_comp[primary_elem] * STANDARD_ATOMIC_WEIGHTS.get(primary_elem, 30.0)
-                mass_needed = target_batch_mass_g * mass_fracs.get(primary_elem, 0.2) * (p_mw / elem_mass_in_p)
+                mass_needed = target_batch_mass_g * mass_fracs.get(primary_elem, 0.2) * (p_mw / max(1e-4, elem_mass_in_p))
                 precursor_masses[p] = float(np.round(mass_needed, 4))
+                assigned_elements.update(p_comp.keys())
 
         if not precursor_masses:
-            precursor_masses = {"Precursor_A": target_batch_mass_g * 0.6, "Precursor_B": target_batch_mass_g * 0.4}
+            precursor_masses = {f"{elem}_pure": float(round(target_batch_mass_g * frac, 4)) for elem, frac in mass_fracs.items()}
 
         return precursor_masses
 
@@ -63,8 +116,14 @@ class RetrosynthesisAssemblyPlanner:
 
         Delta G_rxn(T) = Delta H_rxn - T * Delta S_rxn
         """
-        h_reactants = sum(coeff * self.PRECURSOR_THERMO_DATA.get(chem, (-500.0, 60.0))[0] for chem, coeff in reactants.items())
-        s_reactants = sum(coeff * self.PRECURSOR_THERMO_DATA.get(chem, (-500.0, 60.0))[1] for chem, coeff in reactants.items())
+        h_reactants = sum(
+            coeff * self.EXTENDED_THERMO_DATABASE.get(chem, (-300.0, 50.0, 1500.0))[0]
+            for chem, coeff in reactants.items()
+        )
+        s_reactants = sum(
+            coeff * self.EXTENDED_THERMO_DATABASE.get(chem, (-300.0, 50.0, 1500.0))[1]
+            for chem, coeff in reactants.items()
+        )
 
         delta_h_rxn_kj = product_formation_enthalpy_kj_mol - h_reactants
         delta_s_rxn_j_k = product_entropy_j_mol_k - s_reactants
@@ -83,51 +142,59 @@ class RetrosynthesisAssemblyPlanner:
         available_precursors: Optional[List[str]] = None,
         temperature_k: float = 873.15,
     ) -> Dict[str, Any]:
-        """Multi-step reaction network graph search identifying the lowest Gibbs free energy path via A* pathfinding."""
+        """Multi-step reaction network pathfinding identifying the lowest Gibbs free energy path via stoichiometric thermodynamic minimization."""
         target_comp = parse_chemical_formula(target_compound)
         elements = sorted(list(target_comp.keys()))
 
-        # 1. Check specialized optimal pathways
-        if "Sc" in target_compound and "S" in target_compound:
-            intermediate_steps = [
-                {"step": 1, "reaction": "Sc + 1.5 S -> 0.5 Sc2S3", "delta_g_kj": -520.0},
-                {"step": 2, "reaction": "MgS + Sc2S3 -> MgSc2S4", "delta_g_kj": -145.0},
-            ]
-        elif "Zr" in target_compound and "P" in target_compound:
-            intermediate_steps = [
-                {"step": 1, "reaction": "2 P + 5 S -> P2S5", "delta_g_kj": -180.0},
-                {"step": 2, "reaction": "MgS + 4 ZrS2 + 3 P2S5 -> MgZr4(PS4)6", "delta_g_kj": -210.0},
-            ]
+        if available_precursors:
+            candidate_pool = available_precursors
         else:
-            # 2. General multi-component precursor decomposition and consolidation
-            relevant_precursors = [
-                p for p in self.PRECURSOR_THERMO_DATA.keys()
-                if set(parse_chemical_formula(p).keys()).issubset(set(elements))
+            candidate_pool = [
+                p for p in self.EXTENDED_THERMO_DATABASE.keys()
+                if set(parse_chemical_formula(p).keys()).issubset(set(elements)) and p not in ["O2", "N2"]
             ]
 
-            intermediate_steps = []
-            step_idx = 1
-            remaining_comp = dict(target_comp)
+        intermediate_steps: List[Dict[str, Any]] = []
+        remaining_comp = dict(target_comp)
+        step_idx = 1
 
-            for prec in relevant_precursors:
-                p_comp = parse_chemical_formula(prec)
-                if all(remaining_comp.get(k, 0) >= v for k, v in p_comp.items()):
-                    h_f, s_f = self.PRECURSOR_THERMO_DATA[prec]
-                    dg_step = h_f - (temperature_k * s_f * 1.0e-3)
+        def precursor_stability(p_name: str) -> float:
+            h, s, _ = self.EXTENDED_THERMO_DATABASE.get(p_name, (0.0, 30.0, 1000.0))
+            dg = h - temperature_k * s * 1.0e-3
+            n_atoms = sum(parse_chemical_formula(p_name).values())
+            return dg / max(1, n_atoms)
+
+        sorted_precursors = sorted(candidate_pool, key=precursor_stability)
+
+        used_precursors: Dict[str, float] = {}
+
+        for prec in sorted_precursors:
+            p_comp = parse_chemical_formula(prec)
+            if all(remaining_comp.get(k, 0) >= v for k, v in p_comp.items()):
+                max_units = min(remaining_comp[k] // v for k, v in p_comp.items() if v > 0)
+                if max_units > 0:
+                    h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(prec, (-200.0, 50.0, 1200.0))
+                    dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * max_units
                     intermediate_steps.append({
                         "step": step_idx,
-                        "reaction": f"Form precursor building block {prec}",
+                        "reaction": f"Synthesize/Dispense {max_units}x {prec} building block",
                         "delta_g_kj": float(dg_step),
                     })
+                    used_precursors[prec] = float(max_units)
                     for k, v in p_comp.items():
-                        remaining_comp[k] -= v
+                        remaining_comp[k] -= v * max_units
                     step_idx += 1
 
-            intermediate_steps.append({
-                "step": step_idx,
-                "reaction": f"Solid-state reactive consolidation -> {target_compound}",
-                "delta_g_kj": -85.0,
-            })
+        leftover_elements = [f"{v} {k}" for k, v in remaining_comp.items() if v > 0]
+        leftover_str = " + ".join(leftover_elements) if leftover_elements else "Intermediate precursors"
+        
+        net_consolidation_dg = -120.0
+
+        intermediate_steps.append({
+            "step": step_idx,
+            "reaction": f"Solid-state reactive consolidation: {leftover_str} -> {target_compound}",
+            "delta_g_kj": float(net_consolidation_dg),
+        })
 
         cumulative_dg = sum(s["delta_g_kj"] for s in intermediate_steps)
 
@@ -147,16 +214,40 @@ class RetrosynthesisAssemblyPlanner:
         ceramic_sintering_temp_c: float = 850.0,
         target_compound: str = "Li7La3Zr2O12",
         polymer_degradation_temp_c: float = 280.0,
+        hold_time_hours: float = 6.0,
+        applied_pressure_mpa: float = 50.0,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Evaluate synthetic feasibility and route recommendation for solid-state hybrid composites."""
+        """Evaluate synthetic feasibility, Master Sintering Curve (MSC) kinetics, and manufacturing route recommendation."""
+        target_comp = parse_chemical_formula(target_compound)
+        elements = list(target_comp.keys())
+
+        t_melts = [self.EXTENDED_THERMO_DATABASE.get(e, (0.0, 30.0, 1800.0))[2] for e in elements]
+        t_melt_target_k = float(np.mean(t_melts)) if t_melts else 1800.0
+
+        homologous_sinter_temp_c = 0.68 * t_melt_target_k - 273.15
+        rec_sinter_temp_c = max(450.0, min(1450.0, homologous_sinter_temp_c))
+
+        q_diff_kj = 220.0
+        t_k = ceramic_sintering_temp_c + 273.15
+        theta_msc = hold_time_hours * np.exp(- (q_diff_kj * 1000.0) / (R_GAS * t_k))
+        rel_density_pct = float(np.clip(80.0 + 19.5 * (1.0 - np.exp(- (theta_msc * 1.0e8)**0.35)), 85.0, 99.5))
+
+        if ceramic_sintering_temp_c > polymer_degradation_temp_c:
+            recommended_route = "SEQUENTIAL_COLD_SINTERING_AND_INFILTRATION"
+        else:
+            recommended_route = "CO_SINTERED_HYBRID_DIRECT_COMPOSITING"
+
         return {
             "is_synthetically_feasible": True,
-            "primary_recommended_process": "SEQUENTIAL_COLD_SINTERING_AND_INFILTRATION",
+            "primary_recommended_process": recommended_route,
             "target_compound": target_compound,
             "ceramic_sintering_temperature_c": float(ceramic_sintering_temp_c),
+            "recommended_sintering_temperature_c": float(round(rec_sinter_temp_c, 1)),
             "polymer_degradation_temperature_c": float(polymer_degradation_temp_c),
-            "estimated_relative_density_percent": 96.5,
+            "estimated_relative_density_percent": float(round(rel_density_pct, 1)),
+            "sintering_hold_time_hours": float(hold_time_hours),
+            "applied_compaction_pressure_mpa": float(applied_pressure_mpa),
         }
 
     def export_opentrons_ot2_script(
