@@ -215,6 +215,50 @@ class RetrosynthesisAssemblyPlanner:
             "is_kinetically_feasible": True,
         }
 
+    def integrate_master_sintering_path(
+        self,
+        time_series_s: np.ndarray,
+        temperature_series_k: np.ndarray,
+        q_diff_j_mol: float,
+        green_density_pct: float = 65.0,
+        theoretical_density_pct: float = 99.5,
+    ) -> Dict[str, Any]:
+        """Integrate generalized Master Sintering Curve (MSC) path integral:
+
+        Theta(t) = \\int_0^t (1 / T(t')) * exp(-Q_diff / (R * T(t'))) dt'
+        across continuous heating, dwell, and cooling trajectories.
+        """
+        times = np.asarray(time_series_s, dtype=np.float64)
+        temps = np.asarray(temperature_series_k, dtype=np.float64)
+        if len(times) < 2 or len(temps) < 2:
+            return {
+                "theta_msc_path_integral_s_k": 0.0,
+                "relative_density_percent": float(green_density_pct),
+                "density_trajectory_percent": [float(green_density_pct)],
+                "theta_trajectory_s_k": [0.0],
+            }
+
+        # Integrand: (1 / T) * exp(-Q / RT)
+        integrand = (1.0 / np.maximum(100.0, temps)) * np.exp(-q_diff_j_mol / (R_GAS * np.maximum(100.0, temps)))
+
+        # Cumulative trapezoidal integration
+        dt = np.diff(times)
+        trapz_terms = 0.5 * (integrand[:-1] + integrand[1:]) * dt
+        theta_cum = np.concatenate(([0.0], np.cumsum(trapz_terms)))
+        final_theta = float(theta_cum[-1])
+
+        # Master Sintering Curve sigmoidal densification
+        delta_rho = theoretical_density_pct - green_density_pct
+        rel_dens_traj = green_density_pct + delta_rho * (1.0 - np.exp(-np.maximum(0.0, theta_cum * 1.0e11)**0.40))
+        rel_dens_traj = np.clip(rel_dens_traj, green_density_pct, theoretical_density_pct)
+
+        return {
+            "theta_msc_path_integral_s_k": final_theta,
+            "relative_density_percent": float(rel_dens_traj[-1]),
+            "density_trajectory_percent": rel_dens_traj.tolist(),
+            "theta_trajectory_s_k": theta_cum.tolist(),
+        }
+
     def evaluate_hybrid_manufacturing_route(
         self,
         ceramic_sintering_temp_c: float = 850.0,
@@ -222,9 +266,13 @@ class RetrosynthesisAssemblyPlanner:
         polymer_degradation_temp_c: float = 280.0,
         hold_time_hours: float = 6.0,
         applied_pressure_mpa: float = 50.0,
+        heating_rate_c_per_min: float = 5.0,
+        cooling_rate_c_per_min: float = 10.0,
+        time_series_s: Optional[np.ndarray] = None,
+        temperature_series_k: Optional[np.ndarray] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Evaluate synthetic feasibility, Master Sintering Curve (MSC) kinetics, and manufacturing route recommendation."""
+        """Evaluate synthetic feasibility, continuous Master Sintering Curve (MSC) path kinetics, and manufacturing route recommendation."""
         target_comp = parse_chemical_formula(target_compound)
         elements = list(target_comp.keys())
 
@@ -235,11 +283,42 @@ class RetrosynthesisAssemblyPlanner:
         rec_sinter_temp_c = max(450.0, min(1450.0, homologous_sinter_temp_c))
 
         # Dynamic Master Sintering Curve activation energy from homologous bonding physics
-        # Q_diff = 18.0 * R_GAS * T_m (kJ/mol) (Ashby-Frost / MSC sintering kinetics)
-        q_diff_kj = float(max(90.0, 18.0 * R_GAS * t_melt_target_k * 1.0e-3))
-        t_k = ceramic_sintering_temp_c + 273.15
-        theta_msc = hold_time_hours * np.exp(- (q_diff_kj * 1000.0) / (R_GAS * t_k))
-        rel_density_pct = float(np.clip(80.0 + 19.5 * (1.0 - np.exp(- (theta_msc * 1.0e8)**0.35)), 85.0, 99.5))
+        # Q_diff = 18.0 * R_GAS * T_m (Ashby-Frost / MSC sintering kinetics)
+        q_diff_j_mol = float(max(90000.0, 18.0 * R_GAS * t_melt_target_k))
+
+        if time_series_s is not None and temperature_series_k is not None:
+            t_s_arr = np.asarray(time_series_s, dtype=np.float64)
+            t_k_arr = np.asarray(temperature_series_k, dtype=np.float64)
+        else:
+            # Construct continuous heating, dwell hold, and cooling thermomechanical trajectory
+            t_start_k = 298.15
+            t_dwell_k = ceramic_sintering_temp_c + 273.15
+            heat_time_s = max(60.0, ((t_dwell_k - t_start_k) / max(0.1, heating_rate_c_per_min / 60.0)))
+            dwell_time_s = max(60.0, hold_time_hours * 3600.0)
+            cool_time_s = max(60.0, ((t_dwell_k - t_start_k) / max(0.1, cooling_rate_c_per_min / 60.0)))
+
+            # Piecewise discrete trajectory
+            t_heat = np.linspace(0.0, heat_time_s, 50)
+            temp_heat = np.linspace(t_start_k, t_dwell_k, 50)
+
+            t_dwell = np.linspace(heat_time_s, heat_time_s + dwell_time_s, 50)
+            temp_dwell = np.full(50, t_dwell_k)
+
+            t_cool = np.linspace(heat_time_s + dwell_time_s, heat_time_s + dwell_time_s + cool_time_s, 50)
+            temp_cool = np.linspace(t_dwell_k, t_start_k, 50)
+
+            t_s_arr = np.concatenate([t_heat, t_dwell[1:], t_cool[1:]])
+            t_k_arr = np.concatenate([temp_heat, temp_dwell[1:], temp_cool[1:]])
+
+        msc_result = self.integrate_master_sintering_path(
+            time_series_s=t_s_arr,
+            temperature_series_k=t_k_arr,
+            q_diff_j_mol=q_diff_j_mol,
+            green_density_pct=80.0,
+            theoretical_density_pct=99.5,
+        )
+
+        rel_density_pct = msc_result["relative_density_percent"]
 
         if ceramic_sintering_temp_c > polymer_degradation_temp_c:
             recommended_route = "SEQUENTIAL_COLD_SINTERING_AND_INFILTRATION"
@@ -256,6 +335,8 @@ class RetrosynthesisAssemblyPlanner:
             "estimated_relative_density_percent": float(round(rel_density_pct, 1)),
             "sintering_hold_time_hours": float(hold_time_hours),
             "applied_compaction_pressure_mpa": float(applied_pressure_mpa),
+            "theta_msc_path_integral_s_k": float(msc_result["theta_msc_path_integral_s_k"]),
+            "is_path_integrated": True,
         }
 
     def export_opentrons_ot2_script(

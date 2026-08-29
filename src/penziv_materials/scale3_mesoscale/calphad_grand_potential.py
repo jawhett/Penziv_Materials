@@ -77,6 +77,52 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         gamma_dot = 2.0 * reference_strain_rate_s_inv * np.exp(-1.0 / chi) * np.sinh(sinh_arg)
         return float(np.copysign(gamma_dot, deviatoric_shear_stress_mpa))
 
+    def compute_isv_coupled_stz_plastic_strain_rate(
+        self,
+        deviatoric_shear_stress_mpa: float,
+        grain_size_um: float = 30.0,
+        dislocation_density_m2: float = 1.0e12,
+        precipitate_radius_nm: float = 5.0,
+        precipitate_volume_fraction: float = 0.01,
+        effective_disorder_temperature_chi: float = 0.15,
+        reference_strain_rate_s_inv: float = 1.0e6,
+        base_friction_stress_mpa: float = 150.0,
+        shear_modulus_gpa: float = 77.0,
+    ) -> Dict[str, float]:
+        """Evaluate internal state variable (ISV) coupled STZ rate where yield barrier tau_0 evolves dynamically with microstructural hardening."""
+        g_shear_mpa = shear_modulus_gpa * 1.0e3
+        b = 2.54e-10
+
+        # Hall-Petch strengthening contribution
+        tau_hp = (10.5 / np.sqrt(max(0.2, grain_size_um))) * 0.50
+
+        # Taylor forest hardening contribution
+        tau_taylor = 0.28 * g_shear_mpa * b * np.sqrt(max(1e10, dislocation_density_m2))
+
+        # Precipitate strengthening
+        if precipitate_volume_fraction > 0.0005 and precipitate_radius_nm > 0.2:
+            r_m = precipitate_radius_nm * 1e-9
+            l_spacing = r_m * np.sqrt(2.0 * np.pi / (3.0 * precipitate_volume_fraction))
+            tau_ppt = (0.81 * g_shear_mpa * b) / (2.0 * np.pi * max(1e-9, l_spacing - 2.0 * r_m)) * np.log(max(1.5, 2.0 * r_m / b))
+        else:
+            tau_ppt = 0.0
+
+        dynamic_tau0 = max(50.0, base_friction_stress_mpa + tau_hp + tau_taylor + tau_ppt)
+        gamma_dot = self.compute_stz_plastic_strain_rate(
+            deviatoric_shear_stress_mpa=deviatoric_shear_stress_mpa,
+            effective_disorder_temperature_chi=effective_disorder_temperature_chi,
+            reference_strain_rate_s_inv=reference_strain_rate_s_inv,
+            characteristic_yield_stress_mpa=dynamic_tau0,
+        )
+
+        return {
+            "plastic_shear_strain_rate_s_inv": float(gamma_dot),
+            "dynamic_characteristic_yield_stress_mpa": float(dynamic_tau0),
+            "hall_petch_shear_stress_mpa": float(tau_hp),
+            "taylor_forest_shear_stress_mpa": float(tau_taylor),
+            "precipitate_shear_stress_mpa": float(tau_ppt),
+        }
+
     def step_forward_grand_potential_field(
         self,
         phi_fields: np.ndarray,                   # (num_phases, nx, ny, nz)

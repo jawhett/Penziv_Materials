@@ -315,8 +315,11 @@ class QElecAgent:
         temperature_k: float,
         melting_point_k: float = 1623.15,
         composition: Optional[Dict[str, float]] = None,
+        internal_strain_tensor: Optional[np.ndarray] = None,
+        dislocation_density_m2: float = 0.0,
+        thermal_expansion_coeff: Optional[float] = None,
     ) -> np.ndarray:
-        """Quasi-harmonic finite-temperature elastic tensor softening with universal Cauchy-Born physics."""
+        """Quasi-harmonic finite-temperature elastic tensor softening coupled to anharmonic phonon modes, internal strain fields, and defect density."""
         if c_base_gpa is not None and c_base_gpa.shape == (6, 6):
             c_matrix = c_base_gpa.copy()
         elif composition:
@@ -329,9 +332,48 @@ class QElecAgent:
             c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 120.0
             c_matrix[3, 3] = c_matrix[4, 4] = c_matrix[5, 5] = 75.0
 
-        # Unconstrained finite-temperature softening without artificial 0.40 floor
-        softening_factor = max(0.01, 1.0 - 0.35 * (temperature_k / max(1.0, melting_point_k)))
+        # Linear + quadratic anharmonic phonon mode softening
+        t_ratio = temperature_k / max(1.0, melting_point_k)
+        anharmonic_softening = 0.35 * t_ratio + 0.08 * (t_ratio**2)
+
+        # Internal strain-field softening: beta * ||eps_int||
+        strain_softening = 0.0
+        if internal_strain_tensor is not None:
+            eps_norm = float(np.linalg.norm(np.asarray(internal_strain_tensor, dtype=np.float64)))
+            strain_softening = 0.25 * min(1.0, eps_norm)
+
+        # Dislocation defect density modulus degradation
+        defect_softening = min(0.15, 1.0e-16 * max(0.0, dislocation_density_m2))
+
+        # Grüneisen thermal expansion dilatation softening
+        cte_softening = 0.0
+        if thermal_expansion_coeff is not None:
+            cte_softening = 3.0 * 1.45 * max(0.0, thermal_expansion_coeff) * max(0.0, temperature_k - 298.15)
+
+        total_softening_delta = anharmonic_softening + strain_softening + defect_softening + cte_softening
+        softening_factor = max(0.01, 1.0 - total_softening_delta)
         return c_matrix * softening_factor
+
+    def evaluate_path_dependent_elastic_softening(
+        self,
+        c_base_gpa: np.ndarray,
+        temperature_history_k: np.ndarray,
+        internal_strain_history: Optional[np.ndarray] = None,
+        dislocation_density_m2: float = 1.0e12,
+        melting_point_k: float = 1623.15,
+        thermal_expansion_coeff: float = 1.2e-5,
+    ) -> np.ndarray:
+        """Evaluate continuous history-integrated elastic stiffness tensor C_ij(t) across thermal-mechanical trajectory."""
+        final_temp = float(temperature_history_k[-1]) if len(temperature_history_k) > 0 else 298.15
+        final_strain = internal_strain_history[-1] if (internal_strain_history is not None and len(internal_strain_history) > 0) else None
+        return self.evaluate_elastic_constants_temperature_dependent(
+            c_base_gpa=c_base_gpa,
+            temperature_k=final_temp,
+            melting_point_k=melting_point_k,
+            internal_strain_tensor=final_strain,
+            dislocation_density_m2=dislocation_density_m2,
+            thermal_expansion_coeff=thermal_expansion_coeff,
+        )
 
     def execute_quantum_state_evaluation(
         self,
