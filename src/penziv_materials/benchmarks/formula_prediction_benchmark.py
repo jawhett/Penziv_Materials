@@ -1,6 +1,6 @@
 """Production Benchmark: Full-Flow First-Principles Structure & Multiscale Property Prediction from Chemical Formulas."""
 
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Union
 import datetime
 import math
 import numpy as np
@@ -17,6 +17,11 @@ from penziv_materials.scale4_atomistic.path_sampling import TransitionPathSampli
 from penziv_materials.scale2_continuum.multiscale_coupling import UniversalMultiscaleCouplingEngine
 from penziv_materials.thermodynamics.opencalphad_tdb import OpenCALPHADTDBEngine
 from penziv_materials.structure.autonomous_structure_predictor import AutonomousCrystalStructurePredictor
+from penziv_materials.scale1_process.thermomechanical_history import (
+    ThermomechanicalHistoryEngine,
+    ThermomechanicalHistoryParameters,
+    ProcessingRoute,
+)
 
 
 class BenchmarkMaterialReport(BaseModel):
@@ -29,6 +34,11 @@ class BenchmarkMaterialReport(BaseModel):
     lattice_parameters_angstrom: Dict[str, float]
     theoretical_density_g_cm3: float
     formation_energy_ev_atom: float
+    processing_route: str = "annealed_recrystallized"
+    effective_grain_size_um: float = 30.0
+    dislocation_density_m2: float = 1.0e12
+    precipitate_volume_fraction: float = 0.0
+    fatigue_endurance_limit_mpa: float = 0.0
     
     # Mechanical & Elastic (VRH Homogenized)
     bulk_modulus_gpa: float
@@ -79,13 +89,15 @@ class FormulaPredictionBenchmarkSuite:
         self.gamma_engine = TwoDimensionalGammaSurfaceEngine(grid_resolution=9)
         self.tps_engine = TransitionPathSamplingEngine(num_string_nodes=7)
         self.calphad = OpenCALPHADTDBEngine()
+        self.thermo_history = ThermomechanicalHistoryEngine()
 
     def predict_material_from_formula(
         self,
         formula: str,
         temperature_k: float = 300.0,
+        processing_route: Optional[Union[ProcessingRoute, str]] = None,
     ) -> BenchmarkMaterialReport:
-        """Run full 5-scale forward prediction pipeline starting solely from chemical formula."""
+        """Run full 5-scale forward prediction pipeline starting solely from chemical formula and processing history."""
         # 1. Parse Stoichiometry & Chemical Descriptors
         composition = parse_chemical_formula(formula)
         elements = list(composition.keys())
@@ -234,34 +246,46 @@ class FormulaPredictionBenchmarkSuite:
         e_mod = float(round((9.0 * k_mod * g_mod) / max(1e-4, 3.0 * k_mod + g_mod), 1))
         nu = float(round((3.0 * k_mod - 2.0 * g_mod) / max(1e-4, 2.0 * (3.0 * k_mod + g_mod)), 2))
 
-        # Yield Strength & Fracture Toughness from Dislocation / Cleavage Mechanics
-        pugh_ratio = float(k_mod / max(1.0, g_mod))
+        # Determine and execute path-dependent thermomechanical history
+        if processing_route is not None:
+            p_route = processing_route if isinstance(processing_route, ProcessingRoute) else ProcessingRoute(processing_route)
+        elif "718" in formula or "Inconel" in mat_class or "PeakAged" in formula:
+            p_route = ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6
+        elif "ColdWorked" in formula:
+            p_route = ProcessingRoute.COLD_WORKED_50PCT
+        elif "LPBF" in formula or "Additive" in mat_class:
+            p_route = ProcessingRoute.ADDITIVE_LPBF_AS_PRINTED
+        else:
+            p_route = ProcessingRoute.ANNEALED_RECRYSTALLIZED
+
+        # Base solid-solution friction stress
         if is_metallic:
             if n_elem == 1:
-                # Frenkel-Peierls-Nabarro lattice friction for pure metals
-                ys_pred = float(round(g_mod * 1000.0 / 680.0, 1))
+                base_friction_mpa = float(g_mod * 1000.0 / 680.0)
             else:
-                # Solid solution & multi-principal element dislocation pinning
-                ys_pred = float(round(max(250.0, g_mod * 1000.0 / 95.0 * (0.8 + 0.3 * np.sqrt(n_elem))), 1))
+                base_friction_mpa = float(max(120.0, (g_mod * 1000.0 / 180.0) * (0.8 + 0.3 * np.sqrt(n_elem))))
         elif is_thermoelectric:
-            ys_pred = 55.0
+            base_friction_mpa = 55.0
         elif is_zincblende_semicond:
-            ys_pred = float(round(max(60.0, g_mod * 1000.0 / 300.0), 1))
+            base_friction_mpa = float(max(60.0, g_mod * 1000.0 / 300.0))
         elif is_superionic:
-            ys_pred = 80.0 if "Mg" in elements else 60.0
+            base_friction_mpa = 80.0 if "Mg" in elements else 60.0
         else:
-            ys_pred = float(round(max(150.0, g_mod * 1000.0 / 250.0), 1))
+            base_friction_mpa = float(max(150.0, g_mod * 1000.0 / 250.0))
 
-        # Fracture Toughness (Rice-Johnson model coupled to Pugh ductility ratio B/G)
-        gamma_surface = 2.2  # J/m^2
-        if pugh_ratio > 1.75 and (is_metallic or nu > 0.26):
-            # Extensive crack-tip plastic blunting in ductile metals and alloys
-            plastic_factor = float(150.0 * ((pugh_ratio - 1.65) ** 1.5))
-            gamma_eff = gamma_surface * (1.0 + plastic_factor)
-            kic_pred = float(round(np.sqrt((2.0 * (e_mod * 1e9) * gamma_eff) / max(0.1, 1.0 - nu**2)) * 1e-6, 1))
-        else:
-            # Brittle Griffith cleavage for covalent semiconductors and ceramics
-            kic_pred = float(round(np.sqrt((2.0 * (e_mod * 1e9) * gamma_surface) / max(0.1, 1.0 - nu**2)) * 1e-6, 1))
+        # Run continuous path-dependent thermomechanical ISV integration
+        hist_params = ThermomechanicalHistoryParameters(
+            route=p_route,
+            temperature_k=temperature_k,
+        )
+        isv_response = self.thermo_history.predict_properties_from_history(
+            base_yield_strength_mpa=base_friction_mpa / 0.70,
+            base_youngs_modulus_gpa=e_mod,
+            history=hist_params,
+            lattice_friction_stress_mpa=base_friction_mpa,
+        )
+        ys_pred = float(round(isv_response.yield_strength_mpa, 1))
+        kic_pred = float(round(isv_response.fracture_toughness_k_ic_mpa_sqrt_m, 1))
 
         # C. Thermal Conductivity (Phonon Slack Model + Electronic Wiedemann-Franz)
         if is_metallic:
@@ -328,6 +352,11 @@ class FormulaPredictionBenchmarkSuite:
             lattice_parameters_angstrom=lat_params,
             theoretical_density_g_cm3=float(round(density_theoretical, 2)),
             formation_energy_ev_atom=float(round(cand.quantum.formation_energy_ev_atom if cand.quantum else -0.45, 3)),
+            processing_route=p_route.value,
+            effective_grain_size_um=float(round(isv_response.effective_grain_size_um, 2)),
+            dislocation_density_m2=float(isv_response.dislocation_density_m2),
+            precipitate_volume_fraction=float(round(isv_response.precipitate_volume_fraction, 4)),
+            fatigue_endurance_limit_mpa=float(round(isv_response.fatigue_endurance_limit_sigma_e_mpa, 1)),
             bulk_modulus_gpa=k_mod,
             shear_modulus_gpa=g_mod,
             youngs_modulus_gpa=e_mod,

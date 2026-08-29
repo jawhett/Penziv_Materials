@@ -508,7 +508,8 @@ class DynamicReadmeGenerator:
 
         for f in materials:
             gt = BENCHMARK_GROUND_TRUTH[f]
-            rep = self.suite.predict_material_from_formula(f, temperature_k=300.0)
+            p_route = gt.get("processing_route", "annealed_recrystallized")
+            rep = self.suite.predict_material_from_formula(f, temperature_k=300.0, processing_route=p_route)
             raw_reports.append(rep)
 
             for prop in PROPERTIES_META:
