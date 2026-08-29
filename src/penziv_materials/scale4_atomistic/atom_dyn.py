@@ -2,9 +2,10 @@
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
-from penziv_materials.core.constants import BOLTZMANN_EV_K
+from penziv_materials.core.constants import BOLTZMANN_EV_K, AVOGADRO_NUMBER
 from penziv_materials.core.models import AtomisticState
 from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+from penziv_materials.scale4_atomistic.gb_segregation import GrainBoundarySegregationEngine
 from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
 
 
@@ -193,14 +194,31 @@ class AtomDynAgent:
 
         tau_p = self.compute_peierls_stress_svpn(c44_gpa=c44_gpa)
 
+        # Grain boundary segregation & interfacial cohesion
+        gb_engine = GrainBoundarySegregationEngine(temperature_k=temperature_k)
+        matrix_elem = max(composition, key=composition.get) if composition else "Fe"
+        gb_solutes = gb_engine.solve_multicomponent_mclean_segregation(
+            bulk_concentrations=composition,
+            matrix_element=matrix_elem,
+        )
+        rice_wang = gb_engine.evaluate_rice_wang_interfacial_embrittlement(gb_solutes)
+        effective_gb_energy = float(0.85 * (1.0 / max(0.5, rice_wang["interfacial_cohesion_ratio"])))
+        seg_enthalpy_j_mol = gb_engine.compute_elastic_strain_segregation_enthalpy(
+            matrix_shear_modulus_gpa=max(10.0, c44_gpa),
+            solute_bulk_modulus_gpa=max(20.0, c44_gpa * 2.0),
+            matrix_covalent_radius_ang=1.25,
+            solute_covalent_radius_ang=1.45,
+        )
+        seg_energy_ev = float(seg_enthalpy_j_mol / (AVOGADRO_NUMBER * 1.602176634e-19))
+
         return AtomisticState(
             defect_migration_barrier_ev=float(delta_e_barrier),
             migration_barrier_sigma_ev=float(force_variance),
             kinetic_rate_s_inv=float(kinetic_rate),
             lognormal_variance_sigma_ln_gamma_sq=0.045,
             peierls_stress_gpa=float(tau_p),
-            grain_boundary_energy_j_m2=0.65,
-            solute_gb_segregation_energy_ev=-0.38,
+            grain_boundary_energy_j_m2=effective_gb_energy,
+            solute_gb_segregation_energy_ev=seg_energy_ev,
             ood_max_negative_log_likelihood=float(nll),
             is_ood=is_ood,
         )
