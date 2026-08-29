@@ -60,6 +60,7 @@ class AutonomousCrystalStructurePredictor:
 
         delta_chi = float(max(chi_list) - min(chi_list)) if chi_list else 0.0
         r_ratio = float(min(r_covalent_list) / max(r_covalent_list)) if r_covalent_list else 1.0
+        f_ionicity = float(1.0 - np.exp(-0.25 * (delta_chi ** 2)))
 
         # 2. Pure Unconstrained Global Crystal Structure Prediction (No Hardcoded Lookups)
         candidate = self.search_engine.search_ground_state_structure(
@@ -75,29 +76,24 @@ class AutonomousCrystalStructurePredictor:
         e_atom = candidate.total_energy_ev_atom
         z_fu = float(max(1, round(len(candidate.atomic_sites) / max(1, total_atoms))))
 
-        # Dynamic physical classification based on electronic structure & bonding
-        if delta_chi > 1.8:
-            mat_class = "Ionic Ceramic / Oxide"
-        elif len(elements) == 1 and delta_chi == 0.0:
-            mat_class = "Pure Metal" if vec_total >= 1.0 else "Elemental Non-Metal"
-        elif sg_num in [225, 229, 194] and delta_chi < 1.10:
-            mat_class = "Refractory HEA Metal Alloy" if (len(elements) >= 4 and density_theoretical > 10.0) else "Metallic Alloy / Solid Solution"
-        elif sg_num == 194 and len(elements) >= 3 and any(e in ["C", "N"] for e in elements):
-            mat_class = "Layered MAX Phase Ceramic"
-        elif sg_num in [142, 230]:
-            mat_class = "Garnet Solid-State Electrolyte"
-        elif sg_num == 167:
-            mat_class = "Superionic Solid-State Electrolyte"
-        elif sg_num == 166:
-            mat_class = "Topological Thermoelectric"
-        elif sg_num == 216:
-            mat_class = "Zincblende Compound Semiconductor"
+        # Continuous physical classification derived from bond ionicity, VEC, and symmetry
+        if f_ionicity > 0.65:
+            mat_class = f"Ionic Compound / Oxide (f_ion={f_ionicity:.2f}, {sg_sym})"
+        elif len(elements) == 1:
+            mat_class = f"Elemental Crystal ({'Metal' if vec_total >= 1.0 else 'Non-Metal'}, {sg_sym})"
+        elif f_ionicity < 0.20 and vec_total >= 5.5 and len(elements) >= 3:
+            mat_class = f"Multi-Principal Element Alloy (VEC={vec_total:.2f}, {sg_sym})"
+        elif f_ionicity < 0.35 and any(e in ["C", "N", "B"] for e in elements) and len(elements) >= 3:
+            mat_class = f"Interstitial / Layered Framework ({sg_sym})"
+        elif f_ionicity < 0.30:
+            mat_class = f"Covalent / Intermetallic Semiconductor ({sg_sym})"
         else:
-            mat_class = f"Crystalline Polymorph ({candidate.space_group_symbol})"
+            mat_class = f"Complex Crystalline Framework ({c_sys.value.title()}, {sg_sym})"
 
         rationale = (
             f"Unconstrained global energy minimization relaxed ground-state to {sg_sym} "
-            f"(SG #{sg_num}) with E = {e_atom:.3f} eV/atom at {temperature_k:.0f} K."
+            f"(SG #{sg_num}, {c_sys.value}) with E = {e_atom:.3f} eV/atom, "
+            f"f_ion = {f_ionicity:.2f}, VEC = {vec_total:.2f} at {temperature_k:.0f} K."
         )
 
         return PredictedCrystallographicState(

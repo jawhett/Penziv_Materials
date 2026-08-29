@@ -334,7 +334,8 @@ class QElecAgent:
             c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 120.0
             c_matrix[3, 3] = c_matrix[4, 4] = c_matrix[5, 5] = 75.0
 
-        softening_factor = max(0.40, 1.0 - 0.35 * (temperature_k / max(1.0, melting_point_k)))
+        # Unconstrained finite-temperature softening without artificial 0.40 floor
+        softening_factor = max(0.01, 1.0 - 0.35 * (temperature_k / max(1.0, melting_point_k)))
         return c_matrix * softening_factor
 
     def execute_quantum_state_evaluation(
@@ -370,17 +371,21 @@ class QElecAgent:
             composition=composition,
         )
 
-        # Dynamic physical thermal expansion (Grüneisen-Debye model alpha = gamma * C_v / (3 * K * V_m))
-        k_bulk = float(np.mean(np.diag(c_matrix)[:3]))
-        alpha_cte = float(np.clip(1.5 / max(50.0, k_bulk) * 1.0e-4, 0.4e-5, 3.5e-5))
+        # Unconstrained Grüneisen-Debye thermal expansion (alpha = gamma_G * C_v / (3 * K_bulk * V_m))
+        k_bulk = float(max(1.0, np.mean(np.diag(c_matrix)[:3])))
+        gamma_gruneisen = 1.45
+        c_v_molar = 3.0 * 8.314 * (1.0 - np.exp(-450.0 / max(10.0, temperature_k)))
+        v_molar_m3 = 1.2e-5  # representative molar volume
+        alpha_cte = float((gamma_gruneisen * c_v_molar) / (3.0 * (k_bulk * 1.0e9) * v_molar_m3))
 
-        # Dynamic stacking fault energy from valence electron density and electronegativity delta
+        # Unconstrained generalized stacking fault energy from anisotropic shear mechanics
         elems = list(composition.keys())
         counts = np.array([composition[e] for e in elems], dtype=np.float64)
         fracs = counts / max(1e-6, np.sum(counts))
         vec_avg = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[4] for i in range(len(elems)))
         delta_chi = max(UniversalElementalProperties.get_element(e)[2] for e in elems) - min(UniversalElementalProperties.get_element(e)[2] for e in elems) if elems else 0.0
-        sfe_val = float(np.clip(25.0 + 8.5 * (vec_avg - 6.0) + 20.0 * delta_chi, 10.0, 180.0))
+        c44_eff = float(c_matrix[3, 3]) if c_matrix.shape == (6, 6) else 65.0
+        sfe_val = float(max(1.0, 0.45 * c44_eff + 8.5 * (vec_avg - 6.0) + 15.0 * delta_chi))
 
         return QuantumState(
             formula=formula,

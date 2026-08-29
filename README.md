@@ -27,7 +27,7 @@ Starting solely from raw chemical formula strings, the engine autonomously predi
 
 | Metric | Crystallographic Density | Electronic Bandgap ID | Thermal Conductivity ($\kappa$) | Young's Modulus ($E$) | Bulk Modulus ($K$) | Shear Modulus ($G$) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Mean Absolute % Error (MAPE)** | `52.52%` | `3.36%` | `358.74%` | `73.14%` | `56.45%` | `74.09%` |
+| **Mean Absolute % Error (MAPE)** | `53.96%` | `3.36%` | `358.74%` | `80.23%` | `65.33%` | `81.71%` |
 | **Accuracy Grade** | 🟢 **Ultra-High Precision** | 🟢 **Zero Misclassification** | 🟢 **High Precision BTE** | 🟡 **DFT / VRH Bounds** | 🟡 **Voigt Bounds** | 🟡 **Reuss Bounds** |
 
 </div>
@@ -38,16 +38,16 @@ Starting solely from raw chemical formula strings, the engine autonomously predi
 
 Each graph plots **Predicted First-Principles Values ($y$)** directly against **Ground Truth Literature Values ($x$)** across all 10 benchmark materials with the dashed 1:1 ideal parity line ($y = x$), shaded $\pm 10\%$ confidence bounds, and vertical residual drop stems. All figures are dynamically synthesized from first-principles predictions upon every commit push:
 
-#### 1. Crystallographic Density (g/cm³) — Parity ($R^2$ & MAPE: `52.5%`)
+#### 1. Crystallographic Density (g/cm³) — Parity ($R^2$ & MAPE: `54.0%`)
 ![Crystallographic Density Parity](docs/assets/benchmark_parity_density.svg)
 
-#### 2. Young's Modulus (E) (GPa) — Parity ($R^2$ & MAPE: `73.1%`)
+#### 2. Young's Modulus (E) (GPa) — Parity ($R^2$ & MAPE: `80.2%`)
 ![Young's Modulus (E) Parity](docs/assets/benchmark_parity_youngs_modulus.svg)
 
-#### 3. Bulk Modulus (K) (GPa) — Parity ($R^2$ & MAPE: `56.5%`)
+#### 3. Bulk Modulus (K) (GPa) — Parity ($R^2$ & MAPE: `65.3%`)
 ![Bulk Modulus (K) Parity](docs/assets/benchmark_parity_bulk_modulus.svg)
 
-#### 4. Shear Modulus (G) (GPa) — Parity ($R^2$ & MAPE: `74.1%`)
+#### 4. Shear Modulus (G) (GPa) — Parity ($R^2$ & MAPE: `81.7%`)
 ![Shear Modulus (G) Parity](docs/assets/benchmark_parity_shear_modulus.svg)
 
 #### 5. Poisson's Ratio (ν) — Parity ($R^2$ & MAPE: `10.9%`)
@@ -59,13 +59,13 @@ Each graph plots **Predicted First-Principles Values ($y$)** directly against **
 #### 7. Electronic Bandgap (E_g) (eV) — Parity ($R^2$ & MAPE: `3.4%`)
 ![Electronic Bandgap (E_g) Parity](docs/assets/benchmark_parity_bandgap.svg)
 
-#### 8. Linear Thermal Expansion (CTE) (ppm/K) — Parity ($R^2$ & MAPE: `66.1%`)
+#### 8. Linear Thermal Expansion (CTE) (ppm/K) — Parity ($R^2$ & MAPE: `63.8%`)
 ![Linear Thermal Expansion (CTE) Parity](docs/assets/benchmark_parity_thermal_expansion.svg)
 
-#### 9. Yield Strength (σ_y) (MPa) — Parity ($R^2$ & MAPE: `30.5%`)
+#### 9. Yield Strength (σ_y) (MPa) — Parity ($R^2$ & MAPE: `29.4%`)
 ![Yield Strength (σ_y) Parity](docs/assets/benchmark_parity_yield_strength.svg)
 
-#### 10. Fracture Toughness (K_Ic) (MPa√m) — Parity ($R^2$ & MAPE: `176.1%`)
+#### 10. Fracture Toughness (K_Ic) (MPa√m) — Parity ($R^2$ & MAPE: `182.2%`)
 ![Fracture Toughness (K_Ic) Parity](docs/assets/benchmark_parity_fracture_toughness.svg)
 
 #### 11. Carrier Mobility (μ_c) (cm²/V·s) — Parity ($R^2$ & MAPE: `51.8%`)
@@ -86,8 +86,8 @@ Each graph plots **Predicted First-Principles Values ($y$)** directly against **
 | `CaO` | Ceramic Oxide | $Fm-3m$ | **2.07** | 3.34 `-38.0%` | **6.10** | 7.10 | **105.7** | 185 `-42.9%` | **30.0** | 30.0 `0.0%` | ε_r = 11.8, n = 1.83 | **YES** | `VERIFIED_WITH_WARNINGS` |
 | `Fe0.70Cr0.18Ni0.10Mo0.02` | 316L SS | $Fm-3m$ | **6.38** | 8.00 `-20.2%` | **0.00** | 0.00 | **158.1** | 205 `-22.9%` | **357.3** | 16.3 `+2091.8%` | σ_y = 1024 MPa (SLM) | **YES** | `PASSED` |
 | `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | **3.74** | 4.53 `-17.4%` | **0.00** | 0.00 | **327.4** | 340 `-3.7%` | **343.2** | 37.0 `+827.7%` | Metallic Ceramic Conductor | **YES** | `PASSED` |
-| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | **10.98** | 13.75 `-20.1%` | **0.00** | 0.00 | **225.6** | 280 `-19.4%` | **338.2** | 50.0 `+576.3%` | T_melt > 2900 K | **YES** | `PASSED` |
-| `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | **5.76** | 2.40 `+140.0%` | **3.52** | 3.60 | **294.2** | 45 `+553.8%` | **0.8** | 0.8 `0.0%` | σ_ion = 1.85 mS/cm | **YES** | `VERIFIED_WITH_WARNINGS` |
+| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | **13.98** | 13.75 `+1.7%` | **0.00** | 0.00 | **278.5** | 280 `-0.5%` | **338.2** | 50.0 `+576.3%` | T_melt > 2900 K | **YES** | `PASSED` |
+| `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | **6.55** | 2.40 `+172.9%` | **3.52** | 3.60 | **334.6** | 45 `+643.6%` | **0.8** | 0.8 `0.0%` | σ_ion = 1.85 mS/cm | **YES** | `VERIFIED_WITH_WARNINGS` |
 | `GaAs` | Optoelectronic | $F-43m$ | **11.36** | 5.32 `+113.5%` | **1.42** | 1.42 | **85.3** | 86 `-0.2%` | **55.0** | 55.0 `0.0%` | μ_e = 8500 cm²/V·s | **YES** | `VERIFIED_WITH_WARNINGS` |
 | `CdTe` | Photovoltaic | $F-43m$ | **11.14** | 5.85 `+90.4%` | **1.50** | 1.50 | **50.7** | 52 `-2.5%` | **6.2** | 6.2 `0.0%` | μ_e = 1050 cm²/V·s | **YES** | `VERIFIED_WITH_WARNINGS` |
 | `Bi2Te3` | Thermoelectric | $R-3m$ | **14.49** | 7.86 `+84.4%` | **0.15** | 0.15 | **43.2** | 40 `+6.7%` | **1.2** | 1.2 `0.0%` | ZT = 1.15 at 300 K | **YES** | `PASSED` |

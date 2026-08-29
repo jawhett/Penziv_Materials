@@ -27,6 +27,25 @@ class ConvexHullEntry:
 class GrandCanonicalConvexHull:
     """Calculates thermodynamic phase equilibria, grand potential Phi(V), Delta E_hull, and decomposition equations."""
 
+    # Multi-valence redox states mapping for transition metals and main group elements
+    ELEMENT_REDOX_VALENCES: Dict[str, List[float]] = {
+        "H": [1.0, -1.0],
+        "Li": [1.0], "Na": [1.0], "K": [1.0], "Rb": [1.0], "Cs": [1.0],
+        "Be": [2.0], "Mg": [2.0], "Ca": [2.0], "Sr": [2.0], "Ba": [2.0], "Zn": [2.0], "Cd": [2.0],
+        "B": [3.0], "Al": [3.0], "Ga": [3.0, 1.0], "In": [3.0, 1.0], "Sc": [3.0], "Y": [3.0], "La": [3.0],
+        "Ti": [4.0, 3.0, 2.0], "Zr": [4.0], "Hf": [4.0],
+        "V": [5.0, 4.0, 3.0, 2.0], "Nb": [5.0, 4.0, 3.0], "Ta": [5.0, 4.0],
+        "Cr": [6.0, 4.0, 3.0, 2.0], "Mo": [6.0, 5.0, 4.0, 3.0], "W": [6.0, 5.0, 4.0],
+        "Mn": [7.0, 4.0, 3.0, 2.0], "Fe": [3.0, 2.0, 4.0, 6.0], "Co": [3.0, 2.0, 4.0], "Ni": [2.0, 3.0, 4.0],
+        "Cu": [2.0, 1.0, 3.0], "Ag": [1.0, 2.0], "Au": [3.0, 1.0],
+        "Si": [4.0, -4.0], "Ge": [4.0, 2.0], "Sn": [4.0, 2.0], "Pb": [4.0, 2.0],
+        "P": [5.0, 3.0, -3.0], "As": [5.0, 3.0, -3.0], "Sb": [5.0, 3.0, -3.0], "Bi": [3.0, 5.0],
+        "O": [-2.0], "S": [-2.0, 4.0, 6.0], "Se": [-2.0, 4.0, 6.0], "Te": [-2.0, 4.0, 6.0],
+        "F": [-1.0], "Cl": [-1.0, 1.0, 3.0, 5.0, 7.0], "Br": [-1.0, 1.0, 5.0], "I": [-1.0, 1.0, 5.0, 7.0],
+    }
+
+    ELEMENT_VALENCES: Dict[str, float] = {k: v[0] for k, v in ELEMENT_REDOX_VALENCES.items()}
+
     STANDARD_PHASE_DATABASE: List[Dict[str, Any]] = [
         {"formula": "Li", "energy_ev_atom": 0.0, "is_ref": True},
         {"formula": "Na", "energy_ev_atom": 0.0, "is_ref": True},
@@ -128,12 +147,51 @@ class GrandCanonicalConvexHull:
         except Exception:
             return 0
 
+    @classmethod
+    def evaluate_miedema_formation_enthalpy(cls, composition: Dict[str, float]) -> float:
+        """Evaluate generalized Miedema semi-empirical formation enthalpy across arbitrary multi-element systems."""
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        elems = list(composition.keys())
+        counts = np.array([composition[e] for e in elems], dtype=np.float64)
+        total = np.sum(counts)
+        if total <= 0:
+            return 0.0
+        fracs = counts / total
+        n = len(elems)
+        if n <= 1:
+            return 0.0
+
+        # Physical Miedema constants: P=14.2, Q=123.5
+        P = 14.2
+        Q = 123.5
+        delta_h_kj = 0.0
+
+        phi_vals = np.array([UniversalElementalProperties.get_element(e)[2] for e in elems])
+        v_molar = np.array([UniversalElementalProperties.get_element(e)[3] for e in elems])
+        nws_vals = np.array([abs(UniversalElementalProperties.get_element(e)[4]) for e in elems])
+
+        v_23 = v_molar ** (2.0 / 3.0)
+        mean_v_23 = np.sum(fracs * v_23)
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                delta_phi = phi_vals[i] - phi_vals[j]
+                delta_nws = (nws_vals[i] ** (1.0 / 3.0)) - (nws_vals[j] ** (1.0 / 3.0))
+                factor = (v_23[i] * v_23[j]) / max(1e-5, mean_v_23)
+                r_star = 2.1 if (nws_vals[i] > 3.0 and nws_vals[j] < 2.0) or (nws_vals[j] > 3.0 and nws_vals[i] < 2.0) else 0.0
+                interaction = -P * (delta_phi**2) + Q * (delta_nws**2) - r_star
+                delta_h_kj += fracs[i] * fracs[j] * factor * interaction
+
+        # Convert kJ/mol to eV/atom (1 eV = 96.485 kJ/mol)
+        delta_h_ev_atom = float(delta_h_kj / 96.485)
+        return delta_h_ev_atom
+
     def compute_energy_above_convex_hull(
         self,
         candidate_formula: str,
         candidate_energy_per_atom_ev: float,
     ) -> Dict[str, Any]:
-        """Solve multi-component Linear Programming phase equilibrium."""
+        """Solve multi-component Linear Programming phase equilibrium using generalized Miedema & live entries."""
         cand_mol = parse_chemical_formula(candidate_formula)
         total_atoms = sum(cand_mol.values())
         cand_fracs = {k: v / max(1e-6, total_atoms) for k, v in cand_mol.items()}
@@ -143,25 +201,19 @@ class GrandCanonicalConvexHull:
         candidate_set = set(elements)
         relevant_entries = [e for e in self.entries if set(e.atomic_fractions.keys()).issubset(candidate_set)]
 
-        # Dynamically generate first-principles binary reference phases if unpopulated
+        # Dynamically generate generalized Miedema binary and ternary reference phases if unpopulated
         for i in range(len(elements)):
             for j in range(i + 1, len(elements)):
                 el1, el2 = elements[i], elements[j]
                 pair_key = {el1, el2}
                 has_binary = any(set(e.atomic_fractions.keys()) == pair_key for e in relevant_entries)
                 if not has_binary:
-                    # Miedema enthalpy calculation for binary ground state
-                    from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
-                    _, _, chi1, v1, z1, _ = UniversalElementalProperties.get_element(el1)
-                    _, _, chi2, v2, z2, _ = UniversalElementalProperties.get_element(el2)
-                    d_chi = abs(chi1 - chi2)
-                    d_nws = abs(z1**(1/3) - z2**(1/3))
-                    delta_h_ev = -0.45 * (d_chi**2) + 0.12 * (d_nws**2)
-                    if d_chi < 0.2:
-                        delta_h_ev = -0.05
-                    form_e = float(np.clip(delta_h_ev, -3.5, 0.05))
-                    bin_entry = ConvexHullEntry(formula=f"{el1}{el2}", formation_energy_per_atom_ev=form_e)
-                    relevant_entries.append(bin_entry)
+                    # Stoichiometric binary ratios (1:1, 1:2, 2:3)
+                    for r1, r2 in [(1.0, 1.0), (1.0, 2.0), (2.0, 3.0)]:
+                        comp_bin = {el1: r1, el2: r2}
+                        form_e = float(np.clip(self.evaluate_miedema_formation_enthalpy(comp_bin), -3.8, 0.05))
+                        bin_entry = ConvexHullEntry(formula=f"{el1}{int(r1) if r1>1 else ''}{el2}{int(r2) if r2>1 else ''}", formation_energy_per_atom_ev=form_e)
+                        relevant_entries.append(bin_entry)
 
         # Always include elemental standard reference ground states (H_form = 0.0 eV/atom)
         for el in elements:
@@ -214,26 +266,15 @@ class GrandCanonicalConvexHull:
         from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
         elems = list(composition.keys())
         counts = np.array([composition[e] for e in elems], dtype=np.float64)
-        n_atoms = np.sum(counts)
 
         # Mulliken electronegativities and hardnesses
         chis = np.array([UniversalElementalProperties.get_element(e)[2] * 2.8 for e in elems])
-        etas = np.array([3.5 + 0.5 * UniversalElementalProperties.get_element(e)[4] for e in elems])
+        etas = np.array([3.5 + 0.5 * abs(UniversalElementalProperties.get_element(e)[4]) for e in elems])
 
         inv_eta = 1.0 / etas
         mu_bar = float(np.sum(counts * chis * inv_eta) / max(1e-6, np.sum(counts * inv_eta)))
         charges = (mu_bar - chis) * inv_eta
         return {elems[i]: float(round(charges[i], 3)) for i in range(len(elems))}
-
-    ELEMENT_VALENCES: Dict[str, float] = {
-        "H": 1.0, "Li": 1.0, "Na": 1.0, "K": 1.0, "Rb": 1.0, "Cs": 1.0,
-        "Be": 2.0, "Mg": 2.0, "Ca": 2.0, "Sr": 2.0, "Ba": 2.0, "Zn": 2.0, "Cd": 2.0,
-        "B": 3.0, "Al": 3.0, "Ga": 3.0, "In": 3.0, "Sc": 3.0, "Y": 3.0, "La": 3.0,
-        "Ti": 4.0, "Zr": 4.0, "Hf": 4.0, "Si": 4.0, "Ge": 4.0, "Sn": 4.0,
-        "V": 5.0, "Nb": 5.0, "Ta": 5.0, "P": 5.0, "Sb": 3.0, "Bi": 3.0,
-        "Cr": 3.0, "Mo": 6.0, "W": 6.0, "Mn": 2.0, "Fe": 3.0, "Co": 2.0, "Ni": 2.0,
-        "Cu": 2.0, "Ag": 1.0, "Au": 1.0,
-    }
 
     def compute_electrochemical_window_vs_reference_metal(
         self,
@@ -244,7 +285,7 @@ class GrandCanonicalConvexHull:
         voltage_step: float = 0.02,
         custom_metal_valence: Optional[float] = None,
     ) -> Tuple[float, float]:
-        """Compute exact grand potential reduction/oxidation bounds via convex hull facet Legendre minimization:
+        """Compute exact grand potential reduction/oxidation bounds via dynamic multi-valence Legendre minimization:
 
         Phi(mu) = min_i [ G_i - sum_k mu_k N_{k,i} ]
         """
@@ -255,7 +296,14 @@ class GrandCanonicalConvexHull:
             return 0.0, 5.0
 
         n_metal_frac = n_metal / max(1e-6, total_atoms)
-        charge_z = custom_metal_valence or self.ELEMENT_VALENCES.get(reference_metal, 1.0)
+
+        # Multi-valence evaluation: determine effective active oxidation charges
+        if custom_metal_valence is not None:
+            charge_z = custom_metal_valence
+        else:
+            qeq_charges = self.compute_dynamic_qeq_oxidation_states(cand_comp)
+            charge_z = abs(qeq_charges.get(reference_metal, self.ELEMENT_VALENCES.get(reference_metal, 1.0)))
+            charge_z = max(0.5, min(4.0, charge_z))
 
         voltages = np.arange(voltage_range[0], voltage_range[1] + voltage_step, voltage_step)
         stable_voltages = []

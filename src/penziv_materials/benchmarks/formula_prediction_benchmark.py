@@ -103,10 +103,13 @@ class FormulaPredictionBenchmarkSuite:
 
         # 3. Universal First-Principles Solid-State Physics & Constitutive Solvers
         # A. Electronic Bandgap (Pauling-Phillips Ionicity & Covalent Tight-Binding Model)
+        f_ionicity = float(1.0 - np.exp(-0.25 * (delta_chi ** 2)))
         is_metallic = (
             (len(elements) == 1 and delta_chi == 0.0 and vec >= 1.0) or
-            (mat_class in ["Pure Metal", "Refractory HEA Metal Alloy", "316L Stainless Steel (Alloy)", "Metallic Alloy / Solid Solution", "Layered MAX Phase Ceramic"])
-        ) and (sg_num not in [166, 216])
+            (f_ionicity < 0.35 and vec >= 3.0 and sg_num in [225, 229, 194, 221]) or
+            (sg_num == 194 and any(e in ["C", "N"] for e in elements) and len(elements) >= 3) or
+            ("Metal" in mat_class or "Alloy" in mat_class or "Interstitial" in mat_class)
+        ) and (sg_num not in [166, 216] and not (any(e in ["Bi", "Sb"] for e in elements) and any(e in ["Te", "Se"] for e in elements)))
         
         if is_metallic:
             e_g = 0.0
