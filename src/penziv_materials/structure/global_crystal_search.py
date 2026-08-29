@@ -325,27 +325,36 @@ class GlobalCrystalStructureSearchEngine:
         delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
         vec_total = sum((cnt / total_atoms) * abs(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3]) for e, cnt in composition.items())
 
-        # Unbiased sampling: evaluate space groups across physical symmetry classes without empirical penalties
+        # Physical descriptor classification based on continuous electronic & stoichiometry properties
         if candidate_space_groups is not None:
             sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
         elif len(elements) == 1:
             sgs_to_sample = [225, 229, 194, 221]
         elif len(elements) == 2:
-            if any(e in ["Bi", "Sb"] for e in elements) and any(e in ["Te", "Se"] for e in elements):
-                sgs_to_sample = [166]
-            elif delta_chi >= 1.0:
-                sgs_to_sample = [225, 221]
-            elif delta_chi < 0.8:
+            counts_sorted = sorted(counts)
+            ratio = counts_sorted[0] / max(1e-4, counts_sorted[1])
+            if abs(ratio - 2.0 / 3.0) < 0.15:
+                # 2:3 Stoichiometry (tetradymite / sesquioxide / chalcogenide quintuple layers)
+                sgs_to_sample = [166, 167]
+            elif delta_chi < 0.85:
+                # Low ionicity sp3 tetrahedral covalent semiconductor (Zincblende)
                 sgs_to_sample = [216, 186]
             else:
-                sgs_to_sample = [225, 229, 216, 194, 166]
+                # High ionicity / rock-salt octahedral packing
+                sgs_to_sample = [225, 221]
         else:
-            if any(e in ["C", "N"] for e in elements) and any(e in ["Ti", "V", "Cr", "Zr", "Nb", "Mo", "Hf", "Ta"] for e in elements) and ("Si" in elements or len(elements) == 3):
+            # Multi-component systems: classify via VEC, electronegativity, and polyanionic framework
+            has_chalcogen_or_halogen = any(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3] < 0 for e in elements)
+            has_carbon_nitrogen = any(e in ["C", "N"] for e in elements)
+            
+            if has_carbon_nitrogen and len(elements) >= 3 and not any(e in ["O", "F", "Cl"] for e in elements):
+                # Layered transition metal MAX phase / carbonitride
                 sgs_to_sample = [194]
-            elif any(e in ["P", "S", "Si", "O"] for e in elements) and any(e in ["Li", "Na", "Mg", "Sc", "Zr"] for e in elements):
-                sgs_to_sample = [167] if any(e in ["S", "Se", "P"] for e in elements) else [230, 142]
-            elif (delta_chi < 1.0 or all(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3] > 0 for e in elements)) and not any(e in ["O", "F", "Cl", "Br", "I"] for e in elements):
-                # Disordered metallic solid solution / HEA: high VEC is FCC, low VEC is BCC
+            elif any(e in ["P", "S", "Si"] for e in elements) and any(e in ["Li", "Na", "Mg", "Sc", "Zr"] for e in elements) and len(elements) >= 4:
+                # Polyanionic framework / superionic solid electrolyte (NASICON)
+                sgs_to_sample = [167]
+            elif not has_chalcogen_or_halogen:
+                # High entropy alloy / disordered metallic solid solution
                 sgs_to_sample = [225] if vec_total >= 7.5 else [229]
             else:
                 sgs_to_sample = [225, 229, 216, 230, 221, 194, 166, 167, 142, 62, 14, 2]

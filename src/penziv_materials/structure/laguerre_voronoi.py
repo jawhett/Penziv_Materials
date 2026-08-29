@@ -29,7 +29,14 @@ class MulticomponentLaguerreVoronoiEngine:
         """
         coords = np.asarray(atomic_coordinates, dtype=np.float64)
         n_atoms = len(coords)
-        radii = np.array([self.COVALENT_RADII_ANGSTROM.get(sp, 1.20) for sp in species_list])
+
+        # Dynamic species radius resolution via universal elemental properties
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        radii = np.array([
+            UniversalElementalProperties.get_element(sp)[1]
+            if sp in UniversalElementalProperties.DATABASE else self.COVALENT_RADII_ANGSTROM.get(sp, 1.25)
+            for sp in species_list
+        ], dtype=np.float64)
 
         diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
         diff -= self.box_len * np.round(diff / self.box_len)
