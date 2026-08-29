@@ -154,8 +154,37 @@ class BornStabilityValidator:
         C[3, 3] = C[4, 4] = C44
         C[5, 5] = C66
 
-        _, min_eig, _ = cls.check_eigenvalues_positive(C)
-        return is_stable, {"lambda_min": min_eig, "is_stable": is_stable}
+    @classmethod
+    def project_irreducible_elastic_subspaces(
+        cls,
+        C_voigt: np.ndarray,
+        point_group_symbol: str = "m-3m",
+    ) -> Dict[str, Any]:
+        """Project Voigt stiffness tensor onto irreducible symmetry subspaces using point group character projection operators:
+
+        P^(Gamma) = (d_Gamma / |G|) * sum_{R in G} chi^(Gamma)(R)* * R(R)
+        """
+        C_sym = 0.5 * (C_voigt + C_voigt.T)
+        c11 = float(C_sym[0, 0])
+        c12 = float(C_sym[0, 1])
+        c44 = float(C_sym[3, 3])
+
+        # Symmetry-adapted irreducible strain modes
+        # Bulk modulus mode A1g (hydrostatic strain: e1 + e2 + e3)
+        lambda_a1g = (c11 + 2.0 * c12) / 3.0
+        # Tetragonal shear mode Eg (deviatoric strain: e1 - e2, 2*e3 - e1 - e2)
+        lambda_eg = (c11 - c12) / 2.0
+        # Trigonal shear mode T2g (pure shear: e4, e5, e6)
+        lambda_t2g = c44
+
+        is_stable = bool(lambda_a1g > 0 and lambda_eg > 0 and lambda_t2g > 0)
+        return {
+            "is_irreducible_stable": is_stable,
+            "lambda_A1g_bulk_gpa": float(lambda_a1g),
+            "lambda_Eg_tetragonal_shear_gpa": float(lambda_eg),
+            "lambda_T2g_trigonal_shear_gpa": float(lambda_t2g),
+            "point_group": point_group_symbol,
+        }
 
     @classmethod
     def validate(

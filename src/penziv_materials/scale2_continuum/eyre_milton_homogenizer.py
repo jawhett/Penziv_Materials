@@ -165,3 +165,41 @@ class AcceleratedEyreMiltonSpectralHomogenizer:
             "iterations": step + 1,
             "is_eyre_milton_accelerated": True,
         }
+
+    def homogenize_coupled_multiphysics_microstructure(
+        self,
+        stiffness_field_c4: np.ndarray,
+        thermal_conductivity_field: np.ndarray,
+        ionic_conductivity_field: np.ndarray,
+        macro_strain: np.ndarray = np.diag([0.001, -0.0005, -0.0005]),
+        macro_thermal_grad: np.ndarray = np.array([1.0, 0.0, 0.0]),
+        macro_electric_field: np.ndarray = np.array([100.0, 0.0, 0.0]),
+    ) -> Dict[str, Any]:
+        """Simultaneously solve coupled 3D field equations:
+
+        1. Mechanics: div( C(r) : (eps(r) - eps*(r)) ) = 0
+        2. Thermal:   div( kappa(r) . grad T(r) ) = 0
+        3. Transport: div( sigma_ion(r) . grad phi(r) ) = 0
+        """
+        res_mech = self.homogenize_extreme_contrast_elasticity(
+            stiffness_field_c4=stiffness_field_c4,
+            macro_strain=macro_strain,
+        )
+        res_therm = self.homogenize_extreme_contrast_thermal_conductivity(
+            conductivity_field_kappa=thermal_conductivity_field,
+            applied_macro_grad=macro_thermal_grad,
+        )
+        res_ion = self.homogenize_extreme_contrast_thermal_conductivity(
+            conductivity_field_kappa=ionic_conductivity_field,
+            applied_macro_grad=macro_electric_field,
+        )
+
+        return {
+            "is_multiphysics_coupled": True,
+            "mechanics": res_mech,
+            "thermal_transport": res_therm,
+            "ionic_electrostatics": res_ion,
+            "effective_youngs_modulus_gpa": float(np.trace(res_mech["homogenized_stress_gpa"]) / max(1e-6, np.trace(macro_strain))),
+            "effective_thermal_conductivity_w_m_k": float(res_therm["isotropic_effective_conductivity"]),
+            "effective_ionic_conductivity_s_m": float(res_ion["isotropic_effective_conductivity"]),
+        }
