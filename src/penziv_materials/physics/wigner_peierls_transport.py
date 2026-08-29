@@ -132,3 +132,70 @@ class UnifiedThermalElectronicTransportEngine:
             "hall_coefficient_m3_c": float(hall_coeff_m3_c),
             "effective_carrier_density_cm3": float(abs(n_eff) * 1.0e-6),
         }
+
+
+class WignerThermalTransportEngine:
+    """Unified dual-channel Peierls-Wigner thermal conductivity formulation bridging band phonons and diffuson hopping."""
+
+    @staticmethod
+    def compute_peierls_wigner_thermal_conductivity(
+        frequencies_thz: np.ndarray,      # (N_modes,)
+        group_velocities: np.ndarray,     # (N_modes, 3) in km/s or m/s
+        linewidths_thz: np.ndarray,       # (N_modes,) Gamma_q
+        velocities_matrix: np.ndarray,    # (N_modes, N_modes, 3) interband velocity operator
+        temperature_k: float,
+        unit_cell_volume_ang3: float,
+    ) -> Dict[str, Any]:
+        """Compute unified dual-channel thermal conductivity tensor."""
+        hbar_ev_ps = 0.6582119569
+        kb_ev_k = 8.617333262e-5
+        T = max(1.0, temperature_k)
+        vol_m3 = unit_cell_volume_ang3 * 1.0e-30
+
+        omega = 2.0 * np.pi * np.asarray(frequencies_thz, dtype=np.float64)  # rad / ps
+        kbt = kb_ev_k * T
+        x = np.clip((hbar_ev_ps * omega) / max(1e-6, kbt), 1e-4, 50.0)
+
+        # Mode heat capacity C_v(omega)
+        c_v = kb_ev_k * (x**2) * np.exp(x) / ((np.exp(x) - 1.0) ** 2)  # eV / K per mode
+        c_v_joules = c_v * 1.602176634e-19
+
+        # 1. Peierls Particle-like Channel (Intra-band)
+        gamma = np.maximum(1e-4, np.asarray(linewidths_thz, dtype=np.float64))
+        inv_2gamma = 1.0 / (2.0 * gamma)
+        gv = np.asarray(group_velocities, dtype=np.float64)
+        if np.max(np.abs(gv)) < 50.0:  # km/s -> convert to m/s
+            v_sq = np.einsum("mi,mj->mij", gv, gv) * 1.0e6
+        else:
+            v_sq = np.einsum("mi,mj->mij", gv, gv)
+
+        kappa_peierls_tensor = np.sum(
+            (c_v_joules[:, np.newaxis, np.newaxis] * v_sq * inv_2gamma[:, np.newaxis, np.newaxis]) / vol_m3,
+            axis=0,
+        ) * 1.0e-12  # W/(m*K)
+
+        # 2. Wigner Wave-like Channel (Inter-band coupling / Diffusons)
+        n_modes = len(frequencies_thz)
+        delta_omega = omega[:, np.newaxis] - omega[np.newaxis, :]
+        gamma_sum = gamma[:, np.newaxis] + gamma[np.newaxis, :]
+        c_v_matrix = 0.5 * (c_v_joules[:, np.newaxis] + c_v_joules[np.newaxis, :])
+
+        lorentzian = gamma_sum / (delta_omega**2 + gamma_sum**2 + 1e-12)
+        np.fill_diagonal(lorentzian, 0.0)
+
+        v_mat = np.asarray(velocities_matrix, dtype=np.float64)
+        v_inter_sq = np.sum(np.abs(v_mat)**2, axis=-1)
+        if np.max(v_inter_sq) < 2500.0:
+            v_inter_sq *= 1.0e6
+
+        kappa_wigner_scalar = float((0.5 / vol_m3) * np.sum(c_v_matrix * v_inter_sq * lorentzian) * 1.0e-12)
+        kappa_total_iso = float(np.trace(kappa_peierls_tensor) / 3.0 + kappa_wigner_scalar)
+
+        return {
+            "kappa_peierls_tensor_w_m_k": kappa_peierls_tensor.tolist(),
+            "kappa_peierls_isotropic": float(np.trace(kappa_peierls_tensor) / 3.0),
+            "kappa_wigner_isotropic": float(kappa_wigner_scalar),
+            "kappa_total_isotropic_w_m_k": kappa_total_iso,
+            "is_wave_dominated": bool(kappa_wigner_scalar > np.trace(kappa_peierls_tensor) / 3.0),
+        }
+

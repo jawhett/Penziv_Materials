@@ -84,6 +84,7 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         eigenstrain_tensors: Optional[List[np.ndarray]] = None,
         stiffness_tensors: Optional[List[np.ndarray]] = None,
         applied_strain: Optional[np.ndarray] = None,
+        anisotropic_kappa_tensors: Optional[List[np.ndarray]] = None,
         dt_s: float = 0.001,
         mobility_L: float = 1.0,
         interface_width_gamma: float = 0.5,
@@ -97,30 +98,47 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         parabs = [(0.0, np.array([0.1 * (a + 1)]), np.array([500.0])) for a in range(num_p)]
         omega = self.compute_calphad_grand_potentials(chemical_potentials, parabs)
 
-        # 2. Elastic driving force from Khachaturyan eigenstrain mismatch
-        elastic_df = np.zeros(num_p)
-        if eigenstrain_tensors is not None and stiffness_tensors is not None and applied_strain is not None:
+        # 2. Elastic driving force from spectral Khachaturyan Green's function solver
+        elastic_df_spatial = np.zeros((num_p, nx, ny, nz), dtype=np.float64)
+        if eigenstrain_tensors is not None and stiffness_tensors is not None:
+            from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
+            pf_micro = PhaseFieldEngine(grid_size=(nx, ny, nz), dx_nm=self.dx)
+            ref_c4 = stiffness_tensors[0] if len(stiffness_tensors) > 0 else np.eye(6) * 100.0
+            el_res = pf_micro.solve_khachaturyan_elastic_equilibrium_fft(
+                order_parameters=phi_fields,
+                eigenstrain_tensors=eigenstrain_tensors,
+                stiffness_tensor_4th_order=ref_c4,
+                applied_strain=applied_strain,
+            )
+            elastic_df_spatial = el_res["elastic_driving_forces"]
+        elif applied_strain is not None and eigenstrain_tensors is not None and stiffness_tensors is not None:
             for a in range(num_p):
                 eps_0 = eigenstrain_tensors[a] if a < len(eigenstrain_tensors) else np.zeros((3, 3))
                 c_mat = stiffness_tensors[a] if a < len(stiffness_tensors) else np.eye(3) * 100.0
                 eps_el = applied_strain - eps_0
-                elastic_df[a] = 0.5 * np.sum(eps_el * np.dot(c_mat[:3, :3], eps_el))
+                val = 0.5 * np.sum(eps_el * np.dot(c_mat[:3, :3], eps_el))
+                elastic_df_spatial[a] = val
 
         # 3. Allen-Cahn multi-well time evolution
         for a in range(num_p):
-            lap_phi = (
-                np.roll(phi_fields[a], 1, axis=0) + np.roll(phi_fields[a], -1, axis=0)
-                + np.roll(phi_fields[a], 1, axis=1) + np.roll(phi_fields[a], -1, axis=1)
-                + np.roll(phi_fields[a], 1, axis=2) + np.roll(phi_fields[a], -1, axis=2)
-                - 6.0 * phi_fields[a]
-            ) / dx2
+            if anisotropic_kappa_tensors and a < len(anisotropic_kappa_tensors) and anisotropic_kappa_tensors[a] is not None:
+                from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
+                pf_aux = PhaseFieldEngine(grid_size=(nx, ny, nz), dx_nm=self.dx)
+                lap_phi = pf_aux.compute_anisotropic_gradient_operator(phi_fields[a], anisotropic_kappa_tensors[a])
+            else:
+                lap_phi = (
+                    np.roll(phi_fields[a], 1, axis=0) + np.roll(phi_fields[a], -1, axis=0)
+                    + np.roll(phi_fields[a], 1, axis=1) + np.roll(phi_fields[a], -1, axis=1)
+                    + np.roll(phi_fields[a], 1, axis=2) + np.roll(phi_fields[a], -1, axis=2)
+                    - 6.0 * phi_fields[a]
+                ) / dx2
 
             # Multi-well derivative: dW/dphi_a
             other_sum = np.sum([phi_fields[b] for b in range(num_p) if b != a], axis=0)
             dw_dphi = 2.0 * phi_fields[a] * other_sum
 
             # Variational driving force
-            dF_dphi = (omega[a] + elastic_df[a]) + dw_dphi - interface_width_gamma * lap_phi
+            dF_dphi = (omega[a] + elastic_df_spatial[a]) + dw_dphi - interface_width_gamma * lap_phi
             new_phi[a] -= dt_s * mobility_L * dF_dphi
 
         # Constraint enforcement: sum(phi_a) = 1, phi_a in [0, 1]
@@ -128,10 +146,12 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         norm_sum = np.sum(new_phi, axis=0, keepdims=True)
         new_phi = new_phi / np.maximum(1e-8, norm_sum)
 
+        mean_elastic = [float(np.mean(elastic_df_spatial[a])) for a in range(num_p)]
+
         return {
             "updated_phase_fields": new_phi,
             "mean_phase_fractions": [float(np.mean(new_phi[a])) for a in range(num_p)],
             "grand_potential_densities": omega.tolist(),
-            "elastic_energy_densities_mpa": elastic_df.tolist(),
+            "elastic_energy_densities_mpa": mean_elastic,
             "is_calphad_coupled": True,
         }

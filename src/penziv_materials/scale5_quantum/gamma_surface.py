@@ -40,7 +40,21 @@ class TwoDimensionalGammaSurfaceEngine:
             except Exception:
                 pass
 
-        # Fully vectorized pairwise Buckingham potential and analytical forces
+        # Fully vectorized species-dependent pairwise potential and analytical forces
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        props = [UniversalElementalProperties.get_element(elem) for elem in species_list]
+        r_cov = np.array([p[1] for p in props], dtype=np.float64)
+        chi = np.array([p[2] for p in props], dtype=np.float64)
+        z_val = np.array([p[4] for p in props], dtype=np.float64)
+
+        r_eq_mat = (r_cov[:, None] + r_cov[None, :])
+        q1_q2_mat = (z_val[:, None] * z_val[None, :])
+        delta_chi = np.abs(chi[:, None] - chi[None, :])
+        f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi**2))
+
+        a_rep_mat = 450.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
+        covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion_mat))
+
         diff = cartesian_coords[:, np.newaxis, :] - cartesian_coords[np.newaxis, :, :]  # (N, N, 3)
         diff[:, :, 0] -= lattice_matrix[0, 0] * np.round(diff[:, :, 0] / max(1e-6, lattice_matrix[0, 0]))
         diff[:, :, 1] -= lattice_matrix[1, 1] * np.round(diff[:, :, 1] / max(1e-6, lattice_matrix[1, 1]))
@@ -49,12 +63,12 @@ class TwoDimensionalGammaSurfaceEngine:
         mask = (r > 0.5) & (r < 8.0)
         np.fill_diagonal(mask, False)
 
-        e_rep = np.where(mask, 1500.0 * np.exp(-r / 0.29), 0.0)
-        e_bond = np.where(mask, -4.5 * np.exp(-((r - 2.6)**2) / 0.35), 0.0)
+        e_rep = np.where(mask, a_rep_mat * np.exp(-r / 0.30), 0.0)
+        e_bond = np.where(mask, -covalent_strength * np.exp(-((r - r_eq_mat)**2) / 0.45), 0.0)
         e_tot = float(np.sum(e_rep + e_bond) / 2.0)
 
         r_safe = np.where(mask, r, 1.0)
-        de_dr = np.where(mask, -(1500.0 / 0.29) * np.exp(-r_safe / 0.29) + 4.5 * (2.0 * (r_safe - 2.6) / 0.35) * np.exp(-((r_safe - 2.6)**2) / 0.35), 0.0)
+        de_dr = np.where(mask, -(a_rep_mat / 0.30) * np.exp(-r_safe / 0.30) + covalent_strength * (2.0 * (r_safe - r_eq_mat) / 0.45) * np.exp(-((r_safe - r_eq_mat)**2) / 0.45), 0.0)
         f_pairwise = -(de_dr[..., np.newaxis] / r_safe[..., np.newaxis]) * diff
         forces = np.sum(f_pairwise, axis=1)
 

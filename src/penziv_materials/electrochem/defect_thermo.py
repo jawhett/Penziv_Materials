@@ -97,3 +97,72 @@ class ChargedDefectThermoEngine:
             "critical_current_density_j_crit_ma_cm2": float(j_crit_ma_cm2),
             "is_electronically_insulating": bool(sigma_e_s_cm < 1.0e-10),
         }
+
+
+class ChargedDefectThermodynamicsEngine:
+    """Calculates defect equilibrium, transition levels, and carrier pinning without empirical approximations."""
+
+    @staticmethod
+    def compute_defect_formation_energy(
+        e_defect_dft_ev: float,
+        e_bulk_dft_ev: float,
+        chemical_potentials: Dict[str, float],
+        stoichiometric_change: Dict[str, int],
+        charge_q: int,
+        fermi_level_ev: float,
+        vbm_energy_ev: float = 0.0,
+        dielectric_constant: float = 14.0,
+        unit_cell_volume_ang3: float = 1200.0,
+        potential_alignment_v: float = 0.0,
+    ) -> float:
+        """Calculate defect formation energy Delta H_f(X^q, E_F, mu_i) with FNV image charge correction."""
+        chempot_sum = sum(stoichiometric_change[elem] * chemical_potentials.get(elem, 0.0) for elem in stoichiometric_change)
+        L = unit_cell_volume_ang3 ** (1.0 / 3.0)
+        madelung_constant = 2.8373
+        e_corr_fnv = (charge_q**2 * 14.3996 * madelung_constant) / (2.0 * max(1.0, dielectric_constant) * max(1.0, L))
+        delta_h_f = (
+            (e_defect_dft_ev - e_bulk_dft_ev)
+            - chempot_sum
+            + charge_q * (fermi_level_ev + vbm_energy_ev + potential_alignment_v)
+            + e_corr_fnv
+        )
+        return float(delta_h_f)
+
+    @classmethod
+    def compute_charge_transition_levels(
+        cls,
+        e_defect_by_charge: Dict[int, float],
+        e_bulk: float,
+        chemical_potentials: Dict[str, float],
+        stoich_change: Dict[str, int],
+        bandgap_ev: float,
+        vbm_ev: float = 0.0,
+        dielectric_constant: float = 14.0,
+        volume_ang3: float = 1200.0,
+    ) -> List[Dict[str, Any]]:
+        """Identify ionization energy crossing points (epsilon(q1/q2)) across the band gap."""
+        charges = sorted(list(e_defect_by_charge.keys()))
+        transition_levels = []
+
+        for i in range(len(charges) - 1):
+            q1, q2 = charges[i], charges[i + 1]
+            dq = q1 - q2
+            if dq == 0:
+                continue
+
+            h1_0 = cls.compute_defect_formation_energy(
+                e_defect_by_charge[q1], e_bulk, chemical_potentials, stoich_change, q1, 0.0, vbm_ev, dielectric_constant, volume_ang3
+            )
+            h2_0 = cls.compute_defect_formation_energy(
+                e_defect_by_charge[q2], e_bulk, chemical_potentials, stoich_change, q2, 0.0, vbm_ev, dielectric_constant, volume_ang3
+            )
+
+            ef_trans = (h1_0 - h2_0) / float(q2 - q1)
+            if 0.0 <= ef_trans <= bandgap_ev:
+                transition_levels.append({
+                    "transition": f"epsilon({q1:+d}/{q2:+d})",
+                    "fermi_level_above_vbm_ev": float(ef_trans),
+                    "is_deep_trap": bool(0.2 * bandgap_ev < ef_trans < 0.8 * bandgap_ev),
+                })
+        return transition_levels
+

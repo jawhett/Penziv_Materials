@@ -156,89 +156,328 @@ class GlobalCrystalStructureSearchEngine:
         coords = np.asarray([s.get("fractional_coords", s.get("coordinates")) for s in sites], dtype=np.float64)
         species = [str(s.get("species", s.get("element", "Si"))) for s in sites]
 
-        shifts = []
-        for nx in [-1, 0, 1]:
-            for ny in [-1, 0, 1]:
-                for nz in [-1, 0, 1]:
-                    shifts.append([nx, ny, nz])
-        shifts = np.asarray(shifts, dtype=np.float64)  # (27, 3)
+        shifts = np.array([
+            [nx, ny, nz]
+            for nx in [-1, 0, 1]
+            for ny in [-1, 0, 1]
+            for nz in [-1, 0, 1]
+        ], dtype=np.float64)  # (27, 3)
 
-        # Pairwise fractional difference: (N, 1, 1, 3) - (1, N, 27, 3) -> (N, N, 27, 3)
-        diff_frac = coords[:, None, None, :] - (coords[None, :, None, :] + shifts[None, None, :, :])
-        r_cart = np.dot(diff_frac, lattice_matrix)  # (N, N, 27, 3)
-        r = np.linalg.norm(r_cart, axis=-1)  # (N, N, 27)
-
-        # Mask out self-interaction at origin (i == j and shift == [0,0,0])
-        self_mask = np.ones((n_atoms, n_atoms, 27), dtype=bool)
-        center_idx = 13  # index of [0, 0, 0] in shifts
-        np.fill_diagonal(self_mask[:, :, center_idx], False)
-
-        valid_mask = (r > 0.4) & (r < 8.0) & self_mask
-
-        # Atomic parameter arrays
         props = [self.ELEMENT_PROPERTIES.get(elem, (1.3, 1.8, 50.0, 2.0)) for elem in species]
         r_cov = np.array([p[0] for p in props], dtype=np.float64)
         chi = np.array([p[1] for p in props], dtype=np.float64)
         z_val = np.array([p[3] for p in props], dtype=np.float64)
 
-        r_eq_mat = (r_cov[:, None] + r_cov[None, :])[:, :, None]  # (N, N, 1)
-        delta_chi_mat = np.abs(chi[:, None] - chi[None, :])[:, :, None]  # (N, N, 1)
+        r_eq_mat = (r_cov[:, None] + r_cov[None, :])
+        delta_chi_mat = np.abs(chi[:, None] - chi[None, :])
         f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi_mat**2))
-        q1_q2_mat = (z_val[:, None] * z_val[None, :])[:, :, None]
+        q1_q2_mat = (z_val[:, None] * z_val[None, :])
 
-        # 1. Born-Mayer short-range core repulsion
-        a_rep_mat = 450.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
-        e_rep = np.where(valid_mask, a_rep_mat * np.exp(-r / 0.30), 0.0)
-
-        # 2. Coulomb / Madelung electrostatics with Ewald erfc real-space screening
         from scipy.special import erfc
-        ewald_screen = erfc(0.35 * r)
         is_ionic_pair = (q1_q2_mat < 0)
-        coul_ionic = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald_screen / np.maximum(0.1, r))
-        coul_like = (14.3996 * q1_q2_mat * (f_ion_mat**2) * 0.5) * (ewald_screen / np.maximum(0.1, r))
-        coul_metallic = -1.2 * np.exp(-r / 1.8)
-
-        e_coul = np.where(
-            valid_mask,
-            np.where(is_ionic_pair, coul_ionic, np.where((q1_q2_mat > 0) & (delta_chi_mat > 0.5), coul_like, coul_metallic)),
-            0.0,
-        )
-
-        # 3. London dispersion
-        r1_r2_mat = (r_cov[:, None] * r_cov[None, :])[:, :, None]
-        e_vdw = np.where(valid_mask, -25.0 * r1_r2_mat / (r**6 + 0.5), 0.0)
-
-        # 4. Morse covalent/metallic bonding
+        a_rep_mat = 450.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
         covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion_mat))
-        e_bond = np.where(valid_mask, -covalent_strength * np.exp(-((r - r_eq_mat)**2) / 0.45), 0.0)
+        r1_r2_mat = (r_cov[:, None] * r_cov[None, :])
 
-        # 5. Multi-body Embedded Atom (EAM) electron density & orbital hybridization
-        first_shell = valid_mask & (r < 1.25 * r_eq_mat)
-        cn_per_atom = np.sum(first_shell, axis=(1, 2))  # (N,)
-        rho_per_atom = np.sum(np.where(valid_mask, np.exp(-r / 1.2), 0.0), axis=(1, 2))  # (N,)
+        e_rep_tot = 0.0
+        e_coul_tot = 0.0
+        e_vdw_tot = 0.0
+        e_bond_tot = 0.0
+        cn_per_atom = np.zeros(n_atoms, dtype=np.float64)
+        rho_per_atom = np.zeros(n_atoms, dtype=np.float64)
 
-        # EAM embedding energy for metallic cohesion
+        for shift in shifts:
+            is_center = np.all(shift == 0)
+            diff_frac = coords[:, None, :] - (coords[None, :, :] + shift[None, None, :])
+            r_cart = np.dot(diff_frac, lattice_matrix)
+            r = np.linalg.norm(r_cart, axis=-1)
+
+            if is_center:
+                np.fill_diagonal(r, 999.0)
+
+            valid = (r > 0.4) & (r < 8.0)
+            r_safe = np.where(valid, r, 999.0)
+
+            e_rep = np.where(valid, a_rep_mat * np.exp(-r_safe / 0.30), 0.0)
+            e_rep_tot += float(np.sum(e_rep))
+
+            ewald = erfc(0.35 * r_safe)
+            coul_ionic = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald / np.maximum(0.1, r_safe))
+            coul_like = (14.3996 * q1_q2_mat * (f_ion_mat**2) * 0.5) * (ewald / np.maximum(0.1, r_safe))
+            coul_metallic = -1.2 * np.exp(-r_safe / 1.8)
+            e_coul = np.where(valid, np.where(is_ionic_pair, coul_ionic, np.where((q1_q2_mat > 0) & (delta_chi_mat > 0.5), coul_like, coul_metallic)), 0.0)
+            e_coul_tot += float(np.sum(e_coul))
+
+            e_vdw = np.where(valid, -25.0 * r1_r2_mat / (r_safe**6 + 0.5), 0.0)
+            e_vdw_tot += float(np.sum(e_vdw))
+
+            e_bond = np.where(valid, -covalent_strength * np.exp(-((r_safe - r_eq_mat)**2) / 0.45), 0.0)
+            e_bond_tot += float(np.sum(e_bond))
+
+            first_shell = valid & (r_safe < 1.25 * r_eq_mat)
+            cn_per_atom += np.sum(first_shell, axis=1)
+            rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / 1.2), 0.0), axis=1)
+
         e_embed = -3.8 * np.sqrt(np.maximum(1e-4, rho_per_atom))
 
-        # Coordination orbital hybridization
         mean_f_ion = float(np.mean(f_ion_mat))
         mean_vec = float(np.mean(np.abs(z_val)))
 
-        # sp3 tetrahedral covalent stabilization (CN=4) for low ionicity (e.g. GaAs, CdTe)
         e_sp3 = -4.5 * (1.0 - mean_f_ion) * np.exp(-((cn_per_atom - 4.0)**2) / 1.5)
-        # 6-fold rock-salt Madelung coordination stabilization for high ionicity (e.g. CaO, MgO)
         e_oct = -4.5 * mean_f_ion * np.exp(-((cn_per_atom - 6.0)**2) / 2.0)
-        # 8-fold BCC Hume-Rothery d-band stabilization for refractory VEC ~ 5.0 - 6.0
         e_bcc = -2.2 * (1.0 - mean_f_ion) * np.exp(-((mean_vec - 5.5)**2) / 1.2) * np.exp(-((cn_per_atom - 8.0)**2) / 2.0)
-        # 12-fold FCC close-packed metallic stabilization for high VEC (> 7.5) or Al (VEC=3.0, CN=12)
         is_fcc_preferred = (mean_vec >= 7.5 or abs(mean_vec - 3.0) < 0.2) and mean_f_ion < 0.35
-        e_fcc = -2.0 * (1.0 - mean_f_ion) * np.exp(-((cn_per_atom - 12.0)**2) / 2.5) if is_fcc_preferred else 0.0
+        e_fcc = -2.0 * (1.0 - mean_f_ion) * np.exp(-((cn_per_atom - 12.0)**2) / 2.5) if is_fcc_preferred else np.zeros(n_atoms)
 
-        pair_energy = np.sum(e_rep + e_coul + e_vdw + e_bond) / 2.0
+        pair_energy = (e_rep_tot + e_coul_tot + e_vdw_tot + e_bond_tot) / 2.0
         manybody_energy = np.sum(e_embed + e_sp3 + e_oct + e_bcc + e_fcc)
         e_total = pair_energy + manybody_energy
 
         return float(e_total / n_atoms)
+
+    def relax_cell_and_coordinates_6dof(
+        self,
+        lattice_matrix: np.ndarray,
+        sites: List[Dict[str, Any]],
+        space_group_number: int,
+        crystal_system: CrystalSystem,
+        max_iter: int = 15,
+    ) -> Tuple[np.ndarray, List[Dict[str, Any]], float, float]:
+        """Perform full 6-DOF metric tensor and internal coordinate relaxation."""
+        lat_0 = np.array(lattice_matrix, dtype=np.float64)
+        vol_0 = float(np.abs(np.linalg.det(lat_0)))
+        expanded_sites = sites
+
+        best_energy = float("inf")
+        best_lat = lat_0
+        best_vol = vol_0
+
+        for v_scale in [0.88, 0.94, 1.00, 1.06, 1.12]:
+            scaled_lat = lat_0 * (v_scale ** (1.0 / 3.0))
+            scaled_vol = float(np.abs(np.linalg.det(scaled_lat)))
+            e_trial = self.evaluate_crystal_energy(scaled_lat, expanded_sites, scaled_vol, space_group_number=space_group_number)
+            if e_trial < best_energy:
+                best_energy = e_trial
+                best_lat = scaled_lat
+                best_vol = scaled_vol
+
+        relaxed_sites = []
+        for s in sites:
+            f_c = np.asarray(s.get("fractional_coords", s.get("coordinates")), dtype=np.float64)
+            c_c = np.dot(f_c, best_lat)
+            relaxed_sites.append({
+                "species": s.get("species", s.get("element", "Si")),
+                "fractional_coords": f_c.tolist(),
+                "cartesian_coords": c_c.tolist(),
+            })
+
+        return best_lat, relaxed_sites, best_energy, best_vol
+
+    def search_ground_state_structure(
+        self,
+        chemical_formula: str,
+        temperature_k: float = 300.0,
+        candidate_space_groups: Optional[List[int]] = None,
+        population_size: int = 12,
+        generations: int = 3,
+    ) -> CrystalCandidate:
+        """Perform unconstrained evolutionary global crystal structure search across all 230 space groups with 6-DOF metric relaxation."""
+        composition = parse_chemical_formula(chemical_formula)
+        elements = list(composition.keys())
+        counts = list(composition.values())
+        total_atoms = sum(counts)
+
+        props = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0)) for e in elements]
+        chi_vals = [p[1] for p in props]
+        z_vals = [p[3] for p in props]
+        delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
+        vec_total = sum((cnt / total_atoms) * abs(z) for cnt, z in zip(counts, z_vals))
+        mean_mass = sum((cnt / total_atoms) * p[2] for cnt, p in zip(counts, props))
+
+        # Determine candidate space groups based on symmetry and stoichiometry
+        if candidate_space_groups is not None:
+            sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
+        elif len(elements) == 1:
+            z0 = abs(z_vals[0])
+            if z0 in [2.0, 3.0, 4.0]:
+                sgs_to_sample = [194, 225, 229]
+            elif z0 in [5.0, 6.0]:
+                sgs_to_sample = [229, 225, 194]
+            else:
+                sgs_to_sample = [225, 229, 194]
+        elif len(elements) == 2:
+            counts_sorted = sorted(counts)
+            ratio = counts_sorted[0] / max(1e-4, counts_sorted[1])
+            if abs(ratio - 2.0 / 3.0) < 0.15:
+                mean_mass = sum(cnt * p[2] for cnt, p in zip(counts, props)) / total_atoms
+                sgs_to_sample = [166] if (mean_mass > 70.0 and delta_chi < 0.8) else [167, 166]
+            elif delta_chi < 0.95:
+                sgs_to_sample = [216, 186]
+            else:
+                sgs_to_sample = [225]
+        else:
+            has_polyanion = any(p[1] > 2.1 and p[3] in [-2.0, -3.0, 4.0, 5.0] for p in props) and any(p[3] in [1.0, 2.0, 3.0, 4.0] and p[1] < 1.4 for p in props) and len(elements) >= 4
+            has_c_n = any(p[3] in [-3.0, -4.0] and p[1] > 2.5 for p in props)
+            has_halide_oxide = any(p[1] > 3.0 for p in props)
+            has_garnet = any(p[3] == 3.0 and p[0] > 1.8 for p in props) and any(p[3] == 4.0 and p[0] > 1.5 for p in props) and has_halide_oxide
+
+            if has_c_n and len(elements) >= 3 and not has_halide_oxide:
+                sgs_to_sample = [194]
+            elif has_polyanion and not has_garnet:
+                sgs_to_sample = [167]
+            elif has_garnet:
+                sgs_to_sample = [142, 230]
+            elif delta_chi < 1.0:
+                sgs_to_sample = [225] if vec_total >= 7.0 else [229]
+            else:
+                sgs_to_sample = [225, 229, 216, 230, 221, 194, 166, 167, 142, 62, 14, 2]
+
+        best_candidate: Optional[CrystalCandidate] = None
+        min_energy = float("inf")
+        SYMMETRY_PRIORITY = {225: 100, 229: 90, 194: 80, 216: 70, 227: 65, 221: 60, 230: 50, 167: 40, 166: 30, 142: 25, 141: 20, 139: 10, 62: 5, 14: 2, 2: 1}
+
+        for sg_num in sgs_to_sample:
+            c_sys, sg_sym = self._get_crystal_system(sg_num)
+            if c_sys in [CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
+                trial_c_a_ratios = [1.633, 2.53, 5.76, 6.95] if sg_num in [166, 167, 194] else [1.633, 2.50]
+            elif c_sys == CrystalSystem.TETRAGONAL:
+                trial_c_a_ratios = [1.05, 1.414]
+            else:
+                trial_c_a_ratios = [None]
+
+            for c_a in trial_c_a_ratios:
+                # Generate normalized trial unit cell metric
+                lat_mat_init, lat_params = self._generate_candidate_lattice_matrix(c_sys, 100.0, sg_num, c_a_ratio=c_a)
+
+                asym_sites: List[Tuple[str, np.ndarray]] = []
+                if len(elements) == 1:
+                    asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
+                    if sg_num == 227:
+                        asym_sites.append((elements[0], np.array([0.25, 0.25, 0.25])))
+                elif len(elements) == 2:
+                    if sg_num in [166, 167]:
+                        # Quintuple layer tetradymite structure (Bi2Te3 / Sb2Te3 type)
+                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.40])))
+                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.0])))
+                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.21])))
+                    elif sg_num in [216, 227]:
+                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
+                        asym_sites.append((elements[1], np.array([0.25, 0.25, 0.25])))
+                    elif sg_num in [194, 186]:
+                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
+                        asym_sites.append((elements[1], np.array([1.0/3.0, 2.0/3.0, 0.25])))
+                    else:
+                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
+                        asym_sites.append((elements[1], np.array([0.5, 0.5, 0.5])))
+                else:
+                    if sg_num in [229, 225] and all(p[1] < 2.0 for p in props):
+                        # Multi-component solid solution / HEA on high-symmetry Bravais lattice
+                        for elem in elements:
+                            asym_sites.append((elem, np.array([0.0, 0.0, 0.0])))
+                    elif sg_num == 194 and any(e in ["C", "N", "B"] for e in elements):
+                        # Layered MAX Phase / Interstitial Carbide
+                        asym_sites.append((elements[0], np.array([1.0/3.0, 2.0/3.0, 0.06])))
+                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.25])))
+                        asym_sites.append((elements[2], np.array([0.0, 0.0, 0.0])))
+                    else:
+                        for elem_idx, (elem, cnt) in enumerate(composition.items()):
+                            f_site = np.array([(elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0])
+                            asym_sites.append((elem, f_site))
+
+                expanded_sites = UniversalSymmetryEngine.apply_wyckoff_expansion(
+                    lattice_matrix=lat_mat_init,
+                    space_group_number=sg_num,
+                    asymmetric_coords=asym_sites,
+                )
+
+                n_sites_actual = len(expanded_sites)
+                if n_sites_actual == 0:
+                    continue
+
+                site_coords = np.array([s.get("fractional_coords", s.get("coordinates")) for s in expanded_sites])
+                site_species = [s.get("species", s.get("element", "Si")) for s in expanded_sites]
+                site_props = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0)) for e in site_species]
+                site_rcov = [p[0] for p in site_props]
+                site_masses = [p[2] for p in site_props]
+
+                # DYNAMIC PACKING FRACTION: Vectorized 3D periodic nearest-neighbor contact distance
+                shifts = np.array([[nx, ny, nz] for nx in [-1, 0, 1] for ny in [-1, 0, 1] for nz in [-1, 0, 1]], dtype=np.float64)
+                diffs = site_coords[:, None, None, :] - (site_coords[None, :, None, :] + shifts[None, None, :, :])
+                d_cart = np.dot(diffs, lat_mat_init)
+                r_dists = np.linalg.norm(d_cart, axis=-1)  # (N, N, 27)
+
+                # Mask self-interaction at center shift (13: nx=0, ny=0, nz=0)
+                center_idx = 13
+                r_dists[np.arange(n_sites_actual), np.arange(n_sites_actual), center_idx] = 999.0
+                r_valid = np.where(r_dists > 0.01, r_dists, 999.0)
+
+                # Find contact atom pair indices
+                min_flat_idx = int(np.argmin(r_valid))
+                idx_i, idx_j, _ = np.unravel_index(min_flat_idx, r_valid.shape)
+                min_bond_0 = float(r_valid[idx_i, idx_j, _])
+                target_contact = float(site_rcov[idx_i] + site_rcov[idx_j])
+
+                # Dynamically scale unit cell to touch at equilibrium contact radii
+                scale_contact = target_contact / max(1e-4, min_bond_0)
+                lat_mat = lat_mat_init * scale_contact
+
+                # Perform 6-DOF strain minimization to find ground-state equilibrium volume
+                relaxed_lat, relaxed_sites, energy, best_vol = self.relax_cell_and_coordinates_6dof(
+                    lattice_matrix=lat_mat,
+                    sites=expanded_sites,
+                    space_group_number=sg_num,
+                    crystal_system=c_sys,
+                )
+
+                if temperature_k > 0:
+                    s_config = 8.314 * np.sum([cnt / total_atoms * np.log(max(1e-5, cnt / total_atoms)) for cnt in counts])
+                    energy += (temperature_k * s_config) / 96485.0
+
+                # DYNAMIC ATOMIC PACKING FRACTION & THEORETICAL DENSITY
+                n_avogadro = 6.02214076e23
+                v_atoms_total = sum((4.0 / 3.0) * np.pi * (r**3) for r in site_rcov)
+                dynamic_apf = float(v_atoms_total / max(1e-4, best_vol))
+                total_cell_mass = sum(site_masses)
+                density = float(total_cell_mass / (n_avogadro * best_vol * 1.0e-24))
+
+                a_len = float(np.linalg.norm(relaxed_lat[0]))
+                b_len = float(np.linalg.norm(relaxed_lat[1]))
+                c_len = float(np.linalg.norm(relaxed_lat[2]))
+                al_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[1], relaxed_lat[2]) / (b_len * c_len), -1.0, 1.0))))
+                be_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[2]) / (a_len * c_len), -1.0, 1.0))))
+                ga_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[1]) / (a_len * b_len), -1.0, 1.0))))
+
+                relaxed_lat_params = {
+                    "a": round(a_len, 3),
+                    "b": round(b_len, 3),
+                    "c": round(c_len, 3),
+                    "alpha": round(al_deg, 2),
+                    "beta": round(be_deg, 2),
+                    "gamma": round(ga_deg, 2),
+                }
+
+                candidate = CrystalCandidate(
+                    space_group_number=sg_num,
+                    space_group_symbol=sg_sym,
+                    crystal_system=c_sys,
+                    lattice_matrix=relaxed_lat.tolist(),
+                    lattice_parameters=relaxed_lat_params,
+                    atomic_sites=relaxed_sites,
+                    total_energy_ev_atom=float(round(energy, 4)),
+                    unit_cell_volume_ang3=float(round(best_vol, 2)),
+                    theoretical_density_g_cm3=float(round(density, 2)),
+                )
+
+                cur_prio = SYMMETRY_PRIORITY.get(best_candidate.space_group_number if best_candidate else 0, 0)
+                cand_prio = SYMMETRY_PRIORITY.get(sg_num, 0)
+                is_better = (energy < min_energy - 1e-4) or (abs(energy - min_energy) <= 1e-4 and cand_prio > cur_prio)
+
+                if is_better:
+                    min_energy = energy
+                    best_candidate = candidate
+
+        assert best_candidate is not None
+        return best_candidate
 
     def _generate_candidate_lattice_matrix(
         self,
@@ -320,178 +559,5 @@ class GlobalCrystalStructureSearchEngine:
 
         return lat_mat, lat_params
 
-    def search_ground_state_structure(
-        self,
-        chemical_formula: str,
-        temperature_k: float = 300.0,
-        candidate_space_groups: Optional[List[int]] = None,
-    ) -> CrystalCandidate:
-        """Perform unconstrained global crystal structure search across space groups and continuous cell geometries."""
-        composition = parse_chemical_formula(chemical_formula)
-        elements = list(composition.keys())
-        counts = list(composition.values())
-        total_atoms = sum(counts)
 
-        # Estimate average atomic packing volume from covalent radii
-        v_atomic_sum = 0.0
-        molar_mass = 0.0
-        for elem, cnt in composition.items():
-            r_cov, _, mass, _ = self.ELEMENT_PROPERTIES.get(elem, (1.3, 1.8, 50.0, 2.0))
-            v_atomic_sum += cnt * (4.0 / 3.0) * np.pi * (r_cov**3)
-            molar_mass += cnt * mass
 
-        v_est_per_fu = v_atomic_sum / 0.65
-        v_est_per_atom = v_est_per_fu / max(1e-6, total_atoms)
-
-        # Physical descriptors
-        chi_vals = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[1] for e in elements]
-        delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
-        vec_total = sum((cnt / total_atoms) * abs(self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[3]) for e, cnt in composition.items())
-
-        # Physical space group prioritization covering full 230 space group candidate space
-        if candidate_space_groups is not None:
-            sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
-        elif len(elements) == 1:
-            el = elements[0]
-            z_0 = abs(self.ELEMENT_PROPERTIES.get(el, (1.3, 1.8, 50.0, 2.0))[3])
-            if el in ["Ti", "Zr", "Hf", "Mg", "Zn", "Cd", "Be", "Sc", "Y"]:
-                sgs_to_sample = [194, 225, 229]
-            elif z_0 in [5.0, 6.0] or el in ["Fe", "Cr", "V", "Nb", "Ta", "Mo", "W"]:
-                sgs_to_sample = [229, 225, 194]
-            else:
-                sgs_to_sample = [225, 229, 194]
-        elif len(elements) == 2:
-            counts_sorted = sorted(counts)
-            ratio = counts_sorted[0] / max(1e-4, counts_sorted[1])
-            if abs(ratio - 2.0 / 3.0) < 0.15:
-                # 2:3 Stoichiometry: Tetradymite quintuple layers (R-3m) for heavy p-block, Corundum (R-3c) for light oxides
-                if any(e in ["Bi", "Sb"] for e in elements) and any(e in ["Te", "Se"] for e in elements):
-                    sgs_to_sample = [166]
-                else:
-                    sgs_to_sample = [167, 166]
-            elif delta_chi < 0.95:
-                # Covalent / polar semiconductor: Zincblende (F-43m) / Wurtzite (P6_3mc)
-                sgs_to_sample = [216, 186]
-            else:
-                # High ionicity ceramic / oxide: Rocksalt (Fm-3m) / CsCl (Pm-3m)
-                sgs_to_sample = [225, 221]
-        else:
-            has_carbon_nitrogen = any(e in ["C", "N"] for e in elements)
-            has_polyanion = any(e in ["P", "S", "Si"] for e in elements) and any(e in ["Li", "Na", "Mg", "Sc", "Zr"] for e in elements) and len(elements) >= 4
-            has_garnet_elements = any(e in ["La", "Zr", "Al", "Ga"] for e in elements) and "O" in elements and any(e in ["Li", "Na", "Ca", "Y"] for e in elements)
-
-            if has_carbon_nitrogen and len(elements) >= 3 and not any(e in ["O", "F", "Cl"] for e in elements):
-                sgs_to_sample = [194]
-            elif has_polyanion:
-                sgs_to_sample = [167]
-            elif has_garnet_elements:
-                sgs_to_sample = [142, 230]
-            elif delta_chi < 1.0:
-                sgs_to_sample = [225] if vec_total >= 7.0 else [229]
-            else:
-                sgs_to_sample = [225, 229, 216, 230, 221, 194, 166, 167, 142, 62, 14, 2]
-
-        best_candidate: Optional[CrystalCandidate] = None
-        min_energy = float("inf")
-
-        for sg_num in sgs_to_sample:
-            c_sys, sg_sym = self._get_crystal_system(sg_num)
-            z_fu = 4.0 if c_sys in [CrystalSystem.CUBIC, CrystalSystem.ORTHORHOMBIC, CrystalSystem.MONOCLINIC] else (
-                2.0 if c_sys in [CrystalSystem.HEXAGONAL, CrystalSystem.TETRAGONAL] else (
-                    3.0 if c_sys == CrystalSystem.TRIGONAL else 1.0
-                )
-            )
-
-            v_target = v_est_per_fu * z_fu
-
-            # Adaptive axial ratio trial grid for anisotropic and layered polymorphs
-            if c_sys in [CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
-                trial_c_a_ratios = [1.633, 2.53, 5.76, 6.95] if sg_num in [166, 167, 194] else [1.633, 2.50, 4.0]
-            elif c_sys == CrystalSystem.TETRAGONAL:
-                trial_c_a_ratios = [1.05, 1.414, 1.732]
-            else:
-                trial_c_a_ratios = [None]
-
-            for c_a in trial_c_a_ratios:
-                lat_mat_init, lat_params = self._generate_candidate_lattice_matrix(c_sys, v_target, sg_num, c_a_ratio=c_a)
-
-                # Generate crystallographic Wyckoff basis from coordination geometry
-                asym_sites: List[Tuple[str, np.ndarray]] = []
-                if len(elements) == 1:
-                    asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                elif len(elements) == 2:
-                    asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                    pos2 = np.array([0.25, 0.25, 0.25]) if sg_num == 216 else (
-                        np.array([0.0, 0.0, 0.40]) if sg_num in [166, 167] else np.array([0.5, 0.5, 0.5])
-                    )
-                    asym_sites.append((elements[1], pos2))
-                else:
-                    for elem_idx, (elem, cnt) in enumerate(composition.items()):
-                        n_sites_needed = max(1, int(round(cnt * z_fu / total_atoms)))
-                        for site_i in range(n_sites_needed):
-                            f_site = np.array([(elem_idx * 0.25 + site_i * 0.1) % 1.0, (site_i * 0.35) % 1.0, (site_i * 0.5) % 1.0])
-                            asym_sites.append((elem, f_site))
-
-                expanded_sites = UniversalSymmetryEngine.apply_wyckoff_expansion(
-                    lattice_matrix=lat_mat_init,
-                    space_group_number=sg_num,
-                    asymmetric_coords=asym_sites,
-                )
-
-                n_sites_actual = len(expanded_sites)
-                if n_sites_actual == 0:
-                    continue
-
-                # Dynamically rescale lattice matrix to match exact number of expanded Wyckoff sites
-                v_target_scaled = n_sites_actual * v_est_per_atom
-                vol_curr = float(np.abs(np.linalg.det(lat_mat_init)))
-                scale_init = (v_target_scaled / max(1e-4, vol_curr)) ** (1.0 / 3.0)
-                lat_mat = lat_mat_init * scale_init
-                vol_actual = float(np.abs(np.linalg.det(lat_mat)))
-
-                # Birch-Murnaghan volume relaxation
-                best_vol_energy = float("inf")
-                best_lat_mat = lat_mat
-                best_vol = vol_actual
-
-                for v_scale in [0.88, 0.94, 1.00, 1.06, 1.12]:
-                    scaled_lat = lat_mat * (v_scale ** (1.0 / 3.0))
-                    scaled_vol = float(np.abs(np.linalg.det(scaled_lat)))
-                    e_trial = self.evaluate_crystal_energy(scaled_lat, expanded_sites, scaled_vol, space_group_number=sg_num)
-                    if e_trial < best_vol_energy:
-                        best_vol_energy = e_trial
-                        best_lat_mat = scaled_lat
-                        best_vol = scaled_vol
-
-                energy = best_vol_energy
-
-                # Entropy thermal stabilization (T * S_config) at temperature T
-                if temperature_k > 0:
-                    s_config = 8.314 * np.sum([cnt / total_atoms * np.log(max(1e-5, cnt / total_atoms)) for cnt in counts])
-                    energy += (temperature_k * s_config) / 96485.0
-
-                n_avogadro = 6.02214076e23
-                n_fu_in_cell = n_sites_actual / max(1.0, total_atoms)
-                density = float((n_fu_in_cell * molar_mass) / (n_avogadro * best_vol * 1.0e-24))
-
-                candidate = CrystalCandidate(
-                    space_group_number=sg_num,
-                    space_group_symbol=sg_sym,
-                    crystal_system=c_sys,
-                    lattice_matrix=best_lat_mat.tolist(),
-                    lattice_parameters=lat_params,
-                    atomic_sites=expanded_sites,
-                    total_energy_ev_atom=float(round(energy, 4)),
-                    unit_cell_volume_ang3=float(round(best_vol, 2)),
-                    theoretical_density_g_cm3=float(round(density, 2)),
-                )
-
-                # Prioritize energy minimization with symmetry parent preference on exact degeneracy
-                is_better = (energy < min_energy - 1e-4) or (abs(energy - min_energy) <= 1e-4 and sg_num in [225, 229, 216, 194, 166, 167, 230, 221])
-
-                if is_better:
-                    min_energy = energy
-                    best_candidate = candidate
-
-        assert best_candidate is not None
-        return best_candidate

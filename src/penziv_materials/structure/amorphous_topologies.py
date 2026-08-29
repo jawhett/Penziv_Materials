@@ -340,7 +340,12 @@ class AmorphousMeltQuenchEngine:
                     pass
 
             if np.all(forces == 0.0):
-                # Fallback to multi-component Buckingham-screened pair potential forces
+                # Fallback to multi-component species-dependent Born-Mayer pair potential forces
+                from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+                props = [UniversalElementalProperties.get_element(elem) for elem in species_list]
+                r_cov_arr = np.array([p[1] for p in props], dtype=np.float64)
+                z_val_arr = np.array([p[4] for p in props], dtype=np.float64)
+
                 for i in range(num_atoms):
                     diff = pos - pos[i]
                     diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
@@ -348,8 +353,10 @@ class AmorphousMeltQuenchEngine:
                     mask = (dists > 0.1) & (dists < 5.0)
                     if np.any(mask):
                         r = dists[mask, np.newaxis]
-                        # Physical Born-Mayer repulsion + dispersion gradient: -dE/dr
-                        f_mag = 1500.0 / 0.29 * np.exp(-r / 0.29) - 300.0 / (r**7)
+                        r_eq = (r_cov_arr[i] + r_cov_arr[mask])[:, np.newaxis]
+                        a_rep = (450.0 * np.sqrt(np.abs(z_val_arr[i] * z_val_arr[mask]) + 0.5))[:, np.newaxis]
+                        # Physical Born-Mayer repulsion + covalent bond gradient: -dE/dr
+                        f_mag = (a_rep / 0.30) * np.exp(-r / 0.30) - 3.5 * (2.0 * (r - r_eq) / 0.45) * np.exp(-((r - r_eq)**2) / 0.45)
                         forces[i] += np.sum(f_mag * (diff[mask] / r), axis=0)
 
             pos = (pos + 0.005 * forces + np.random.normal(0, thermal_kick, pos.shape)) % box_length_angstrom

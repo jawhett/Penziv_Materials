@@ -293,3 +293,162 @@ class UniversalSymmetryEngine:
                     })
 
         return full_sites
+
+    @classmethod
+    def generate_random_symmetry_compatible_sites(
+        cls,
+        space_group_number: int,
+        species_counts: Dict[str, int],
+        lattice_matrix: np.ndarray,
+        rng: Optional[np.random.RandomState] = None,
+        max_attempts: int = 50,
+        min_distance_angstrom: float = 1.2,
+    ) -> List[Dict[str, Any]]:
+        """Generate random symmetry-compatible atomic sites respecting Wyckoff orbits and minimum distance constraints."""
+        if rng is None:
+            rng = np.random.RandomState(42)
+
+        ops = cls.get_seitz_matrices(space_group_number)
+        total_target_atoms = sum(species_counts.values())
+
+        for attempt in range(max_attempts):
+            asym_sites: List[Tuple[str, np.ndarray]] = []
+            for elem, target_cnt in species_counts.items():
+                placed_cnt = 0
+                sub_attempts = 0
+                while placed_cnt < target_cnt and sub_attempts < 20:
+                    sub_attempts += 1
+                    rand_frac = rng.rand(3)
+                    orbit = cls.expand_arbitrary_orbit(ops, rand_frac)
+                    mult = len(orbit)
+                    if mult <= (target_cnt - placed_cnt) or placed_cnt == 0:
+                        asym_sites.append((elem, rand_frac))
+                        placed_cnt += mult
+
+            expanded = cls.apply_wyckoff_expansion(
+                lattice_matrix=lattice_matrix,
+                space_group_number=space_group_number,
+                asymmetric_coords=asym_sites,
+            )
+
+            if len(expanded) == 0:
+                continue
+
+            # Hard-sphere distance check with PBC
+            coords = np.array([s["fractional_coords"] for s in expanded], dtype=np.float64)
+            n_atoms = len(coords)
+            if n_atoms < 2:
+                return expanded
+
+            # Compute pairwise distances across 27 periodic images
+            is_valid = True
+            shifts = np.array([
+                [nx, ny, nz]
+                for nx in [-1, 0, 1]
+                for ny in [-1, 0, 1]
+                for nz in [-1, 0, 1]
+            ], dtype=np.float64)
+
+            for i in range(n_atoms):
+                diffs = coords[i] - (coords + shifts[:, None, :])  # (27, N, 3)
+                diffs_cart = np.dot(diffs, lattice_matrix)
+                dists = np.linalg.norm(diffs_cart, axis=-1)  # (27, N)
+                dists[13, i] = 999.0  # mask self-interaction
+                if np.any(dists < min_distance_angstrom):
+                    is_valid = False
+                    break
+
+            if is_valid:
+                return expanded
+
+        # Fallback to standard asymmetric unit if random placement struggles with dense packing
+        fallback_asym = []
+        for idx, (elem, cnt) in enumerate(species_counts.items()):
+            fallback_asym.append((elem, np.array([(idx * 0.3) % 1.0, (idx * 0.5) % 1.0, (idx * 0.7) % 1.0])))
+        return cls.apply_wyckoff_expansion(lattice_matrix, space_group_number, fallback_asym)
+
+    @staticmethod
+    def compute_steinhardt_order_parameters(
+        fractional_coords: np.ndarray,
+        lattice_matrix: np.ndarray,
+        cutoff_angstrom: float = 3.5,
+    ) -> Tuple[float, float]:
+        """Compute rotationally invariant Steinhardt bond-orientational order parameters (Q4, Q6) for structural fingerprinting."""
+        n_atoms = len(fractional_coords)
+        if n_atoms < 2:
+            return 0.0, 0.0
+
+        coords = np.asarray(fractional_coords, dtype=np.float64)
+        shifts = np.array([
+            [nx, ny, nz]
+            for nx in [-1, 0, 1]
+            for ny in [-1, 0, 1]
+            for nz in [-1, 0, 1]
+        ], dtype=np.float64)
+
+        diffs = coords[:, None, None, :] - (coords[None, :, None, :] + shifts[None, None, :, :])
+        r_cart = np.dot(diffs, lattice_matrix)
+        r = np.linalg.norm(r_cart, axis=-1)
+
+        # Mask self-interaction
+        mask = (r > 0.1) & (r < cutoff_angstrom)
+        mask[:, :, 13] = False
+
+        neighbor_vectors = r_cart[mask]
+        if len(neighbor_vectors) == 0:
+            return 0.0, 0.0
+
+        norms = np.linalg.norm(neighbor_vectors, axis=-1, keepdims=True)
+        unit_vecs = neighbor_vectors / np.maximum(1e-6, norms)
+
+        # Spherical coordinates
+        theta = np.arccos(np.clip(unit_vecs[:, 2], -1.0, 1.0))
+        phi = np.arctan2(unit_vecs[:, 1], unit_vecs[:, 0])
+
+        # Compute Q4 and Q6 using spherical harmonics
+        def _calc_ql(l: int) -> float:
+            # Vectorized computation of spherical harmonic averages
+            # For l=4 and l=6
+            try:
+                from scipy.special import sph_harm
+                m_vals = np.arange(-l, l + 1)
+                # sph_harm(m, n, theta, phi) in scipy takes (m, l, phi, theta)
+                y_lm = np.array([sph_harm(m, l, phi, theta) for m in m_vals])  # (2l+1, N_bonds)
+                q_lm_bar = np.mean(y_lm, axis=1)  # (2l+1,)
+                ql = np.sqrt((4.0 * np.pi / (2 * l + 1)) * np.sum(np.abs(q_lm_bar)**2))
+                return float(np.real(ql))
+            except Exception:
+                # Polynomial spherical harmonic approximation
+                cos_t = np.cos(theta)
+                if l == 4:
+                    p4 = 0.125 * (35 * (cos_t**4) - 30 * (cos_t**2) + 3)
+                    return float(np.mean(np.abs(p4)))
+                elif l == 6:
+                    p6 = 0.0625 * (231 * (cos_t**6) - 315 * (cos_t**4) + 105 * (cos_t**2) - 5)
+                    return float(np.mean(np.abs(p6)))
+                return 0.0
+
+        q4 = _calc_ql(4)
+        q6 = _calc_ql(6)
+        return float(round(q4, 4)), float(round(q6, 4))
+
+    @classmethod
+    def compute_structural_fingerprint_distance(
+        cls,
+        coords1: np.ndarray,
+        lat1: np.ndarray,
+        coords2: np.ndarray,
+        lat2: np.ndarray,
+    ) -> float:
+        """Compute Euclidean fingerprint distance between two crystal structures in (Q4, Q6, density) space."""
+        q4_1, q6_1 = cls.compute_steinhardt_order_parameters(coords1, lat1)
+        q4_2, q6_2 = cls.compute_steinhardt_order_parameters(coords2, lat2)
+
+        vol1 = float(np.abs(np.linalg.det(lat1)))
+        vol2 = float(np.abs(np.linalg.det(lat2)))
+        dens1 = len(coords1) / max(1e-4, vol1)
+        dens2 = len(coords2) / max(1e-4, vol2)
+
+        dist = np.sqrt((q4_1 - q4_2)**2 + (q6_1 - q6_2)**2 + 0.1 * (dens1 - dens2)**2)
+        return float(dist)
+

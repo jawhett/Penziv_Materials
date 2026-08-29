@@ -19,13 +19,31 @@ class UniversalConvexHullSolver:
         composition: Optional[Dict[str, float]] = None,
         warren_cowley_csro_matrix: Optional[np.ndarray] = None,
         coordination_number_z: float = 12.0,
+        phonon_dos: Optional[Tuple[np.ndarray, np.ndarray]] = None,  # (frequencies_thz, g(nu))
+        electronic_dos: Optional[Tuple[np.ndarray, np.ndarray]] = None,  # (energies_ev, n_states)
+        fermi_energy_ev: float = 0.0,
     ) -> float:
         """Evaluate full temperature and pressure-dependent Gibbs free energy:
 
         G(x, T, P) = E_DFT + F_vib(T) + F_elec(T) - T * (S_ideal + S_CSRO) + P * V
         """
-        # 1. Phonon vibrational free energy via Debye model
-        if temperature_k > 1.0:
+        # 1. Phonon vibrational free energy via full DOS integration or Debye model
+        if phonon_dos is not None:
+            freqs_thz, g_nu = np.asarray(phonon_dos[0], dtype=np.float64), np.asarray(phonon_dos[1], dtype=np.float64)
+            h_planck_ev_thz = 0.00413566733  # eV / THz
+            h_nu_ev = freqs_thz * h_planck_ev_thz
+            
+            # Zero-point energy: 0.5 * h * nu * g(nu)
+            zpe = 0.5 * np.trapz(h_nu_ev * g_nu, freqs_thz)
+            if temperature_k > 0.1:
+                beta_h_nu = h_nu_ev / (BOLTZMANN_EV_K * temperature_k)
+                # Avoid log(0) at nu=0
+                thermal_kernel = np.where(freqs_thz > 1e-4, np.log(1.0 - np.exp(-np.clip(beta_h_nu, 1e-6, 100.0))), 0.0)
+                f_thermal = BOLTZMANN_EV_K * temperature_k * np.trapz(thermal_kernel * g_nu, freqs_thz)
+            else:
+                f_thermal = 0.0
+            f_vib = float(zpe + f_thermal)
+        elif temperature_k > 1.0:
             x = debye_temperature_k / temperature_k
             zero_point = 1.125 * BOLTZMANN_EV_K * debye_temperature_k
             f_thermal = -BOLTZMANN_EV_K * temperature_k * (np.pi**4 / (5.0 * (x**3 + 1e-6)))
@@ -33,9 +51,25 @@ class UniversalConvexHullSolver:
         else:
             f_vib = 1.125 * BOLTZMANN_EV_K * debye_temperature_k
 
-        # 2. Electronic entropy term (Sommerfeld)
-        gamma_elec = 1.5e-4  # eV / (atom * K^2)
-        f_elec = -0.5 * gamma_elec * (temperature_k**2)
+        # 2. Electronic free energy via Fermi-Dirac electronic DOS integration or Sommerfeld expansion
+        if electronic_dos is not None and temperature_k > 1.0:
+            e_grid, n_dos = np.asarray(electronic_dos[0], dtype=np.float64), np.asarray(electronic_dos[1], dtype=np.float64)
+            delta_e = (e_grid - fermi_energy_ev) / (BOLTZMANN_EV_K * temperature_k)
+            # Fermi-Dirac distribution
+            f_fd = 1.0 / (1.0 + np.exp(np.clip(delta_e, -100.0, 100.0)))
+            # Internal electronic thermal excitation
+            u_elec = np.trapz((e_grid - fermi_energy_ev) * (f_fd - np.where(e_grid <= fermi_energy_ev, 1.0, 0.0)) * n_dos, e_grid)
+            # Electronic entropy
+            s_fd = np.where(
+                (f_fd > 1e-12) & (f_fd < 1.0 - 1e-12),
+                -(f_fd * np.log(f_fd) + (1.0 - f_fd) * np.log(1.0 - f_fd)),
+                0.0
+            )
+            s_elec = BOLTZMANN_EV_K * np.trapz(s_fd * n_dos, e_grid)
+            f_elec = float(u_elec - temperature_k * s_elec)
+        else:
+            gamma_elec = 1.5e-4  # eV / (atom * K^2)
+            f_elec = -0.5 * gamma_elec * (temperature_k**2)
 
         # 3. Configurational & Non-ideal CSRO entropy
         s_conf = 0.0

@@ -1,75 +1,148 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="100%" height="auto" style="background-color: #040D18; border-radius: 12px; font-family: Inter, -apple-system, sans-serif;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 580" width="100%" height="auto" style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 4px; font-family: 'Times New Roman', Times, 'DejaVu Serif', 'TeX Gyre Termes', Georgia, serif;">
 
         <defs>
-          <linearGradient id="gradParityCard" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0F172A" />
-            <stop offset="100%" stop-color="#0B1324" />
-          </linearGradient>
-          <filter id="glowEffect" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
+          <clipPath id="plotClip">
+            <rect x="105" y="75" width="820" height="420" />
+          </clipPath>
         </defs>
         
-<rect x="2" y="2" width="956" height="536" rx="12" fill="url(#gradParityCard)" stroke="#1E293B" stroke-width="1.5" />
-<text x="95" y="36" fill="#F8FAFC" font-size="16" font-weight="700" letter-spacing="-0.01em">Fracture Toughness (K_Ic) — Predicted vs Actual Parity [MPa√m]</text>
-<text x="95" y="56" fill="#94A3B8" font-size="11">First-Principles Simulation Parity • 10 Benchmark Materials • Ideal 1:1 Parity Line</text>
-<g transform="translate(650, 20)"><rect width="260" height="32" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1" /><text x="12" y="20" fill="#22D3EE" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700">R² = 0.000</text><text x="95" y="20" fill="#2DD4BF" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700">MAPE: 182.2%</text><text x="185" y="20" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10.5">RMSE: 48.05</text></g>
-<line x1="95.0" y1="80" x2="95.0" y2="465" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<line x1="95" y1="465.0" x2="910" y2="465.0" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<text x="85" y="469.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">0.0</text>
-<text x="95.0" y="483.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">0.0</text>
-<line x1="298.8" y1="80" x2="298.8" y2="465" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<line x1="95" y1="368.8" x2="910" y2="368.8" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<text x="85" y="372.8" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">40.1</text>
-<text x="298.8" y="483.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">40.1</text>
-<line x1="502.5" y1="80" x2="502.5" y2="465" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<line x1="95" y1="272.5" x2="910" y2="272.5" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<text x="85" y="276.5" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">80.2</text>
-<text x="502.5" y="483.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">80.2</text>
-<line x1="706.2" y1="80" x2="706.2" y2="465" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<line x1="95" y1="176.2" x2="910" y2="176.2" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<text x="85" y="180.2" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">120</text>
-<text x="706.2" y="483.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">120</text>
-<line x1="910.0" y1="80" x2="910.0" y2="465" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<line x1="95" y1="80.0" x2="910" y2="80.0" stroke="#1E293B" stroke-width="1" stroke-dasharray="3,3" opacity="0.6" />
-<text x="85" y="84.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">160</text>
-<text x="910.0" y="483.0" fill="#64748B" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">160</text>
-<rect x="95" y="80" width="815" height="385" fill="none" stroke="#334155" stroke-width="1.2" />
-<polygon points="95.0,465.0 910.0,41.5 910.0,118.5 95.0,465.0" fill="#22D3EE" opacity="0.06" />
-<line x1="95.0" y1="465.0" x2="910.0" y2="80.0" stroke="#64748B" stroke-width="1.8" stroke-dasharray="6,4" />
-<text x="517.5" y="260.5" fill="#64748B" font-size="9.5" font-weight="600" transform="rotate(-32 502.5 272.5)">Ideal 1:1 Parity (y = x)</text>
-<text x="502.5" y="505.0" fill="#F8FAFC" font-size="11.5" font-weight="600" text-anchor="middle">Ground Truth / Literature Actual Value  [MPa√m]</text>
-<text x="24" y="272.5" fill="#F8FAFC" font-size="11.5" font-weight="600" text-anchor="middle" transform="rotate(-90 24 272.5)">Penziv Multiscale Predicted Value  [MPa√m]</text>
-<line x1="425.3" y1="308.9" x2="425.3" y2="279.4" stroke="#FBBF24" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="425.3" cy="279.4" r="6.5" fill="#FBBF24" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="435.3" y="271.4" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Cu <tspan fill="#FBBF24" font-size="8.5">(+18.9%)</tspan></text>
-<line x1="272.9" y1="381.0" x2="272.9" y2="410.3" stroke="#FB7185" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="272.9" cy="410.3" r="6.5" fill="#FB7185" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="282.9" y="424.3" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Al <tspan fill="#FB7185" font-size="8.5">(-34.9%)</tspan></text>
-<line x1="104.1" y1="460.7" x2="104.1" y2="460.7" stroke="#2DD4BF" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="104.1" cy="460.7" r="6.5" fill="#2DD4BF" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="114.1" y="474.7" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">CaO <tspan fill="#2DD4BF" font-size="8.5">(0.0%)</tspan></text>
-<line x1="603.2" y1="224.9" x2="603.2" y2="332.2" stroke="#FB7185" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="603.2" cy="332.2" r="6.5" fill="#FB7185" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="613.2" y="346.2" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Fe0.70Cr0.18Ni0.10Mo0.02 <tspan fill="#FB7185" font-size="8.5">(-44.7%)</tspan></text>
-<line x1="138.2" y1="444.6" x2="138.2" y2="138.7" stroke="#FB7185" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="138.2" cy="138.7" r="6.5" fill="#FB7185" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="148.2" y="130.7" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Ti3SiC2 <tspan fill="#FB7185" font-size="8.5">(+1498.8%)</tspan></text>
-<line x1="247.5" y1="393.0" x2="247.5" y2="230.9" stroke="#FB7185" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="247.5" cy="230.9" r="6.5" fill="#FB7185" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="257.5" y="222.9" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Nb0.25Mo0.25Ta0.25W0.25 <tspan fill="#FB7185" font-size="8.5">(+225.0%)</tspan></text>
-<line x1="101.1" y1="462.1" x2="101.1" y2="462.1" stroke="#2DD4BF" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="101.1" cy="462.1" r="6.5" fill="#2DD4BF" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="111.1" y="476.1" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Mg1.10Sc0.20Zr1.80(PS4)3 <tspan fill="#2DD4BF" font-size="8.5">(0.0%)</tspan></text>
-<line x1="99.6" y1="462.8" x2="99.6" y2="462.8" stroke="#2DD4BF" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="99.6" cy="462.8" r="6.5" fill="#2DD4BF" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="109.6" y="476.8" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">GaAs <tspan fill="#2DD4BF" font-size="8.5">(0.0%)</tspan></text>
-<line x1="98.6" y1="463.3" x2="98.6" y2="463.3" stroke="#2DD4BF" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="98.6" cy="463.3" r="6.5" fill="#2DD4BF" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="108.6" y="477.3" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">CdTe <tspan fill="#2DD4BF" font-size="8.5">(0.0%)</tspan></text>
-<line x1="100.6" y1="462.4" x2="100.6" y2="462.4" stroke="#2DD4BF" stroke-width="1.4" stroke-dasharray="2,2" opacity="0.85" />
-<circle cx="100.6" cy="462.4" r="6.5" fill="#2DD4BF" stroke="#040D18" stroke-width="2" filter="url(#glowEffect)" />
-<text x="110.6" y="476.4" fill="#F8FAFC" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="700" text-anchor="start">Bi2Te3 <tspan fill="#2DD4BF" font-size="8.5">(0.0%)</tspan></text>
-<g transform="translate(95, 528)" font-size="9.5"><circle cx="5" cy="-3" r="4.5" fill="#2DD4BF" /><text x="15" y="0" fill="#94A3B8">|Δ| ≤ 5% (Exact)</text><circle cx="125" cy="-3" r="4.5" fill="#22D3EE" /><text x="135" y="0" fill="#94A3B8">|Δ| ≤ 15% (High Precision)</text><circle cx="275" cy="-3" r="4.5" fill="#FBBF24" /><text x="285" y="0" fill="#94A3B8">|Δ| ≤ 30% (VRH Bounds)</text><circle cx="425" cy="-3" r="4.5" fill="#FB7185" /><text x="435" y="0" fill="#94A3B8">|Δ| &gt; 30%</text><line x1="535" y1="-3" x2="555" y2="-3" stroke="#64748B" stroke-dasharray="4,3" stroke-width="1.5" /><text x="562" y="0" fill="#64748B">1:1 Parity Line</text></g>
+<rect x="0" y="0" width="980" height="580" fill="#FFFFFF" />
+<text x="105" y="34" fill="#111827" font-size="18" font-weight="bold" letter-spacing="-0.01em">Predicted vs. Actual Parity: Fracture Toughness (K_Ic) [MPa√m]</text>
+<text x="105" y="54" fill="#4B5563" font-size="12" font-style="italic">Zero-Parameter First-Principles Multiscale Predictions vs. Experimental Benchmark (N = 24)</text>
+<g transform="translate(735, 90)"><rect width="175" height="92" rx="3" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.2" /><text x="14" y="22" fill="#111827" font-size="12" font-weight="bold">Statistical Summary</text><line x1="14" y1="28" x2="161" y2="28" stroke="#D1D5DB" stroke-width="0.8" /><text x="14" y="44" fill="#111827" font-size="11.5">Sample Size: <tspan font-weight="bold">N = 24</tspan></text><text x="14" y="60" fill="#111827" font-size="11.5">Determination: <tspan font-weight="bold">R² = 0.0000</tspan></text><text x="14" y="76" fill="#111827" font-size="11.5">Mean Abs % Err: <tspan font-weight="bold">MAPE = 113.90%</tspan></text></g>
+<line x1="105.0" y1="75" x2="105.0" y2="495" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="105" y1="495.0" x2="925" y2="495.0" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="100" y1="495.0" x2="105" y2="495.0" stroke="#111827" stroke-width="1.2" />
+<text x="95" y="499.0" fill="#111827" font-size="12" font-weight="500" text-anchor="end">0</text>
+<line x1="105.0" y1="495" x2="105.0" y2="500" stroke="#111827" stroke-width="1.2" />
+<text x="105.0" y="517.0" fill="#111827" font-size="12" font-weight="500" text-anchor="middle">0</text>
+<line x1="310.0" y1="75" x2="310.0" y2="495" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="105" y1="390.0" x2="925" y2="390.0" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="100" y1="390.0" x2="105" y2="390.0" stroke="#111827" stroke-width="1.2" />
+<text x="95" y="394.0" fill="#111827" font-size="12" font-weight="500" text-anchor="end">29.0</text>
+<line x1="310.0" y1="495" x2="310.0" y2="500" stroke="#111827" stroke-width="1.2" />
+<text x="310.0" y="517.0" fill="#111827" font-size="12" font-weight="500" text-anchor="middle">29.0</text>
+<line x1="515.0" y1="75" x2="515.0" y2="495" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="105" y1="285.0" x2="925" y2="285.0" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="100" y1="285.0" x2="105" y2="285.0" stroke="#111827" stroke-width="1.2" />
+<text x="95" y="289.0" fill="#111827" font-size="12" font-weight="500" text-anchor="end">58.0</text>
+<line x1="515.0" y1="495" x2="515.0" y2="500" stroke="#111827" stroke-width="1.2" />
+<text x="515.0" y="517.0" fill="#111827" font-size="12" font-weight="500" text-anchor="middle">58.0</text>
+<line x1="720.0" y1="75" x2="720.0" y2="495" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="105" y1="180.0" x2="925" y2="180.0" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="100" y1="180.0" x2="105" y2="180.0" stroke="#111827" stroke-width="1.2" />
+<text x="95" y="184.0" fill="#111827" font-size="12" font-weight="500" text-anchor="end">87.0</text>
+<line x1="720.0" y1="495" x2="720.0" y2="500" stroke="#111827" stroke-width="1.2" />
+<text x="720.0" y="517.0" fill="#111827" font-size="12" font-weight="500" text-anchor="middle">87.0</text>
+<line x1="925.0" y1="75" x2="925.0" y2="495" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="105" y1="75.0" x2="925" y2="75.0" stroke="#E5E7EB" stroke-width="0.8" stroke-dasharray="2,2" />
+<line x1="100" y1="75.0" x2="105" y2="75.0" stroke="#111827" stroke-width="1.2" />
+<text x="95" y="79.0" fill="#111827" font-size="12" font-weight="500" text-anchor="end">116</text>
+<line x1="925.0" y1="495" x2="925.0" y2="500" stroke="#111827" stroke-width="1.2" />
+<text x="925.0" y="517.0" fill="#111827" font-size="12" font-weight="500" text-anchor="middle">116</text>
+<polygon points="105.0,495.0 925.0,33.0 925.0,117.0 105.0,495.0" fill="rgba(0, 0, 0, 0.04)" clip-path="url(#plotClip)" />
+<line x1="105.0" y1="495.0" x2="925.0" y2="33.0" stroke="#9CA3AF" stroke-width="1.0" stroke-dasharray="3,3" clip-path="url(#plotClip)" />
+<line x1="105.0" y1="495.0" x2="925.0" y2="117.0" stroke="#9CA3AF" stroke-width="1.0" stroke-dasharray="3,3" clip-path="url(#plotClip)" />
+<line x1="105.0" y1="495.0" x2="925.0" y2="75.0" stroke="#111827" stroke-width="1.6" stroke-dasharray="6,4" clip-path="url(#plotClip)" />
+<text x="535.0" y="273.0" fill="#6B7280" font-size="11" font-style="italic" transform="rotate(-34 515.0 285.0)">Ideal 1:1 Parity (y = x)</text>
+<rect x="105" y="75" width="820" height="420" fill="none" stroke="#111827" stroke-width="1.4" />
+<text x="515.0" y="547.0" fill="#111827" font-size="14.5" font-weight="bold" text-anchor="middle">Experimental / Literature Ground Truth Value [MPa√m]</text>
+<text x="32" y="285.0" fill="#111827" font-size="14.5" font-weight="bold" text-anchor="middle" transform="rotate(-90 32 285.0)">Penziv First-Principles Predicted Value [MPa√m]</text>
+<line x1="564.5" y1="259.7" x2="564.5" y2="459.9" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="564.5" cy="459.9" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="564.5" cy="459.9" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="572.5" y="472.9" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Cu <tspan fill="#6B7280" font-size="9.5">(-85.1%)</tspan></text>
+<line x1="352.4" y1="368.3" x2="352.4" y2="475.1" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="352.4" cy="475.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="352.4" cy="475.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="360.4" y="488.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Al <tspan fill="#6B7280" font-size="9.5">(-84.3%)</tspan></text>
+<line x1="741.2" y1="169.1" x2="741.2" y2="460.6" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="741.2" cy="460.6" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="741.2" cy="460.6" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="749.2" y="473.6" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ni <tspan fill="#6B7280" font-size="9.5">(-89.4%)</tspan></text>
+<line x1="493.8" y1="295.9" x2="493.8" y2="470.0" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="493.8" cy="470.0" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="493.8" cy="470.0" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="501.8" y="483.0" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti <tspan fill="#6B7280" font-size="9.5">(-87.5%)</tspan></text>
+<line x1="317.1" y1="386.4" x2="317.1" y2="446.5" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="317.1" cy="446.5" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="317.1" cy="446.5" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="325.1" y="459.5" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">W <tspan fill="#6B7280" font-size="9.5">(-55.3%)</tspan></text>
+<line x1="458.4" y1="314.0" x2="458.4" y2="461.7" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="458.4" cy="461.7" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="458.4" cy="461.7" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="466.4" y="474.7" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Fe <tspan fill="#6B7280" font-size="9.5">(-81.6%)</tspan></text>
+<line x1="811.9" y1="132.9" x2="811.9" y2="452.6" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="811.9" cy="452.6" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="811.9" cy="452.6" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="819.9" y="465.6" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Fe0.70Cr0.18Ni0.10Mo0.02 <tspan fill="#6B7280" font-size="9.5">(-88.3%)</tspan></text>
+<line x1="776.6" y1="151.0" x2="776.6" y2="448.3" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="776.6" cy="448.3" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="776.6" cy="448.3" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="784.6" y="461.3" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ni0.53Cr0.19Fe0.18Nb0.05Mo0.03 <tspan fill="#6B7280" font-size="9.5">(-86.4%)</tspan></text>
+<line x1="635.2" y1="223.4" x2="635.2" y2="458.4" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="635.2" cy="458.4" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="635.2" cy="458.4" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="643.2" y="471.4" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti0.90Al0.06V0.04 <tspan fill="#6B7280" font-size="9.5">(-86.5%)</tspan></text>
+<line x1="317.1" y1="386.4" x2="317.1" y2="450.1" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="317.1" cy="450.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="317.1" cy="450.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="325.1" y="463.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Nb0.25Mo0.25Ta0.25W0.25 <tspan fill="#6B7280" font-size="9.5">(-58.7%)</tspan></text>
+<line x1="165.1" y1="464.2" x2="165.1" y2="491.0" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="165.1" cy="491.0" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="165.1" cy="491.0" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="173.1" y="504.0" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti3SiC2 <tspan fill="#6B7280" font-size="9.5">(-87.1%)</tspan></text>
+<line x1="154.5" y1="469.7" x2="154.5" y2="491.0" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="154.5" cy="491.0" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="154.5" cy="491.0" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="162.5" y="504.0" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti2AlC <tspan fill="#6B7280" font-size="9.5">(-84.3%)</tspan></text>
+<line x1="117.7" y1="488.5" x2="117.7" y2="492.5" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="117.7" cy="492.5" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="117.7" cy="492.5" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="125.7" y="505.5" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">CaO <tspan fill="#6B7280" font-size="9.5">(-61.1%)</tspan></text>
+<line x1="122.7" y1="485.9" x2="122.7" y2="492.1" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="122.7" cy="492.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="122.7" cy="492.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="130.7" y="505.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">MgO <tspan fill="#6B7280" font-size="9.5">(-68.0%)</tspan></text>
+<line x1="133.3" y1="480.5" x2="133.3" y2="492.1" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="133.3" cy="492.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="133.3" cy="492.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="141.3" y="505.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Al2O3 <tspan fill="#6B7280" font-size="9.5">(-80.0%)</tspan></text>
+<line x1="124.8" y1="484.9" x2="124.8" y2="491.0" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="124.8" cy="491.0" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="124.8" cy="491.0" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="132.8" y="504.0" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">TiO2 <tspan fill="#6B7280" font-size="9.5">(-60.7%)</tspan></text>
+<line x1="136.8" y1="478.7" x2="136.8" y2="481.2" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="136.8" cy="481.2" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="136.8" cy="481.2" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="144.8" y="494.2" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">SiC <tspan fill="#6B7280" font-size="9.5">(-15.6%)</tspan></text>
+<line x1="119.1" y1="487.8" x2="119.1" y2="489.9" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="119.1" cy="489.9" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="119.1" cy="489.9" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="127.1" y="502.9" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">GaN <tspan fill="#6B7280" font-size="9.5">(-30.0%)</tspan></text>
+<line x1="111.4" y1="491.7" x2="111.4" y2="468.2" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="111.4" cy="468.2" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="111.4" cy="468.2" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="119.4" y="461.2" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Si <tspan fill="#6B7280" font-size="9.5">(+722.2%)</tspan></text>
+<line x1="111.4" y1="491.7" x2="111.4" y2="485.9" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="111.4" cy="485.9" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="111.4" cy="485.9" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="119.4" y="478.9" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">GaAs <tspan fill="#6B7280" font-size="9.5">(+177.8%)</tspan></text>
+<line x1="109.9" y1="492.5" x2="109.9" y2="488.5" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="109.9" cy="488.5" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="109.9" cy="488.5" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="117.9" y="481.5" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">CdTe <tspan fill="#6B7280" font-size="9.5">(+157.1%)</tspan></text>
+<line x1="112.8" y1="491.0" x2="112.8" y2="480.2" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="112.8" cy="480.2" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="112.8" cy="480.2" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="120.8" y="473.2" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Bi2Te3 <tspan fill="#6B7280" font-size="9.5">(+272.7%)</tspan></text>
+<line x1="113.5" y1="490.7" x2="113.5" y2="493.2" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="113.5" cy="493.2" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="113.5" cy="493.2" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="121.5" y="506.2" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Mg1.10Sc0.20Zr1.80(PS4)3 <tspan fill="#6B7280" font-size="9.5">(-58.3%)</tspan></text>
+<line x1="111.4" y1="491.7" x2="111.4" y2="489.9" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="111.4" cy="489.9" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="111.4" cy="489.9" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="119.4" y="482.9" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Li10GeP2S12 <tspan fill="#6B7280" font-size="9.5">(+55.6%)</tspan></text>
+<g transform="translate(105, 564)" font-size="11" fill="#4B5563"><circle cx="6" cy="-4" r="5" fill="#1F2937" stroke="#000000" stroke-width="1.0" /><text x="18" y="0">First-Principles Evaluation Point</text><line x1="210" y1="-4" x2="235" y2="-4" stroke="#111827" stroke-dasharray="5,3" stroke-width="1.5" /><text x="242" y="0">Ideal 1:1 Parity Line</text><rect x="380" y="-8" width="18" height="10" fill="rgba(0, 0, 0, 0.04)" stroke="#9CA3AF" stroke-dasharray="2,2" stroke-width="0.8" /><text x="405" y="0">±10% Confidence Interval</text><line x1="560" y1="-4" x2="585" y2="-4" stroke="#6B7280" stroke-dasharray="2,2" stroke-width="1.2" /><text x="592" y="0">Residual Drop Stem</text></g>
 </svg>

@@ -288,10 +288,14 @@ class OpenCALPHADTDBEngine:
                     rk_factor = (fracs[i] - fracs[j]) ** v
                     g_excess += fracs[i] * fracs[j] * l_val * rk_factor
         else:
-            # Regular solution Miedema model when explicit TDB binary interactions are omitted
+            # Analytical mixing enthalpy evaluation when explicit TDB binary interactions are omitted
+            from penziv_materials.thermodynamics.convex_hull import GrandCanonicalConvexHull
+            hull_calc = GrandCanonicalConvexHull()
             for i in range(n_elems):
                 for j in range(i + 1, n_elems):
-                    l_reg = -8000.0 + 1.2 * T
+                    h_mix_ev = hull_calc.evaluate_miedema_formation_enthalpy({elems[i]: 0.5, elems[j]: 0.5})
+                    l_reg_0 = float(h_mix_ev * 4.0 * 96485.0)  # Convert eV/atom to J/mol Redlich-Kister L_0
+                    l_reg = l_reg_0 - 0.8 * T
                     g_excess += fracs[i] * fracs[j] * l_reg
 
         # 4. Inden-Hillert Magnetic Contribution

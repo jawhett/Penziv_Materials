@@ -223,10 +223,13 @@ class QElecAgent:
                     r_cart = np.dot(diff_f + shift, lattice_matrix)
                     r = float(np.linalg.norm(r_cart))
                     if 0.5 < r < 8.0:
-                        e_rep = 1500.0 * np.exp(-r / 0.29)
-                        e_coul = (14.4 * z1 * z2 * erfc(0.35 * r)) / r
-                        e_bond = -4.5 * np.exp(-((r - r_eq)**2) / 0.35) * (1.0 + 0.5 * abs(chi1 - chi2))
-                        e_tot += 0.5 * (e_rep + e_coul + e_bond)
+                        delta_chi = abs(chi1 - chi2)
+                        f_ion = 1.0 - np.exp(-0.25 * (delta_chi**2))
+                        e_coul = (14.4 * z1 * z2 * (f_ion**2) * erfc(0.35 * r)) / r if (z1 * z2 < 0) else -0.5 * np.exp(-r / 2.0)
+                        covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion))
+                        u = 1.5 * (r - r_eq)
+                        e_morse = covalent_strength * (np.exp(-2.0 * u) - 2.0 * np.exp(-u))
+                        e_tot += 0.5 * (e_morse + e_coul)
 
         return float(e_tot)
 
@@ -251,25 +254,17 @@ class QElecAgent:
             species_list.extend([e] * max(1, int(round(cnt))))
         n_atoms = len(species_list)
 
-        if base_lattice is None:
-            a0 = 2.0 * mean_r * np.sqrt(2.0)
-            lat_0 = np.diag([a0, a0, a0])
+        if base_lattice is None or base_coords is None:
+            # Dynamically resolve true unconstrained ground-state crystal structure
+            from penziv_materials.structure.global_crystal_search import GlobalCrystalStructureSearchEngine
+            search_eng = GlobalCrystalStructureSearchEngine()
+            formula = "".join(f"{k}{int(v) if v > 1 else ''}" for k, v in composition.items())
+            cand = search_eng.search_ground_state_structure(formula)
+            lat_0 = np.array(cand.lattice_matrix, dtype=np.float64)
+            coords_0 = np.array([s["cartesian_coords"] for s in cand.atomic_sites], dtype=np.float64)
+            species_list = [s["species"] for s in cand.atomic_sites]
         else:
             lat_0 = np.asarray(base_lattice, dtype=np.float64)
-
-        if base_coords is None:
-            # High-symmetry crystallographic FCC basis for multi-principal solid solutions
-            fcc_basis = np.array([
-                [0.0, 0.0, 0.0],
-                [0.0, 0.5, 0.5],
-                [0.5, 0.0, 0.5],
-                [0.5, 0.5, 0.0],
-            ])
-            frac_coords = np.zeros((n_atoms, 3))
-            for i in range(n_atoms):
-                frac_coords[i] = fcc_basis[i % 4]
-            coords_0 = np.dot(frac_coords, lat_0)
-        else:
             coords_0 = np.asarray(base_coords, dtype=np.float64)
 
         def eval_fn(lattice, coords, spec):

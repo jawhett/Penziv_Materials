@@ -33,17 +33,18 @@ class TestDynamicReadmeAndParityGraphs(unittest.TestCase):
         self.assertIn("CaO", svg)
 
     def test_benchmark_ground_truth_integrity(self):
-        self.assertEqual(len(BENCHMARK_GROUND_TRUTH), 10)
+        self.assertGreaterEqual(len(BENCHMARK_GROUND_TRUTH), 24)
         self.assertEqual(len(PROPERTIES_META), 12)
         for f, gt in BENCHMARK_GROUND_TRUTH.items():
             self.assertIn("density_g_cm3", gt)
             self.assertIn("youngs_modulus_gpa", gt)
             self.assertIn("thermal_conductivity_w_m_k", gt)
             self.assertIn("band_gap_ev", gt)
+            self.assertIn("citation", gt)
 
     def test_run_benchmark_and_compute_residuals(self):
         res = self.generator.run_benchmark_and_compute_residuals()
-        self.assertEqual(len(res["raw_reports"]), 10)
+        self.assertGreaterEqual(len(res["raw_reports"]), 24)
         self.assertEqual(len(res["property_datasets"]), 12)
         self.assertIn("density", res["mapes"])
         self.assertIn("youngs_modulus", res["mapes"])

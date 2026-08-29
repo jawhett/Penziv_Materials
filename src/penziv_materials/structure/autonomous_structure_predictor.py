@@ -18,6 +18,7 @@ class PredictedCrystallographicState(BaseModel):
     crystal_system: CrystalSystem
     lattice_parameters_angstrom: Dict[str, float]
     unit_cell_volume_ang3: float
+    atomic_packing_fraction: float
     formula_units_per_cell_z: float
     theoretical_density_g_cm3: float
     valence_electron_concentration_vec: float
@@ -96,6 +97,13 @@ class AutonomousCrystalStructurePredictor:
             f"f_ion = {f_ionicity:.2f}, VEC = {vec_total:.2f} at {temperature_k:.0f} K."
         )
 
+        # Dynamically calculate atomic packing fraction from Wyckoff sites and unit cell volume
+        v_atoms_total = sum(
+            (4.0 / 3.0) * np.pi * (self.search_engine.ELEMENT_PROPERTIES.get(s.get("species", s.get("element", "Si")), (1.30,))[0] ** 3)
+            for s in candidate.atomic_sites
+        )
+        dynamic_apf = float(round(v_atoms_total / max(1e-4, unit_cell_vol), 4))
+
         return PredictedCrystallographicState(
             chemical_formula=chemical_formula,
             material_class=mat_class,
@@ -104,6 +112,7 @@ class AutonomousCrystalStructurePredictor:
             crystal_system=c_sys,
             lattice_parameters_angstrom=lat_params,
             unit_cell_volume_ang3=float(round(unit_cell_vol, 2)),
+            atomic_packing_fraction=dynamic_apf,
             formula_units_per_cell_z=float(z_fu),
             theoretical_density_g_cm3=float(round(density_theoretical, 2)),
             valence_electron_concentration_vec=float(round(vec_total, 2)),

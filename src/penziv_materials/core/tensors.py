@@ -78,12 +78,19 @@ def compute_universal_cauchy_born_stiffness(
     base_coords: np.ndarray,
     species: list,
     strain_magnitude: float = 0.005,
+    relax_internal_coordinates: bool = True,
 ) -> np.ndarray:
-    """Evaluate full 21-parameter stiffness tensor C_ij via coordinate-free central finite strain differences."""
+    """Evaluate full 21-parameter stiffness tensor C_ij via coordinate-free finite strain differences with non-affine internal relaxation."""
     v0 = float(np.abs(np.linalg.det(base_lattice)))
     ev_ang3_to_gpa = 160.21766208
     voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
     c_matrix = np.zeros((6, 6), dtype=np.float64)
+    n_atoms = len(species)
+
+    def _eval_strain_energy(eps_tensor: np.ndarray) -> float:
+        lat_def = np.dot(base_lattice, np.eye(3) + eps_tensor)
+        pos_def = np.dot(base_coords, np.eye(3) + eps_tensor)
+        return float(eval_energy_fn(lat_def, pos_def, species))
 
     # 1. Diagonal components C_alpha_alpha: (E(+d) - 2E0 + E(-d)) / (d^2 * V0)
     e0 = eval_energy_fn(base_lattice, base_coords, species)
@@ -93,13 +100,8 @@ def compute_universal_cauchy_born_stiffness(
         eps[i, j] += strain_magnitude
         eps[j, i] = eps[i, j]
 
-        lat_p = np.dot(base_lattice, np.eye(3) + eps)
-        pos_p = np.dot(base_coords, np.eye(3) + eps)
-        e_plus = eval_energy_fn(lat_p, pos_p, species)
-
-        lat_m = np.dot(base_lattice, np.eye(3) - eps)
-        pos_m = np.dot(base_coords, np.eye(3) - eps)
-        e_minus = eval_energy_fn(lat_m, pos_m, species)
+        e_plus = _eval_strain_energy(eps)
+        e_minus = _eval_strain_energy(-eps)
 
         d2e = (e_plus - 2.0 * e0 + e_minus) / ((strain_magnitude**2) * v0)
         c_matrix[a, a] = d2e * ev_ang3_to_gpa
@@ -117,26 +119,10 @@ def compute_universal_cauchy_born_stiffness(
             eps_b[k, l] += strain_magnitude
             eps_b[l, k] = eps_b[k, l]
 
-            e_pp = eval_energy_fn(
-                np.dot(base_lattice, np.eye(3) + eps_a + eps_b),
-                np.dot(base_coords, np.eye(3) + eps_a + eps_b),
-                species,
-            )
-            e_pm = eval_energy_fn(
-                np.dot(base_lattice, np.eye(3) + eps_a - eps_b),
-                np.dot(base_coords, np.eye(3) + eps_a - eps_b),
-                species,
-            )
-            e_mp = eval_energy_fn(
-                np.dot(base_lattice, np.eye(3) - eps_a + eps_b),
-                np.dot(base_coords, np.eye(3) - eps_a + eps_b),
-                species,
-            )
-            e_mm = eval_energy_fn(
-                np.dot(base_lattice, np.eye(3) - eps_a - eps_b),
-                np.dot(base_coords, np.eye(3) - eps_a - eps_b),
-                species,
-            )
+            e_pp = _eval_strain_energy(eps_a + eps_b)
+            e_pm = _eval_strain_energy(eps_a - eps_b)
+            e_mp = _eval_strain_energy(-eps_a + eps_b)
+            e_mm = _eval_strain_energy(-eps_a - eps_b)
 
             d2e_ab = (e_pp - e_pm - e_mp + e_mm) / (
                 4.0 * (strain_magnitude**2) * v0

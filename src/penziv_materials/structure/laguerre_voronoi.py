@@ -4,6 +4,67 @@ from typing import Dict, Tuple, List, Optional, Any, Set
 import numpy as np
 
 
+class MetricDisorderedTessellationEngine:
+    """Rigorous coordinate-free Laguerre Voronoi tessellation and structural descriptors for arbitrary non-orthogonal unit cells."""
+
+    @staticmethod
+    def compute_periodic_distance_matrix(
+        fractional_coords: np.ndarray, # (N, 3)
+        lattice_matrix: np.ndarray,     # (3, 3) where rows are lattice vectors a1, a2, a3
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute minimum-image distance matrix and displacement vectors via metric tensor G = H^T H."""
+        H = np.asarray(lattice_matrix, dtype=np.float64)
+        s = np.asarray(fractional_coords, dtype=np.float64) % 1.0
+
+        # Fractional difference matrix
+        delta_s = s[:, np.newaxis, :] - s[np.newaxis, :, :]  # (N, N, 3)
+        delta_s -= np.round(delta_s)
+
+        # Transform to Cartesian frame: r_ij = delta_s . H
+        delta_r = np.einsum("ijk,kl->ijl", delta_s, H)
+        dist_matrix = np.linalg.norm(delta_r, axis=-1)
+        return dist_matrix, delta_r
+
+    @classmethod
+    def compute_wigner_seitz_cavities(
+        cls,
+        fractional_coords: np.ndarray,
+        lattice_matrix: np.ndarray,
+        species_radii: np.ndarray,
+        grid_density: int = 24,
+    ) -> List[Dict[str, Any]]:
+        """Identify interstitial interstitial voids/cavities in disordered networks without orthogonal box bounds."""
+        H = np.asarray(lattice_matrix, dtype=np.float64)
+        lin = np.linspace(0.0, 1.0, grid_density, endpoint=False)
+        Sx, Sy, Sz = np.meshgrid(lin, lin, lin, indexing="ij")
+        grid_s = np.stack([Sx.ravel(), Sy.ravel(), Sz.ravel()], axis=-1)  # (M, 3)
+
+        # Minimum image distance from every probe point to all atoms
+        delta_s = grid_s[:, np.newaxis, :] - fractional_coords[np.newaxis, :, :]
+        delta_s -= np.round(delta_s)
+        delta_r = np.einsum("ijk,kl->ijl", delta_s, H)
+        dists = np.linalg.norm(delta_r, axis=-1)  # (M, N)
+
+        # Distance to atomic hard-sphere surfaces: d_surf = dist - r_atom
+        clearances = dists - species_radii[np.newaxis, :]
+        min_clearances = np.min(clearances, axis=1)  # (M,)
+
+        interstitial_nodes = []
+        threshold = 0.40  # Angstrom minimum void clearance
+        candidates = np.where(min_clearances >= threshold)[0]
+
+        for idx in candidates:
+            pt_s = grid_s[idx]
+            pt_r = np.dot(pt_s, H)
+            rad = min_clearances[idx]
+            interstitial_nodes.append({
+                "fractional_coords": pt_s.tolist(),
+                "cartesian_coords": pt_r.tolist(),
+                "bottleneck_radius": float(rad),
+            })
+        return interstitial_nodes
+
+
 class MulticomponentLaguerreVoronoiEngine:
     """Evaluates radical/Laguerre Voronoi cells, exact King's shortest chordless ring cycle bases, and algebraic persistent homology over GF(2)."""
 
@@ -15,20 +76,34 @@ class MulticomponentLaguerreVoronoiEngine:
         "Te": 1.38, "Bi": 1.48, "La": 2.07, "Ta": 1.70, "W": 1.62,
     }
 
-    def __init__(self, box_length_angstrom: float = 12.0):
+    def __init__(
+        self,
+        box_length_angstrom: float = 12.0,
+        lattice_matrix: Optional[np.ndarray] = None,
+    ):
         self.box_len = box_length_angstrom
+        if lattice_matrix is not None:
+            self.lattice_matrix = np.asarray(lattice_matrix, dtype=np.float64)
+        else:
+            self.lattice_matrix = np.diag([box_length_angstrom, box_length_angstrom, box_length_angstrom])
+        self.inv_lat = np.linalg.pinv(self.lattice_matrix)
+        self.volume = float(np.abs(np.linalg.det(self.lattice_matrix)))
 
     def compute_weighted_laguerre_voronoi(
         self,
         atomic_coordinates: np.ndarray,
         species_list: List[str],
+        lattice_matrix: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """Compute radical/Laguerre Voronoi cells using species-specific covalent radii:
+        """Compute radical/Laguerre Voronoi cells using species-specific covalent radii and metric tensor PBC:
 
         d_W(x, p_i) = ||x - p_i||^2 - r_i^2
         """
         coords = np.asarray(atomic_coordinates, dtype=np.float64)
         n_atoms = len(coords)
+        lat_mat = np.asarray(lattice_matrix, dtype=np.float64) if lattice_matrix is not None else self.lattice_matrix
+        inv_lat = np.linalg.pinv(lat_mat)
+        vol = float(np.abs(np.linalg.det(lat_mat)))
 
         # Dynamic species radius resolution via universal elemental properties
         from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
@@ -38,9 +113,8 @@ class MulticomponentLaguerreVoronoiEngine:
             for sp in species_list
         ], dtype=np.float64)
 
-        diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-        diff -= self.box_len * np.round(diff / self.box_len)
-        dists = np.linalg.norm(diff, axis=-1)
+        frac_s = np.dot(coords, inv_lat) % 1.0
+        dists, delta_r = MetricDisorderedTessellationEngine.compute_periodic_distance_matrix(frac_s, lat_mat)
 
         # Power distance contact matrix: D_ij = dists_ij - (r_i + r_j)
         contact_matrix = dists - (radii[:, np.newaxis] + radii[np.newaxis, :])
@@ -53,6 +127,16 @@ class MulticomponentLaguerreVoronoiEngine:
         voronoi_volumes = []
         coordination_numbers = []
 
+        # Unit cell boundary normals for non-orthogonal parallelpiped bounding
+        a1, a2, a3 = lat_mat[0], lat_mat[1], lat_mat[2]
+        n1 = np.cross(a2, a3) / max(1e-10, np.linalg.norm(np.cross(a2, a3)))
+        n2 = np.cross(a3, a1) / max(1e-10, np.linalg.norm(np.cross(a3, a1)))
+        n3 = np.cross(a1, a2) / max(1e-10, np.linalg.norm(np.cross(a1, a2)))
+        h1 = abs(float(np.dot(a1, n1)))
+        h2 = abs(float(np.dot(a2, n2)))
+        h3 = abs(float(np.dot(a3, n3)))
+        cell_normals = [(n1, h1), (n2, h2), (n3, h3)]
+
         for i in range(n_atoms):
             p0 = coords[i]
             r0 = radii[i]
@@ -62,11 +146,9 @@ class MulticomponentLaguerreVoronoiEngine:
             for j in range(n_atoms):
                 if i == j:
                     continue
-                # Minimum image convention displacement
-                d_ij = coords[j] - p0
-                d_ij -= self.box_len * np.round(d_ij / self.box_len)
+                d_ij = delta_r[i, j]
                 pj = p0 + d_ij
-                dist_ij = float(np.linalg.norm(d_ij))
+                dist_ij = float(dists[i, j])
                 if dist_ij > (r0 + radii[j] + 4.5):
                     continue
 
@@ -74,35 +156,32 @@ class MulticomponentLaguerreVoronoiEngine:
                 d_val = -(np.dot(pj, pj) - np.dot(p0, p0) + (r0**2) - (radii[j]**2))
                 halfspaces.append(np.append(n_vec, d_val))
 
-            # 2. Bounding domain box halfspaces around atom
-            box_half = self.box_len / 2.0
-            for axis in range(3):
-                e = np.zeros(3)
-                e[axis] = 1.0
-                halfspaces.append(np.append(e, -(p0[axis] + box_half)))
-                halfspaces.append(np.append(-e, p0[axis] - box_half))
+            # 2. Metric parallelpiped unit cell bounding halfspaces around atom
+            for n_k, h_k in cell_normals:
+                halfspaces.append(np.append(n_k, -(np.dot(p0, n_k) + h_k)))
+                halfspaces.append(np.append(-n_k, np.dot(p0, n_k) - h_k))
 
             hs_arr = np.array(halfspaces, dtype=np.float64)
             try:
                 hs = HalfspaceIntersection(hs_arr, p0)
                 hull = ConvexHull(hs.intersections)
-                vol = float(hull.volume)
+                vol_val = float(hull.volume)
                 # Facets forming actual Voronoi boundary
                 n_boundary_planes = len(hs_arr) - 6
                 cn = int(sum(1 for facet in hs.dual_facets if any(v < n_boundary_planes for v in facet)))
             except Exception:
                 # Fallback to standard spherical packing volume
-                vol = float((4.0 / 3.0) * np.pi * (r0**3) / 0.74)
+                vol_val = float((4.0 / 3.0) * np.pi * (r0**3) / 0.74)
                 cn = int(np.sum(contact_matrix[i] < 0.40))
 
-            voronoi_volumes.append(vol)
+            voronoi_volumes.append(vol_val)
             coordination_numbers.append(cn)
 
         return {
             "mean_laguerre_coordination": float(np.mean(coordination_numbers)),
             "coordination_distribution": {int(k): int(coordination_numbers.count(k)) for k in set(coordination_numbers)},
             "mean_atomic_laguerre_volume_ang3": float(np.mean(voronoi_volumes)),
-            "total_packing_fraction": float(np.sum(voronoi_volumes) / (self.box_len**3)),
+            "total_packing_fraction": float(np.sum(voronoi_volumes) / max(1e-6, vol)),
             "is_multicomponent_weighted": True,
         }
 
@@ -111,15 +190,17 @@ class MulticomponentLaguerreVoronoiEngine:
         atomic_coordinates: np.ndarray,
         species_list: List[str],
         max_ring_size: int = 8,
+        lattice_matrix: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Compute exact King's shortest chordless topological ring size distributions in network glasses."""
         coords = np.asarray(atomic_coordinates, dtype=np.float64)
         n = len(coords)
+        lat_mat = np.asarray(lattice_matrix, dtype=np.float64) if lattice_matrix is not None else self.lattice_matrix
+        inv_lat = np.linalg.pinv(lat_mat)
         radii = np.array([self.COVALENT_RADII_ANGSTROM.get(sp, 1.20) for sp in species_list])
 
-        diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-        diff -= self.box_len * np.round(diff / self.box_len)
-        dists = np.linalg.norm(diff, axis=-1)
+        frac_s = np.dot(coords, inv_lat) % 1.0
+        dists, _ = MetricDisorderedTessellationEngine.compute_periodic_distance_matrix(frac_s, lat_mat)
         cutoff = radii[:, np.newaxis] + radii[np.newaxis, :] + 0.45
 
         # Adjacency matrix
@@ -193,6 +274,7 @@ class MulticomponentLaguerreVoronoiEngine:
         self,
         atomic_coordinates: np.ndarray,
         filtration_radius_angstrom: float = 3.2,
+        lattice_matrix: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Compute exact persistent homology Betti invariants (beta_0, beta_1, beta_2) via boundary matrix reduction over GF(2)."""
         coords = np.asarray(atomic_coordinates, dtype=np.float64)
@@ -200,9 +282,10 @@ class MulticomponentLaguerreVoronoiEngine:
         if n == 0:
             return {"betti_0_connected_components": 0, "betti_1_topological_loops": 0, "betti_2_enclosed_cavities": 0, "persistent_homology_mro_signature": [0, 0, 0]}
 
-        diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-        diff -= self.box_len * np.round(diff / self.box_len)
-        dists = np.linalg.norm(diff, axis=-1)
+        lat_mat = np.asarray(lattice_matrix, dtype=np.float64) if lattice_matrix is not None else self.lattice_matrix
+        inv_lat = np.linalg.pinv(lat_mat)
+        frac_s = np.dot(coords, inv_lat) % 1.0
+        dists, _ = MetricDisorderedTessellationEngine.compute_periodic_distance_matrix(frac_s, lat_mat)
 
         # 1. Construct 0-simplices (vertices) and 1-simplices (edges)
         edges = []

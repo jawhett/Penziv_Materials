@@ -23,53 +23,66 @@ class SpaceGroupSymmetryEngine:
         self,
         c_voigt_gpa: np.ndarray,
         crystal_system: str = "cubic",
+        prestress_tensor: Optional[np.ndarray] = None,
+        num_acoustic_samples: int = 100,
     ) -> Dict[str, Any]:
-        """Evaluate irreducible strain representation Born stability conditions across all 7 crystal systems:
-
-        delta U = 1/2 sum_Gamma C^(Gamma) (epsilon^(Gamma))^2 > 0
+        """Evaluate coordinate-free mechanical stability under finite strain and arbitrary orientation:
+        1. Sylvester leading principal minors Det(M_kxk) > 0 and lambda_min > 0.
+        2. Positive-definiteness of acoustic tensor det[Lambda(n)] > 0 for all wavevectors n on unit sphere S^2.
         """
         C = np.asarray(c_voigt_gpa, dtype=np.float64)
         if C.shape != (6, 6):
             return {"is_mechanically_stable": False, "failed_irreducible_modes": ["Invalid tensor dimensions"]}
 
         failed_modes = []
-        sys = crystal_system.lower()
-
-        # Symmetrize Voigt matrix
         C_sym = 0.5 * (C + C.T)
         eigvals = np.linalg.eigvalsh(C_sym)
         min_eig = float(np.min(eigvals))
 
-        # 1. Sylvester Leading Principal Minors check for all systems
+        # 1. Sylvester Leading Principal Minors check (Frame-invariant positive definiteness)
         for k in range(1, 7):
-            minor_det = np.linalg.det(C_sym[:k, :k])
+            minor_det = float(np.linalg.det(C_sym[:k, :k]))
             if minor_det <= 0:
                 failed_modes.append(f"Sylvester Minor Det(M_{k}x{k}) > 0")
 
-        # 2. Crystal-system specific irreducible representation strain modes
-        if "cub" in sys:
-            if (C[0, 0] + 2.0 * C[0, 1]) <= 0:
-                failed_modes.append("A_1g Bulk Modulus: C11 + 2C12 > 0")
-            if (C[0, 0] - C[0, 1]) <= 0:
-                failed_modes.append("E_g Tetragonal Shear: C11 - C12 > 0")
-            if C[3, 3] <= 0:
-                failed_modes.append("T_2g Shear: C44 > 0")
+        # 2. Coordinate-free acoustic tensor positivity on unit sphere S^2
+        voigt_map = [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+        C4 = np.zeros((3, 3, 3, 3), dtype=np.float64)
+        for a in range(6):
+            i, j = voigt_map[a]
+            for b in range(6):
+                k_idx, l_idx = voigt_map[b]
+                val = C_sym[a, b]
+                C4[i, j, k_idx, l_idx] = val
+                C4[j, i, k_idx, l_idx] = val
+                C4[i, j, l_idx, k_idx] = val
+                C4[j, i, l_idx, k_idx] = val
 
-        elif "hex" in sys or "trig" in sys:
-            if (C[0, 0] - C[0, 1]) <= 0:
-                failed_modes.append("C11 - C12 > 0")
-            if (C[0, 0] + C[0, 1]) * C[2, 2] - 2.0 * (C[0, 2] ** 2) <= 0:
-                failed_modes.append("(C11 + C12)*C33 - 2*C13^2 > 0")
+        # Fibonacci sphere sampling for uniform S^2 coverage
+        phi = np.pi * (np.sqrt(5.0) - 1.0)
+        indices = np.arange(num_acoustic_samples)
+        y = 1.0 - (indices / float(max(1, num_acoustic_samples - 1))) * 2.0
+        radius = np.sqrt(np.maximum(0.0, 1.0 - y * y))
+        theta = phi * indices
+        x = np.cos(theta) * radius
+        z = np.sin(theta) * radius
+        wavevectors = np.stack([x, y, z], axis=-1)
 
-        elif "ortho" in sys or "tetra" in sys:
-            det_principal = float(np.linalg.det(C[:3, :3]))
-            if det_principal <= 0:
-                failed_modes.append("Principal 3x3 Determinant > 0")
+        min_acoustic_det = float("inf")
+        for n in wavevectors:
+            Lambda = np.einsum("ijkl,j,l->ik", C4, n, n)
+            if prestress_tensor is not None:
+                sig = np.asarray(prestress_tensor, dtype=np.float64)
+                sig_n = np.dot(sig, n)
+                n_sig_n = float(np.dot(n, sig_n))
+                Lambda += n_sig_n * np.eye(3) - np.outer(sig_n, n)
 
-        elif "mono" in sys or "tric" in sys:
-            # Monoclinic (13 moduli) & Triclinic (21 moduli) coordinate-free positive definiteness
-            if min_eig <= 0:
-                failed_modes.append("General Anisotropic Eigenmode Positivity: lambda_min > 0")
+            det_L = float(np.linalg.det(Lambda))
+            if det_L < min_acoustic_det:
+                min_acoustic_det = det_L
+
+        if min_acoustic_det <= 0.0:
+            failed_modes.append("Acoustic Tensor Positivity: min_det[Lambda(n)] > 0")
 
         is_stable = len(failed_modes) == 0 and min_eig > 0.0
 
@@ -77,6 +90,7 @@ class SpaceGroupSymmetryEngine:
             "is_mechanically_stable": is_stable,
             "failed_irreducible_modes": failed_modes,
             "min_eigenvalue_gpa": min_eig,
+            "min_acoustic_tensor_determinant": float(min_acoustic_det),
             "all_eigenvalues_gpa": eigvals.tolist(),
             "crystal_system": crystal_system,
         }
