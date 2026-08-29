@@ -122,8 +122,17 @@ class EquivariantMLIPEngine:
         r_ij = np.where(mask, dist_matrix, self.cutoff_angstrom)
         f_cut = 0.5 * (np.cos(np.pi * r_ij / self.cutoff_angstrom) + 1.0) * mask
 
-        r_0 = 2.45
-        phi_pair = np.exp(-1.45 * (r_ij - r_0)) * f_cut
+        # Dynamic species-dependent covalent equilibrium bond lengths
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        z_to_elem = {
+            1: "H", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F", 11: "Na", 12: "Mg",
+            13: "Al", 14: "Si", 15: "P", 16: "S", 22: "Ti", 23: "V", 24: "Cr", 25: "Mn", 26: "Fe",
+            27: "Co", 28: "Ni", 29: "Cu", 30: "Zn", 40: "Zr", 41: "Nb", 42: "Mo", 52: "Te", 73: "Ta", 74: "W", 83: "Bi"
+        }
+        r_cov_arr = np.array([UniversalElementalProperties.get_element(z_to_elem.get(z, "Fe"))[1] for z in atomic_numbers])
+        r_0_matrix = r_cov_arr[:, np.newaxis] + r_cov_arr[np.newaxis, :]
+
+        phi_pair = np.exp(-1.45 * (r_ij - r_0_matrix)) * f_cut
         rho_i = np.sum(phi_pair, axis=1)
 
         embed_energy = -3.25 * np.sum(np.sqrt(np.maximum(1e-6, rho_i)))

@@ -98,12 +98,26 @@ class CrystalStructure:
         "H": 0.25, "Li": 0.76, "Na": 1.02, "K": 1.38, "Rb": 1.52, "Cs": 1.67,
         "Mg": 0.72, "Ca": 1.00, "Sr": 1.18, "Ba": 1.35, "Zn": 0.74,
         "Al": 0.535, "Sc": 0.745, "Y": 0.90, "La": 1.032, "Zr": 0.72,
-        "Ti": 0.605, "V": 0.54, "Cr": 0.615, "Mn": 0.645, "Fe": 0.645,
-        "Co": 0.65, "Ni": 0.69, "Cu": 0.73, "Ga": 0.62, "Ge": 0.53,
-        "O": 1.40, "S": 1.84, "Se": 1.98, "Te": 2.21,
-        "F": 1.33, "Cl": 1.81, "Br": 1.96, "I": 2.20,
-        "N": 1.46, "P": 2.12, "Si": 0.40,
+        "Ti": 0.605, "V": 0.54, "Nb": 0.64, "Ta": 0.64, "Cr": 0.615,
+        "Mo": 0.59, "W": 0.60, "Mn": 0.67, "Fe": 0.645, "Co": 0.65,
+        "Ni": 0.69, "Cu": 0.73, "Si": 0.40, "P": 0.38, "S": 1.84,
+        "O": 1.40, "F": 1.33, "Cl": 1.81, "Br": 1.96, "I": 2.20,
     }
+
+    @classmethod
+    def get_dynamic_atomic_radius(
+        cls,
+        species: str,
+        oxidation_charge: float = 0.0,
+    ) -> float:
+        """Compute continuous effective radius accounting for dynamic charge transfer:
+
+        r(Z, q) = r_0 * (1 - 0.085 * q)
+        """
+        r_base = cls.SHANNON_IONIC_RADII_ANGSTROM.get(species, 1.25)
+        # Continuous charge scaling (cations contract, anions expand)
+        r_eff = r_base * (1.0 - 0.085 * np.clip(oxidation_charge, -2.5, 6.0))
+        return float(max(0.30, r_eff))
 
     def __init__(
         self,

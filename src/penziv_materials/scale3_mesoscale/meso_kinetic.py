@@ -68,6 +68,11 @@ class MesoKineticAgent:
         c_voigt_gpa: Optional[np.ndarray] = None,
     ) -> MesoscaleState:
         """Execute Scale 3 mesoscale evaluation directly incorporating Phase-Field microstructure morphology."""
+        if composition:
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            mean_r_ang = sum(UniversalElementalProperties.get_element(e)[1] * frac for e, frac in composition.items())
+            self.b = float(np.sqrt(2.0) * mean_r_ang * 1.0e-10)
+
         f_p = precipitate_vol_frac if precipitate_vol_frac is not None else 0.55
         r_p = precipitate_radius_nm if precipitate_radius_nm is not None else 35.0
 
