@@ -19,10 +19,12 @@ class HolisticStabilityRelaxationEngine:
         fluid_pressure_work_mj_m3: float = 0.0,
         fluid_volume_fraction: float = 0.0,
         eigenstrain_energy_mj_m3: float = 0.0,
+        phase_gradient_energy_mj_m3: float = 0.0,
+        stress_concentration_tensor_gpa: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Compute generalized N-phase variational composite potential energy:
 
-        Pi = sum_k phi_k * U_k - phi_fluid * (alpha_Biot * W_fluid) + sum_{k < l} Gamma_{kl} + U_eigen
+        Pi = sum_k phi_k * U_k + 0.5 * sum_k kappa_k |grad phi_k|^2 - phi_fluid * (alpha_Biot * W_fluid) + sum_{k < l} Gamma_{kl} + U_eigen
         """
         # Sum bulk elastic energies
         u_bulk_total = sum(
@@ -30,14 +32,21 @@ class HolisticStabilityRelaxationEngine:
             for p in phase_volume_fractions
         )
 
+        # Microstructural stress concentration adjustment
+        stress_conc_energy = 0.0
+        if stress_concentration_tensor_gpa is not None:
+            sig = np.asarray(stress_concentration_tensor_gpa, dtype=np.float64)
+            dev_stress = sig - (np.trace(sig) / 3.0) * np.eye(3)
+            stress_conc_energy = float(0.5 * np.sum(dev_stress**2) * 1.0e-3)
+
         # Fluid/Pore pressure relief
         w_fluid_support = fluid_volume_fraction * (self.alpha_biot * fluid_pressure_work_mj_m3)
 
         # Interfacial energy density
         gamma_total = sum(interfacial_energies_mj_m3.values()) if interfacial_energies_mj_m3 else 0.0
 
-        # Variational total energy density
-        pi_total_system = (u_bulk_total + gamma_total + eigenstrain_energy_mj_m3) - w_fluid_support
+        # Variational total energy density including non-local phase gradients
+        pi_total_system = (u_bulk_total + phase_gradient_energy_mj_m3 + stress_conc_energy + gamma_total + eigenstrain_energy_mj_m3) - w_fluid_support
 
         # Check local phase overstress vs overall composite stabilization
         crit_energies = phase_critical_strain_energies_mj_m3 or {"matrix": 110.0}

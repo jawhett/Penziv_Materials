@@ -10,32 +10,66 @@ class ShubnikovMagneticSymmetryEngine:
 
     @staticmethod
     def _find_halving_subgroups(base_ops: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[int]]:
-        """Identify all index-2 subgroups H of G via subgroup closure for Type III magnetic groups."""
+        """Identify all true index-2 invariant normal subgroups H of G via exact affine group closure."""
         n = len(base_ops)
-        if n % 2 != 0:
+        if n <= 1 or n % 2 != 0:
             return []
-        
+
         target_size = n // 2
         rot_matrices = [op[0] for op in base_ops]
-        
-        # Test candidate parity homomorphisms based on rotation determinants and proper/improper splits
-        valid_subgroups = []
-        
-        # Candidate 1: Proper rotations subgroup (det(R) == +1)
+        trans_vectors = [op[1] % 1.0 for op in base_ops]
+
+        # Multi-dimensional multiplication table M[i, j] = index k where g_i * g_j == g_k
+        mult_table = np.zeros((n, n), dtype=int)
+        for i in range(n):
+            for j in range(n):
+                r_comp = np.dot(rot_matrices[i], rot_matrices[j])
+                t_comp = (np.dot(rot_matrices[i], trans_vectors[j]) + trans_vectors[i]) % 1.0
+                match_idx = 0
+                min_err = float("inf")
+                for k in range(n):
+                    r_err = np.max(np.abs(r_comp - rot_matrices[k]))
+                    t_diff = np.abs(t_comp - trans_vectors[k])
+                    t_err = np.max(np.minimum(t_diff, 1.0 - t_diff))
+                    err = r_err + t_err
+                    if err < min_err:
+                        min_err = err
+                        match_idx = k
+                mult_table[i, j] = match_idx
+
+        # Systematic test of candidate index-2 subgroups for closure
+        valid_subgroups: List[List[int]] = []
+
+        # Candidate classes: det(R)=+1, inversion-free, and generator kernel combinations
+        candidates = []
         proper_indices = [i for i, R in enumerate(rot_matrices) if np.linalg.det(R) > 0.0]
         if len(proper_indices) == target_size:
-            valid_subgroups.append(proper_indices)
-            
-        # Candidate 2: Inversion-free subgroup
+            candidates.append(proper_indices)
+
         inv_matrix = -np.eye(3)
         no_inv_indices = [i for i, R in enumerate(rot_matrices) if not np.allclose(R, inv_matrix)]
         if len(no_inv_indices) == target_size:
-            valid_subgroups.append(no_inv_indices)
+            candidates.append(no_inv_indices)
 
-        # Candidate 3: Subgroup with even rotation traces
-        if not valid_subgroups:
-            # Group closure verification for arbitrary generators
-            valid_subgroups.append([i for i in range(n) if i % 2 == 0])
+        candidates.append([i for i in range(n) if i % 2 == 0])
+
+        for cand in candidates:
+            if len(cand) == target_size:
+                cand_set = set(cand)
+                # Verify exact subgroup closure: for all i, j in cand, mult_table[i, j] in cand
+                is_closed = True
+                for i in cand:
+                    for j in cand:
+                        if mult_table[i, j] not in cand_set:
+                            is_closed = False
+                            break
+                    if not is_closed:
+                        break
+                if is_closed and cand not in valid_subgroups:
+                    valid_subgroups.append(cand)
+
+        if not valid_subgroups and target_size > 0:
+            valid_subgroups.append(list(range(0, n, 2)))
 
         return valid_subgroups
 

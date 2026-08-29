@@ -68,10 +68,14 @@ class BornStabilityValidator:
 
         min_acoustic_det = np.inf
         for n in wavevectors:
+            # Exact finite-strain acoustic tensor: Lambda_ik(n) = C_ijkl n_j n_l + (n . sigma . n) delta_ik - (sigma . n)_i n_k
             Lambda = np.einsum("ijkl,j,l->ik", C4, n, n)
             if prestress_tensor is not None:
-                stress_proj = np.dot(n, np.dot(prestress_tensor, n))
-                Lambda += stress_proj * np.eye(3)
+                sig = np.asarray(prestress_tensor, dtype=np.float64)
+                sig_n = np.dot(sig, n)
+                n_sig_n = float(np.dot(n, sig_n))
+                Lambda += n_sig_n * np.eye(3) - np.outer(sig_n, n)
+
             det_L = float(np.linalg.det(Lambda))
             if det_L < min_acoustic_det:
                 min_acoustic_det = det_L

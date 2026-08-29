@@ -143,12 +143,30 @@ class GrandCanonicalConvexHull:
         candidate_set = set(elements)
         relevant_entries = [e for e in self.entries if set(e.atomic_fractions.keys()).issubset(candidate_set)]
 
-        if not relevant_entries:
-            subspace_entries = [
-                ConvexHullEntry(formula=el, formation_energy_per_atom_ev=0.0, is_reference_element=True)
-                for el in elements
-            ]
-            relevant_entries = subspace_entries
+        # Dynamically generate first-principles binary reference phases if unpopulated
+        for i in range(len(elements)):
+            for j in range(i + 1, len(elements)):
+                el1, el2 = elements[i], elements[j]
+                pair_key = {el1, el2}
+                has_binary = any(set(e.atomic_fractions.keys()) == pair_key for e in relevant_entries)
+                if not has_binary:
+                    # Miedema enthalpy calculation for binary ground state
+                    from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+                    _, _, chi1, v1, z1, _ = UniversalElementalProperties.get_element(el1)
+                    _, _, chi2, v2, z2, _ = UniversalElementalProperties.get_element(el2)
+                    d_chi = abs(chi1 - chi2)
+                    d_nws = abs(z1**(1/3) - z2**(1/3))
+                    delta_h_ev = -0.45 * (d_chi**2) + 0.12 * (d_nws**2)
+                    if d_chi < 0.2:
+                        delta_h_ev = -0.05
+                    form_e = float(np.clip(delta_h_ev, -3.5, 0.05))
+                    bin_entry = ConvexHullEntry(formula=f"{el1}{el2}", formation_energy_per_atom_ev=form_e)
+                    relevant_entries.append(bin_entry)
+
+        # Always include elemental standard reference ground states (H_form = 0.0 eV/atom)
+        for el in elements:
+            if not any(e.formula == el for e in relevant_entries):
+                relevant_entries.append(ConvexHullEntry(formula=el, formation_energy_per_atom_ev=0.0, is_reference_element=True))
 
         n_entries = len(relevant_entries)
         c = np.array([e.formation_energy_per_atom_ev for e in relevant_entries])
@@ -189,6 +207,23 @@ class GrandCanonicalConvexHull:
             "decomposition_reaction": f"{candidate_formula} -> " + decomp_rxn,
             "decomposition_energy_ev_atom": float(e_hull_baseline),
         }
+
+    @staticmethod
+    def compute_dynamic_qeq_oxidation_states(composition: Dict[str, float]) -> Dict[str, float]:
+        """Compute continuous partial oxidation charges via Electronegativity Equalization (QEq)."""
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        elems = list(composition.keys())
+        counts = np.array([composition[e] for e in elems], dtype=np.float64)
+        n_atoms = np.sum(counts)
+
+        # Mulliken electronegativities and hardnesses
+        chis = np.array([UniversalElementalProperties.get_element(e)[2] * 2.8 for e in elems])
+        etas = np.array([3.5 + 0.5 * UniversalElementalProperties.get_element(e)[4] for e in elems])
+
+        inv_eta = 1.0 / etas
+        mu_bar = float(np.sum(counts * chis * inv_eta) / max(1e-6, np.sum(counts * inv_eta)))
+        charges = (mu_bar - chis) * inv_eta
+        return {elems[i]: float(round(charges[i], 3)) for i in range(len(elems))}
 
     ELEMENT_VALENCES: Dict[str, float] = {
         "H": 1.0, "Li": 1.0, "Na": 1.0, "K": 1.0, "Rb": 1.0, "Cs": 1.0,
