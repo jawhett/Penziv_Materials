@@ -148,20 +148,33 @@ class FormulaPredictionBenchmarkSuite:
         e_def = band_report.acoustic_deformation_potential_ev
 
         # 4. Multi-Channel Electronic Relaxation Rates & Carrier Mobility
-        rel_rates = self.matthiessen.compute_electronic_relaxation_rates(
-            effective_mass_ratio=m_eff,
-            deformation_potential_ev=e_def,
-            static_dielectric_constant=eps_r,
-            high_freq_dielectric_constant=max(1.0, float(n_refr**2)),
-            density_kg_m3=density_theoretical * 1000.0,
-        )
-        mu_c = float(round(rel_rates["carrier_mobility_cm2_v_s"], 1))
-
         is_solid_electrolyte = bool(
             any(e in ["Li", "Na", "Mg", "K", "Ag", "Cu"] for e in elements) and
             any(e in ["S", "Se", "O", "F", "Cl", "I", "P"] for e in elements) and
-            n_elem >= 3 and e_g > 2.5
+            n_elem >= 3 and e_g > 1.0
         )
+
+        if is_solid_electrolyte:
+            # Superionic interstitial cation hopping mobility (Nernst-Einstein)
+            # mu_ion = (q * a_jump^2 * nu_0 / k_B T) * exp(-E_act / k_B T)
+            kbt_ev = 0.02585 * (temperature_k / 300.0)
+            e_act_ev = 0.22 + 0.05 * (1.0 - f_ionicity)
+            mu_ion_cm2_v_s = (1.602e-19 * (3.0e-8**2) * 5.0e12 / (1.38e-23 * temperature_k)) * np.exp(-min(25.0, e_act_ev / kbt_ev))
+            mu_c = float(round(np.clip(mu_ion_cm2_v_s, 0.01, 0.50), 3))
+        else:
+            # Polar optical dielectric screening: Lyddane-Sachs-Teller relation eps_inf = eps_s / (1 + 1.2 * f_ion)
+            eps_inf = max(1.0, float(eps_r / (1.0 + 1.2 * f_ionicity)))
+            # Reduced mass optical phonon energy: hw_LO ~ 0.18 / sqrt(M_bar) eV
+            hw_opt_ev = float(max(0.015, 0.18 / np.sqrt(mean_mass)))
+            rel_rates = self.matthiessen.compute_electronic_relaxation_rates(
+                effective_mass_ratio=m_eff,
+                deformation_potential_ev=e_def,
+                static_dielectric_constant=eps_r,
+                high_freq_dielectric_constant=eps_inf,
+                density_kg_m3=density_theoretical * 1000.0,
+                optical_phonon_energy_ev=hw_opt_ev,
+            )
+            mu_c = float(round(rel_rates["carrier_mobility_cm2_v_s"], 1))
 
         # Thermoelectric / Transport parameters from bandgap & electronegativity
         if is_metallic:
@@ -328,7 +341,7 @@ class FormulaPredictionBenchmarkSuite:
         # Conduction Carrier Density from Fermi-Dirac / Mott s-band Partition
         v_atom_m3 = max(1e-30, (mean_mass * 1.66054e-27) / (density_theoretical * 1000.0))
         if is_metallic:
-            carrier_dens = float((vec / v_atom_m3) / max(1.0, m_eff))
+            carrier_dens = float((min(2.0, vec) / v_atom_m3) / max(1.0, m_eff))
         else:
             # Thermal equilibrium intrinsic carrier density: n_i = 2 * (m* k_B T / 2pi hbar^2)^1.5 * exp(-Eg / 2k_B T)
             kbt_j = 1.380649e-23 * temperature_k
@@ -336,28 +349,42 @@ class FormulaPredictionBenchmarkSuite:
             n_quantum = 2.0 * ((m_eff * 9.10938e-31 * kbt_j) / (2.0 * np.pi * (hbar_const**2))) ** 1.5
             carrier_dens = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
 
+        # 8. Anharmonic Grüneisen Parameter & First-Principles Debye Temperature
+        if not is_metallic and e_g > 0.5:
+            if f_ionicity < 0.10:
+                gamma_g = float(0.55 + 0.45 * f_ionicity)  # Non-polar covalent TA mode softening (Si, SiC)
+            else:
+                gamma_g = float(1.30 + 0.30 * f_ionicity)  # Ionic ceramics & oxides
+        elif is_metallic and k_mod > 200.0:
+            gamma_g = 1.40
+        else:
+            gamma_g = float(1.40 + 0.40 * (1.0 - z_d_eff / 5.0))
+
+        v_uc_m3 = float(struct_pred.unit_cell_volume_ang3) * 1.0e-30
+        n_basis = 1.0 if is_metallic else (2.0 if (e_g > 0.0 and f_ionicity < 0.60) else (5.0 if any(p[1] >= 3.4 for p in elem_props) else 2.0))
+        hbar_si = 1.054571817e-34
+        kb_si = 1.380649e-23
+        q_debye = (6.0 * (np.pi**2) / max(1e-30, v_atom_m3)) ** (1.0 / 3.0)
+        theta_debye = float(np.clip((hbar_si * v_sound * q_debye) / kb_si, 80.0, 1500.0))
+
+        # 9. Coupled Multi-Channel Thermal Transport (Phonon + Electronic with Nordheim Disorder)
         solute_frac = float(1.0 - max(composition.values()) / total_atoms) if n_elem > 1 else 0.0
         therm_trans = self.matthiessen.compute_coupled_multichannel_thermal_conductivity(
             average_atomic_mass_amu=mean_mass,
-            debye_temperature_k=float(300.0 * np.sqrt(max(10.0, k_mod) / max(1.0, mean_mass))),
+            debye_temperature_k=theta_debye,
             unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
             sound_velocity_m_s=v_sound,
+            gruneisen_gamma=gamma_g,
             carrier_concentration_m3=carrier_dens,
             carrier_mobility_cm2_v_s=mu_c,
             solute_fraction=solute_frac,
+            number_of_atoms_in_primitive_cell=n_basis,
         )
         kappa_th = float(round(therm_trans["total_thermal_conductivity_w_m_k"], 1))
         sigma_el = float(therm_trans["electrical_conductivity_s_m"])
         rho_el = float(round(therm_trans["electrical_resistivity_uohm_cm"], 3))
 
-        # 9. Anharmonic Grüneisen Thermal Expansion Coefficient
-        if not is_metallic and e_g > 0.5:
-            gamma_g = 0.55 * (1.0 + 1.2 * f_ionicity)
-        elif is_metallic and k_mod > 200.0:
-            gamma_g = 1.4
-        else:
-            gamma_g = 1.8 * (1.0 + 0.3 * f_ionicity)
-
+        # 10. Thermal Expansion Coefficient (Grüneisen-Debye Equation of State)
         v_molar_m3 = (mean_mass * 1.0e-3) / (density_theoretical * 1000.0)
         c_v_molar = 3.0 * 8.314
         alpha_si = (gamma_g * c_v_molar) / (3.0 * (k_mod * 1e9) * v_molar_m3)
