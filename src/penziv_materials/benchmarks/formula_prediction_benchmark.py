@@ -22,6 +22,11 @@ from penziv_materials.scale1_process.thermomechanical_history import (
     ThermomechanicalHistoryParameters,
     ProcessingRoute,
 )
+from penziv_materials.scale5_quantum.orbital_tight_binding import OrbitalTightBindingEngine
+from penziv_materials.physics.matthiessen_transport import MatthiessenTransportEngine
+from penziv_materials.scale4_atomistic.gb_segregation import GrainBoundarySegregationEngine
+from penziv_materials.scale1_process.thermal_residual_stress import ThermalResidualStressEngine
+from penziv_materials.physics.wagner_oxidation import WagnerOxidationEngine
 
 
 class BenchmarkMaterialReport(BaseModel):
@@ -53,25 +58,25 @@ class BenchmarkMaterialReport(BaseModel):
     clausius_duhem_dissipation_w_m3: float
     born_mechanical_stability: bool
     
-    # Electronic & Optoelectronic
+    # Thermal & Transport (Phonon + Electronic)
+    thermal_conductivity_w_m_k: float
+    thermal_expansion_coeff_ppm_k: float = 12.0
+    thermal_expansion_ppm_k: Optional[float] = None
+    
+    # Quantum Electronic & Dielectric
     band_gap_ev: float
+    carrier_mobility_cm2_v_s: float
+    seebeck_coefficient_uv_k: float
+    thermoelectric_figure_of_merit_zt: float = 0.0
+    thermoelectric_zt: Optional[float] = None
     electrical_conductivity_s_m: float
     electrical_resistivity_uohm_cm: float
-    carrier_mobility_cm2_v_s: float
-    
-    # Thermoelectric & Thermal Transport
-    seebeck_coefficient_uv_k: float
-    thermal_conductivity_w_m_k: float
-    thermoelectric_figure_of_merit_zt: float
-    thermal_expansion_coeff_ppm_k: float
-    
-    # Ionic & Electrochemical Transport
     ionic_conductivity_ms_cm: float
-    electrochemical_stability_window_v: str
-    
-    # Dielectric & Optical
-    static_dielectric_constant: float
+    static_dielectric_constant: float = 1.0
+    dielectric_constant: Optional[float] = None
     refractive_index: float
+    electrochemical_stability_window_v: str = "N/A"
+    electrochemical_stability_window: Optional[str] = None
     
     handshake_receipts_passed: int
     total_handshake_receipts: int
@@ -90,6 +95,11 @@ class FormulaPredictionBenchmarkSuite:
         self.tps_engine = TransitionPathSamplingEngine(num_string_nodes=7)
         self.calphad = OpenCALPHADTDBEngine()
         self.thermo_history = ThermomechanicalHistoryEngine()
+        self.orbital_tb = OrbitalTightBindingEngine()
+        self.matthiessen = MatthiessenTransportEngine()
+        self.gb_segregation = GrainBoundarySegregationEngine()
+        self.residual_stress = ThermalResidualStressEngine()
+        self.oxidation = WagnerOxidationEngine()
 
     def predict_material_from_formula(
         self,
@@ -109,7 +119,6 @@ class FormulaPredictionBenchmarkSuite:
         struct_pred = self.structure_predictor.predict_structure(formula, temperature_k=temperature_k)
         mat_class = struct_pred.material_class
         sg = struct_pred.space_group_symbol
-        sg_num = struct_pred.space_group_number
         c_sys = struct_pred.crystal_system
         lat_params = struct_pred.lattice_parameters_angstrom
         density_theoretical = struct_pred.theoretical_density_g_cm3
@@ -123,157 +132,106 @@ class FormulaPredictionBenchmarkSuite:
         d_bond = 2.0 * mean_rcov
         f_ionicity = float(1.0 - np.exp(-0.25 * (delta_chi ** 2)))
 
-        # 3. Universal First-Principles Solid-State Physics & Constitutive Solvers
-        # Metallic conduction determination from band overlap & electronegativity
-        is_metallic = (
-            (n_elem == 1 and delta_chi == 0.0 and vec >= 1.0 and not any(e in ["Si", "Ge", "C", "B", "P", "S", "Se", "Te", "I", "Br", "Cl", "F", "O", "N"] for e in elements)) or
-            (f_ionicity < 0.28 and vec >= 3.0 and sg_num in [225, 229, 194, 221] and not any(e in ["O", "F", "Cl", "S", "Se", "Te"] for e in elements)) or
-            (sg_num == 194 and any(e in ["C", "N", "B"] for e in elements) and n_elem >= 3 and not any(e in ["O", "F"] for e in elements)) or
-            ("Metal" in mat_class or "Alloy" in mat_class or "Refractory" in mat_class or "MAX" in mat_class)
-        ) and (sg_num not in [166, 216, 167, 142]) and not (any(e in ["O", "F"] for e in elements) and delta_chi > 1.0)
+        # 3. First-Principles LCAO Orbital Tight-Binding Electronic Structure
+        band_report = self.orbital_tb.compute_electronic_structure(
+            elements=elements,
+            stoichiometry=counts,
+            bond_length_angstrom=d_bond,
+            unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
+            temperature_k=temperature_k,
+        )
+        is_metallic = band_report.is_metallic
+        e_g = band_report.band_gap_ev
+        eps_r = band_report.static_dielectric_constant
+        n_refr = band_report.refractive_index
+        m_eff = band_report.effective_mass_electrons
+        e_def = band_report.acoustic_deformation_potential_ev
 
-        is_thermoelectric = (sg_num == 166) or (mean_mass > 70.0 and delta_chi < 0.65 and any(e in ["Te", "Se", "Sb", "Bi"] for e in elements) and sg_num != 216)
-        is_zincblende_semicond = (sg_num in [216, 227]) or (delta_chi < 1.0 and any(e in ["As", "P", "Sb", "Te", "Se", "S", "C", "N"] for e in elements) and n_elem <= 2 and not is_metallic and sg_num != 166)
-        is_superionic = (sg_num in [167, 142, 230, 137]) or (delta_chi > 1.1 and any(e in ["S", "O", "P", "F"] for e in elements) and any(e in ["Li", "Na", "Mg", "K"] for e in elements) and n_elem >= 3)
+        # 4. Multi-Channel Electronic Relaxation Rates & Carrier Mobility
+        rel_rates = self.matthiessen.compute_electronic_relaxation_rates(
+            effective_mass_ratio=m_eff,
+            deformation_potential_ev=e_def,
+            static_dielectric_constant=eps_r,
+            high_freq_dielectric_constant=max(1.0, eps_r * 0.8),
+            density_kg_m3=density_theoretical * 1000.0,
+        )
+        mu_c = float(round(rel_rates["carrier_mobility_cm2_v_s"], 1))
 
+        is_solid_electrolyte = bool(
+            any(e in ["Li", "Na", "Mg", "K", "Ag", "Cu"] for e in elements) and
+            any(e in ["S", "Se", "O", "F", "Cl", "I", "P"] for e in elements) and
+            n_elem >= 3 and e_g > 2.5
+        )
+
+        # Thermoelectric / Transport parameters from bandgap & electronegativity
         if is_metallic:
-            e_g = 0.0
-            # Drude-Sommerfeld electronic conductivity
-            sigma_base = 5.8e7 * (vec / 11.0) / (1.0 + 0.15 * delta_chi + 0.10 * (n_elem - 1))
-            sigma_el = max(1.0e6, float(sigma_base))
-            rho_el = (1.0 / sigma_el) * 1.0e8
-            # Electron mobility in metals from acoustic phonon scattering
-            mu_c = max(5.0, float(45.0 * np.sqrt(11.0 / max(1.0, vec)) / (1.0 + 0.35 * (n_elem - 1))))
-            s_seebeck = float(2.0 * (vec - 6.0))
+            s_seebeck = float(round(2.0 * (vec - 6.0), 1))
             zt = 0.001
-            eps_r = 1.0
-            n_refr = 1.0
             sigma_ion = 0.0
             e_window = "N/A (Conductor)"
-
-        elif is_thermoelectric:
-            # Narrow-gap topological thermoelectric / semiconductor (e.g. Bi2Te3, PbTe)
-            e_g = float(round(max(0.08, 0.15 * (1.0 - 0.001 * (mean_mass - 70.0))), 3))
-            sigma_el = 1.2e5
-            rho_el = (1.0 / sigma_el) * 1.0e8
-            mu_c = 1200.0
-            s_seebeck = -210.0
-            zt = 1.15
-            eps_r = 35.0
-            n_refr = float(round(np.sqrt(eps_r), 2))
+        elif e_g < 0.35:
+            # Narrow-gap topological thermoelectric
+            s_seebeck = float(round(-300.0 * (0.8 + e_g), 1))
+            zt = float(round(1.20 / (1.0 + 0.5 * e_g), 2))
             sigma_ion = 0.0
             e_window = "N/A (Thermoelectric)"
-
-        elif is_zincblende_semicond:
-            # Phillips-Van Vechten dielectric bandgap model: E_g = sqrt(E_h^2 + C^2)
-            e_homopolar = 4.3 / (d_bond ** 2.2)
-            c_ionic = 5.77 * delta_chi / d_bond
-            e_g = float(round(np.sqrt(e_homopolar**2 + c_ionic**2), 2))
-            if "Cd" in elements and "Te" in elements:
-                e_g = 1.495
-            elif "Ga" in elements and "As" in elements:
-                e_g = 1.424
-            elif "Si" in elements and len(elements) == 1:
-                e_g = 1.12
-            elif "Si" in elements and "C" in elements:
-                e_g = 2.36
-
-            # Penn dielectric model: eps_r = 1 + (hbar * omega_p / E_g)^2
-            eps_r = float(round(1.0 + (13.5 / max(0.5, e_g))**1.1, 1))
-            n_refr = float(round(np.sqrt(eps_r), 2))
-            # Carrier mobility via acoustic deformation potential scattering
-            mu_c = float(round(max(50.0, 8500.0 * (1.42 / max(0.5, e_g)) / (1.0 + 3.0 * (f_ionicity**2))), 1))
-            s_seebeck = float(round(-300.0 * e_g, 1))
-            zt = 0.05
-            sigma_el = 1.0e-4
-            rho_el = 1.0e10
-            sigma_ion = 0.0
-            e_window = "N/A (Semiconductor)"
-
-        elif is_superionic:
-            # Solid-State Superionic Electrolyte
-            e_g = float(round(max(2.8, 2.2 + 1.2 * delta_chi), 2))
-            sigma_el = 1.0e-9
-            rho_el = 1.0e15
-            mu_c = 0.05
+        elif is_solid_electrolyte:
+            # Solid-state superionic electrolyte
             s_seebeck = 0.0
             zt = 0.0
-            # Nernst-Einstein ionic transport
-            sigma_ion = 1.85 if "Mg" in elements else (12.0 if "Ge" in elements else 1.0)
-            eps_r = 14.5
-            n_refr = float(round(np.sqrt(eps_r), 2))
-            carrier = "Mg" if "Mg" in elements else ("Li" if "Li" in elements else ("Na" if "Na" in elements else "Carrier"))
-            e_window = f"0.00 V - 3.85 V vs {carrier}/{carrier}ⁿ⁺"
-
+            carrier_elem = next(e for e in ["Li", "Na", "Mg", "K", "Ag", "Cu"] if e in elements)
+            sigma_ion = float(round(1.5 * (1.0 + 0.5 * delta_chi), 2))
+            e_window = f"0.00 V - {3.5 + delta_chi:.2f} V vs {carrier_elem}/{carrier_elem}ⁿ⁺"
         else:
-            # Wide-bandgap Ceramic / Oxide / Insulator
-            e_g = float(round(max(3.0, 2.6 * delta_chi + 0.8 * f_ionicity), 2))
-            sigma_el = 1.0e-14
-            rho_el = 1.0e20
-            mu_c = 0.1
-            s_seebeck = 0.0
-            zt = 0.0
+            # Semiconductor / Wide-gap insulator
+            s_seebeck = float(round(-250.0 * e_g, 1))
+            zt = 0.02
             sigma_ion = 0.0
-            eps_r = 86.0 if ("Ti" in elements and "O" in elements) else float(round(max(4.0, 1.0 + (13.5 / max(1.0, e_g))**2 + 8.0 * f_ionicity), 1))
-            n_refr = float(round(np.sqrt(eps_r), 2))
-            e_window = "0.00 V - 5.50 V"
+            e_window = f"0.00 V - {min(5.5, 2.5 + e_g):.2f} V"
 
-        # B. Elastic & Mechanical Moduli from Equation of State & Bonding Density
-        # Cohen empirical first-principles equation of state: K = (1971 - 220 f_i) / d_bond^3.5
+        # 5. First-Principles Equation of State Elastic Constants (VRH Homogenization)
         k_eos = float((1971.0 - 220.0 * f_ionicity) / (d_bond ** 3.5))
         if is_metallic:
-            if (sg_num == 194 and any(e in ["C", "N", "B"] for e in elements) and len(elements) >= 3) or "MAX" in mat_class:
-                k_mod = 145.0
-                g_mod = 115.0
-            else:
-                k_mod = float(round(max(35.0, min(350.0, 15.0 * density_theoretical + 4.5 * vec)), 1))
-                g_mod = float(round(max(18.0, 0.42 * k_mod), 1))
-        elif is_thermoelectric:
+            k_mod = float(round(max(k_eos * 1.1, 15.0 * density_theoretical + 4.5 * vec), 1))
+            k_mod = float(round(np.clip(k_mod, 35.0, 380.0), 1))
+            g_mod = float(round(max(18.0, 0.75 * k_mod), 1))
+        elif e_g < 0.35:
             k_mod = 38.0
             g_mod = 16.5
-        elif is_zincblende_semicond:
-            k_mod = float(round(max(40.0, k_eos), 1))
+        elif is_solid_electrolyte:
+            k_mod = float(round(max(20.0, 25.0 * density_theoretical), 1))
             g_mod = float(round(0.55 * k_mod, 1))
-        elif is_superionic:
-            k_mod = 32.0 if "Mg" in elements else (22.0 if "Ge" in elements else 100.0)
-            g_mod = 18.0 if "Mg" in elements else (12.0 if "Ge" in elements else 60.0)
         else:
-            # Ceramics / Oxides
-            k_mod = float(round(max(50.0, min(300.0, 25.0 * density_theoretical)), 1))
-            g_mod = float(round(0.65 * k_mod, 1))
+            k_mod = float(round(max(40.0, k_eos if e_g < 3.0 else 25.0 * density_theoretical), 1))
+            g_mod = float(round(0.60 * k_mod, 1))
 
         # Voigt-Reuss-Hill Homogenization for Young's Modulus & Poisson's Ratio
         e_mod = float(round((9.0 * k_mod * g_mod) / max(1e-4, 3.0 * k_mod + g_mod), 1))
         nu = float(round((3.0 * k_mod - 2.0 * g_mod) / max(1e-4, 2.0 * (3.0 * k_mod + g_mod)), 2))
 
-        # Determine and execute path-dependent thermomechanical history
+        # 6. Single-Crystal Peierls-Nabarro Lattice Friction & Labusch Solid Solution
+        d_spacing = d_bond * 0.707
+        b_burgers = d_bond * 0.707
+        peierls_exponent = (2.0 * np.pi * d_spacing) / max(0.1, b_burgers * (1.0 - nu))
+        tau_peierls_mpa = (2.0 * (g_mod * 1000.0) / max(0.1, 1.0 - nu)) * np.exp(-min(20.0, peierls_exponent))
+
+        if n_elem > 1:
+            solute_misfit_sum = sum(
+                (cnt / total_atoms) * ((elem_props[i][0] - mean_rcov) / max(0.1, mean_rcov))**2
+                for i, (e, cnt) in enumerate(composition.items())
+            )
+            delta_sigma_ss_mpa = float(round((g_mod * 1000.0) * (solute_misfit_sum ** (3.0 / 4.0)), 1))
+        else:
+            delta_sigma_ss_mpa = 0.0
+
+        base_friction_mpa = float(round(max(30.0, 3.06 * tau_peierls_mpa + delta_sigma_ss_mpa), 1))
+
+        # 7. Path-Dependent Thermomechanical ISV Integration
         if processing_route is not None:
             p_route = processing_route if isinstance(processing_route, ProcessingRoute) else ProcessingRoute(processing_route)
-        elif "718" in formula or "Inconel" in mat_class or "PeakAged" in formula:
-            p_route = ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6
-        elif "ColdWorked" in formula:
-            p_route = ProcessingRoute.COLD_WORKED_50PCT
-        elif "LPBF" in formula or "Additive" in mat_class:
-            p_route = ProcessingRoute.ADDITIVE_LPBF_AS_PRINTED
         else:
             p_route = ProcessingRoute.ANNEALED_RECRYSTALLIZED
 
-        # Base solid-solution friction stress
-        if is_metallic:
-            if n_elem == 1:
-                base_friction_mpa = float(g_mod * 1000.0 / 680.0)
-            else:
-                base_friction_mpa = float(max(120.0, (g_mod * 1000.0 / 180.0) * (0.8 + 0.3 * np.sqrt(n_elem))))
-        elif is_thermoelectric:
-            base_friction_mpa = 55.0
-        elif is_zincblende_semicond:
-            base_friction_mpa = float(max(60.0, g_mod * 1000.0 / 300.0))
-        elif is_superionic:
-            base_friction_mpa = 80.0 if "Mg" in elements else 60.0
-        else:
-            base_friction_mpa = float(max(150.0, g_mod * 1000.0 / 250.0))
-
-        # Run continuous path-dependent thermomechanical ISV integration
         hist_params = ThermomechanicalHistoryParameters(
             route=p_route,
             temperature_k=temperature_k,
@@ -285,43 +243,45 @@ class FormulaPredictionBenchmarkSuite:
             lattice_friction_stress_mpa=base_friction_mpa,
         )
         ys_pred = float(round(isv_response.yield_strength_mpa, 1))
-        kic_pred = float(round(isv_response.fracture_toughness_k_ic_mpa_sqrt_m, 1))
 
-        # C. Thermal Conductivity (Phonon Slack Model + Electronic Wiedemann-Franz)
-        if is_metallic:
-            # Drude electronic conductivity + Wiedemann-Franz
-            is_noble = (n_elem == 1 and vec in [1.0, 3.0, 11.0])
-            if is_noble:
-                sigma_el_th = 5.8e7 * (1.0 if vec >= 10.0 else 0.60)
-            elif n_elem == 1:
-                # Transition metals (Fe, Ni, W, Ti) with s-d interband scattering
-                d_scattering = 1.0 + 0.4 * abs(vec - 6.0)
-                sigma_el_th = 1.5e7 / max(0.5, d_scattering)
-            else:
-                # Multi-element alloys (316L, Inconel, Ti-64, HEAs) with solute disorder
-                solute_scattering = 1.0 + 1.2 * (n_elem - 1) + 1.5 * delta_chi
-                sigma_el_th = 3.5e6 / max(0.5, solute_scattering)
-
-            lorenz_num = 2.44e-8
-            kappa_el = lorenz_num * sigma_el_th * temperature_k
-            kappa_ph = 20.0 / (1.0 + 0.5 * n_elem)
-            kappa_th = float(round(kappa_el + kappa_ph, 1))
-        elif is_thermoelectric:
-            kappa_th = 1.20
-        elif is_superionic:
-            kappa_th = 0.80 if mean_mass > 50 else 0.50
+        # Fracture Toughness: Rice-Thomson Ductile Blunting vs Griffith Cleavage
+        pugh_ratio = float(k_mod / max(1.0, g_mod))
+        if is_metallic and pugh_ratio >= 1.75:
+            kic_pred = float(round(isv_response.fracture_toughness_k_ic_mpa_sqrt_m, 1))
         else:
-            # Slack phonon BTE for dielectric insulators & semiconductors
-            debye_temp = float(300.0 * np.sqrt(k_mod / max(1.0, mean_mass)))
-            gamma_g = 1.5 * (1.0 + 1.2 * f_ionicity)
-            a_slack = 8.5e-6
-            kappa_ph = (a_slack * mean_mass * (debye_temp**3) * d_bond) / (temperature_k * (gamma_g**2) * (total_atoms**(2/3)) * (1.0 + 3.0 * (f_ionicity**2)))
-            kappa_th = float(round(max(0.4, kappa_ph), 1))
+            # Brittle Griffith cleavage for covalent crystals, semiconductors, and ceramics
+            gamma_cleav = 0.9 if (not is_metallic and e_g < 2.0) else 2.2
+            kic_pred = float(round(np.sqrt((2.0 * (e_mod * 1e9) * gamma_cleav) / max(0.1, 1.0 - nu**2)) * 1e-6, 1))
 
-        # Thermal expansion coefficient alpha_th (ppm/K) from Grüneisen relation
-        alpha_th = float(round(max(2.5, min(32.0, 24.0 - 0.06 * k_mod + 0.1 * vec)), 1))
+        # 8. Coupled Multi-Channel Thermal Transport (Phonon + Electronic)
+        v_sound = float(np.sqrt(max(10.0, k_mod * 1e9) / (density_theoretical * 1000.0)))
+        carrier_dens = (8.5e28 * (vec / 11.0)) if is_metallic else (1.0e21 if e_g < 0.5 else 1.0e16)
+        therm_trans = self.matthiessen.compute_coupled_multichannel_thermal_conductivity(
+            average_atomic_mass_amu=mean_mass,
+            debye_temperature_k=float(300.0 * np.sqrt(max(10.0, k_mod) / max(1.0, mean_mass))),
+            unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
+            sound_velocity_m_s=v_sound,
+            carrier_concentration_m3=carrier_dens,
+            carrier_mobility_cm2_v_s=mu_c,
+        )
+        kappa_th = float(round(therm_trans["total_thermal_conductivity_w_m_k"], 1))
+        sigma_el = float(therm_trans["electrical_conductivity_s_m"])
+        rho_el = float(round(therm_trans["electrical_resistivity_uohm_cm"], 3))
 
-        # 4. Forward Multiscale Simulation across all 5 Scales
+        # 9. Anharmonic Grüneisen Thermal Expansion Coefficient
+        if not is_metallic and e_g > 0.5:
+            gamma_g = 0.55 * (1.0 + 1.2 * f_ionicity)
+        elif is_metallic and k_mod > 200.0:
+            gamma_g = 1.4
+        else:
+            gamma_g = 1.8 * (1.0 + 0.3 * f_ionicity)
+
+        v_molar_m3 = (mean_mass * 1.0e-3) / (density_theoretical * 1000.0)
+        c_v_molar = 3.0 * 8.314
+        alpha_si = (gamma_g * c_v_molar) / (3.0 * (k_mod * 1e9) * v_molar_m3)
+        alpha_th = float(round(np.clip(alpha_si * 1.0e6, 2.0, 32.0), 1))
+
+        # 10. Forward Multiscale Simulation across all 5 Scales
         cand: MaterialCandidate = self.orchestrator.run_forward_multiscale_prediction(
             candidate_name=formula,
             composition=composition,

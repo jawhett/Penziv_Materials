@@ -54,19 +54,19 @@ class GlobalCrystalStructureSearchEngine:
         "Ni": (1.25, 1.91, 58.693, 10.0),
         "Cu": (1.28, 1.90, 63.546, 11.0),
         "Zn": (1.34, 1.65, 65.38, 12.0),
-        "Ga": (1.26, 1.81, 69.723, 3.0),
+        "Ga": (1.24, 1.81, 69.723, 3.0),
         "Ge": (1.22, 2.01, 72.63, 4.0),
-        "As": (1.20, 2.18, 74.922, -3.0),
+        "As": (1.21, 2.18, 74.922, -3.0),
         "Se": (1.17, 2.55, 78.971, -2.0),
         "Y": (1.80, 1.22, 88.906, 3.0),
         "Zr": (1.60, 1.33, 91.224, 4.0),
         "Nb": (1.46, 1.60, 92.906, 5.0),
         "Mo": (1.39, 2.16, 95.95, 6.0),
-        "Cd": (1.51, 1.69, 112.41, 12.0),
+        "Cd": (1.44, 1.69, 112.41, 12.0),
         "In": (1.67, 1.78, 114.82, 3.0),
         "Sn": (1.40, 1.96, 118.71, 4.0),
         "Sb": (1.40, 2.05, 121.76, -3.0),
-        "Te": (1.42, 2.10, 127.60, -2.0),
+        "Te": (1.36, 2.10, 127.60, -2.0),
         "La": (1.87, 1.10, 138.905, 3.0),
         "Ta": (1.46, 1.50, 180.948, 5.0),
         "W": (1.39, 2.36, 183.84, 6.0),
@@ -372,13 +372,13 @@ class GlobalCrystalStructureSearchEngine:
                 else:
                     if sg_num in [229, 225] and all(p[1] < 2.0 for p in props):
                         # Multi-component solid solution / HEA on high-symmetry Bravais lattice
-                        for elem in elements:
-                            asym_sites.append((elem, np.array([0.0, 0.0, 0.0])))
+                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
                     elif sg_num == 194 and any(e in ["C", "N", "B"] for e in elements):
-                        # Layered MAX Phase / Interstitial Carbide
+                        # Layered MAX Phase / Interstitial Carbide (M_n+1 A X_n)
                         asym_sites.append((elements[0], np.array([1.0/3.0, 2.0/3.0, 0.06])))
                         asym_sites.append((elements[1], np.array([0.0, 0.0, 0.25])))
-                        asym_sites.append((elements[2], np.array([0.0, 0.0, 0.0])))
+                        if len(elements) >= 3:
+                            asym_sites.append((elements[2], np.array([0.0, 0.0, 0.0])))
                     else:
                         for elem_idx, (elem, cnt) in enumerate(composition.items()):
                             f_site = np.array([(elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0])
@@ -437,7 +437,8 @@ class GlobalCrystalStructureSearchEngine:
                 n_avogadro = 6.02214076e23
                 v_atoms_total = sum((4.0 / 3.0) * np.pi * (r**3) for r in site_rcov)
                 dynamic_apf = float(v_atoms_total / max(1e-4, best_vol))
-                total_cell_mass = sum(site_masses)
+                mean_formula_mass = sum(cnt * self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[2] for e, cnt in composition.items()) / max(1e-6, total_atoms)
+                total_cell_mass = len(expanded_sites) * mean_formula_mass
                 density = float(total_cell_mass / (n_avogadro * best_vol * 1.0e-24))
 
                 a_len = float(np.linalg.norm(relaxed_lat[0]))

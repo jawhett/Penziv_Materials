@@ -387,8 +387,8 @@ class ThermomechanicalHistoryEngine:
         elif route == ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6:
             d_um = 30.0
             rho_disl = 4.0e13
-            f_v = 0.035
-            r_p_nm = 7.5
+            f_v = 0.18
+            r_p_nm = 10.0
             sigma_res_mpa = 25.0
             void_frac = max(1e-5, history.void_volume_fraction)
             k_surf = 0.95
