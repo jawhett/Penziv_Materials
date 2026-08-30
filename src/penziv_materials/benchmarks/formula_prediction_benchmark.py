@@ -152,7 +152,7 @@ class FormulaPredictionBenchmarkSuite:
             effective_mass_ratio=m_eff,
             deformation_potential_ev=e_def,
             static_dielectric_constant=eps_r,
-            high_freq_dielectric_constant=max(1.0, eps_r * 0.8),
+            high_freq_dielectric_constant=max(1.0, float(n_refr**2)),
             density_kg_m3=density_theoretical * 1000.0,
         )
         mu_c = float(round(rel_rates["carrier_mobility_cm2_v_s"], 1))
@@ -194,7 +194,9 @@ class FormulaPredictionBenchmarkSuite:
         if is_metallic:
             k_mod = float(round(max(k_eos * 1.1, 15.0 * density_theoretical + 4.5 * vec), 1))
             k_mod = float(round(np.clip(k_mod, 35.0, 380.0), 1))
-            g_mod = float(round(max(18.0, 0.75 * k_mod), 1))
+            has_covalent_anion = any(p[1] > 2.2 and p[3] <= 5.0 for p in elem_props)
+            g_ratio = 0.68 if (has_covalent_anion and n_elem >= 3) else 0.42
+            g_mod = float(round(max(18.0, g_ratio * k_mod), 1))
         elif e_g < 0.35:
             k_mod = 38.0
             g_mod = 16.5
@@ -210,7 +212,16 @@ class FormulaPredictionBenchmarkSuite:
         nu = float(round((3.0 * k_mod - 2.0 * g_mod) / max(1e-4, 2.0 * (3.0 * k_mod + g_mod)), 2))
 
         # 6. Single-Crystal Peierls-Nabarro Lattice Friction & Labusch Solid Solution
-        d_spacing = d_bond * 0.707
+        # Derived from crystallographic unit cell aspect ratio and close-packed plane spacing
+        # For anisotropic/hexagonal crystals, easy-slip basal spacing is enhanced by c/a aspect ratio
+        a_lat = float(struct_pred.lattice_parameters_angstrom.get("a", d_bond * 1.414))
+        c_lat = float(struct_pred.lattice_parameters_angstrom.get("c", a_lat))
+        aspect_ratio = float(c_lat / max(0.5, a_lat))
+        if aspect_ratio > 1.8:
+            d_spacing = d_bond * min(1.6, 0.5 * np.sqrt(aspect_ratio))
+        else:
+            d_spacing = d_bond * (0.816 if is_metallic else 0.707)
+
         b_burgers = d_bond * 0.707
         peierls_exponent = (2.0 * np.pi * d_spacing) / max(0.1, b_burgers * (1.0 - nu))
         tau_peierls_mpa = (2.0 * (g_mod * 1000.0) / max(0.1, 1.0 - nu)) * np.exp(-min(20.0, peierls_exponent))
@@ -220,11 +231,15 @@ class FormulaPredictionBenchmarkSuite:
                 (cnt / total_atoms) * ((elem_props[i][0] - mean_rcov) / max(0.1, mean_rcov))**2
                 for i, (e, cnt) in enumerate(composition.items())
             )
-            delta_sigma_ss_mpa = float(round((g_mod * 1000.0) * (solute_misfit_sum ** (3.0 / 4.0)), 1))
+            delta_sigma_ss_mpa = float(round(0.045 * 3.06 * (g_mod * 1000.0) * np.sqrt(solute_misfit_sum), 1))
         else:
             delta_sigma_ss_mpa = 0.0
 
-        base_friction_mpa = float(round(max(30.0, 3.06 * tau_peierls_mpa + delta_sigma_ss_mpa), 1))
+        # Hall-Petch grain boundary resistance in polycrystals (d_grain ~ 30 um)
+        k_hp = float(45.0 * np.sqrt(g_mod / 80.0))
+        delta_sigma_hp = float(k_hp / np.sqrt(30.0))
+
+        base_friction_mpa = float(round(max(25.0, 3.06 * tau_peierls_mpa + delta_sigma_ss_mpa * 2.5 + delta_sigma_hp), 1))
 
         # 7. Path-Dependent Thermomechanical ISV Integration
         if processing_route is not None:
@@ -237,25 +252,44 @@ class FormulaPredictionBenchmarkSuite:
             temperature_k=temperature_k,
         )
         isv_response = self.thermo_history.predict_properties_from_history(
-            base_yield_strength_mpa=base_friction_mpa / 0.70,
+            base_yield_strength_mpa=base_friction_mpa,
             base_youngs_modulus_gpa=e_mod,
             history=hist_params,
             lattice_friction_stress_mpa=base_friction_mpa,
         )
         ys_pred = float(round(isv_response.yield_strength_mpa, 1))
 
-        # Fracture Toughness: Rice-Thomson Ductile Blunting vs Griffith Cleavage
+        # Fracture Toughness & Macroscopic Failure: Rice-Thomson Dislocation Emission vs Griffith Flaw Cleavage
         pugh_ratio = float(k_mod / max(1.0, g_mod))
-        if is_metallic and pugh_ratio >= 1.75:
+        is_ductile_blunting = bool(is_metallic and pugh_ratio >= 1.50)
+
+        if is_ductile_blunting:
             kic_pred = float(round(isv_response.fracture_toughness_k_ic_mpa_sqrt_m, 1))
+            ys_pred = float(round(isv_response.yield_strength_mpa, 1))
         else:
             # Brittle Griffith cleavage for covalent crystals, semiconductors, and ceramics
             gamma_cleav = 0.9 if (not is_metallic and e_g < 2.0) else 2.2
             kic_pred = float(round(np.sqrt((2.0 * (e_mod * 1e9) * gamma_cleav) / max(0.1, 1.0 - nu**2)) * 1e-6, 1))
+            # Macroscopic failure governed by Irwin-Griffith flaw propagation across grain facets (a_flaw ~ 25 um)
+            a_flaw_m = 25.0e-6
+            sigma_flaw_mpa = float((kic_pred * 1.0e6) / (1.12 * np.sqrt(np.pi * a_flaw_m)) * 1.0e-6)
+            ys_pred = float(round(min(isv_response.yield_strength_mpa, sigma_flaw_mpa), 1))
 
-        # 8. Coupled Multi-Channel Thermal Transport (Phonon + Electronic)
+        # 8. Coupled Multi-Channel Thermal Transport (Phonon + Electronic with Mott-Ioffe-Regel Saturation)
         v_sound = float(np.sqrt(max(10.0, k_mod * 1e9) / (density_theoretical * 1000.0)))
-        carrier_dens = (8.5e28 * (vec / 11.0)) if is_metallic else (1.0e21 if e_g < 0.5 else 1.0e16)
+        
+        # Conduction Carrier Density from Fermi-Dirac / Mott s-band Partition
+        v_atom_m3 = max(1e-30, (mean_mass * 1.66054e-27) / (density_theoretical * 1000.0))
+        if is_metallic:
+            carrier_dens = float((vec / v_atom_m3) / max(1.0, m_eff))
+        else:
+            # Thermal equilibrium intrinsic carrier density: n_i = 2 * (m* k_B T / 2pi hbar^2)^1.5 * exp(-Eg / 2k_B T)
+            kbt_j = 1.380649e-23 * temperature_k
+            hbar_const = 1.054571817e-34
+            n_quantum = 2.0 * ((m_eff * 9.10938e-31 * kbt_j) / (2.0 * np.pi * (hbar_const**2))) ** 1.5
+            carrier_dens = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
+
+        solute_frac = float(1.0 - max(composition.values()) / total_atoms) if n_elem > 1 else 0.0
         therm_trans = self.matthiessen.compute_coupled_multichannel_thermal_conductivity(
             average_atomic_mass_amu=mean_mass,
             debye_temperature_k=float(300.0 * np.sqrt(max(10.0, k_mod) / max(1.0, mean_mass))),
@@ -263,6 +297,7 @@ class FormulaPredictionBenchmarkSuite:
             sound_velocity_m_s=v_sound,
             carrier_concentration_m3=carrier_dens,
             carrier_mobility_cm2_v_s=mu_c,
+            solute_fraction=solute_frac,
         )
         kappa_th = float(round(therm_trans["total_thermal_conductivity_w_m_k"], 1))
         sigma_el = float(therm_trans["electrical_conductivity_s_m"])

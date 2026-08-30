@@ -26,7 +26,7 @@ class MatthiessenTransportEngine:
         high_freq_dielectric_constant: float = 10.0,
         longitudinal_sound_velocity_m_s: float = 5000.0,
         density_kg_m3: float = 7800.0,
-        ionized_impurity_density_m3: float = 1.0e22,
+        ionized_impurity_density_m3: float = 1.0e20,
         dislocation_density_m2: float = 1.0e12,
         grain_size_um: float = 30.0,
         optical_phonon_energy_ev: float = 0.035,
@@ -55,10 +55,16 @@ class MatthiessenTransportEngine:
         hw_opt_j = optical_phonon_energy_ev * E_CHARGE
         # Bose-Einstein occupation of optical phonons
         n_pop = 1.0 / max(1e-6, np.exp(min(50.0, optical_phonon_energy_ev / max(1e-4, k_b_t_ev))) - 1.0)
-        if eps_p_inv > 1e-18:
-            rate_pop = (2.0 * (E_CHARGE**2) * np.sqrt(2.0 * m_eff * hw_opt_j) * (n_pop + 0.5) * eps_p_inv) / (
-                3.0 * np.pi * (HBAR**2)
-            )
+        # Fröhlich dimensionless coupling constant alpha_F
+        alpha_frohlich = float(
+            (E_CHARGE**2) / (4.0 * np.pi * VACUUM_PERMITTIVITY * HBAR)
+            * np.sqrt(m_eff / max(1e-35, 2.0 * hw_opt_j))
+            * (eps_p_inv * VACUUM_PERMITTIVITY)
+        ) if eps_p_inv > 1e-18 else 0.0
+
+        if alpha_frohlich > 1e-6:
+            w_lo = hw_opt_j / HBAR
+            rate_pop = float((2.0 * alpha_frohlich * w_lo * n_pop) / np.sqrt(1.0 + (hw_opt_j / max(1e-25, k_b_t))))
         else:
             rate_pop = 0.0
 
@@ -84,12 +90,30 @@ class MatthiessenTransportEngine:
         d_grain_m = max(0.01, grain_size_um) * 1.0e-6
         rate_gb = v_th / d_grain_m
 
-        rate_total = float(rate_ac + rate_pop + rate_imp + rate_dis + rate_gb)
+        # 6. Mott s-d Interband Scattering for Transition Metals with d-band DOS
+        rate_sd = float(1.2e14 * (max(0.0, effective_mass_ratio - 1.0) / max(0.5, deformation_potential_ev)))
+
+        rate_total = float(rate_ac + rate_pop + rate_imp + rate_dis + rate_gb + rate_sd)
         tau_total = 1.0 / max(1e6, rate_total)
 
-        # Carrier mobility mu = e * tau / m_eff (in cm^2 / V*s)
-        mobility_m2_v_s = (E_CHARGE * tau_total) / m_eff
-        mobility_cm2_v_s = float(mobility_m2_v_s * 1.0e4)
+        # Carrier mobility: Evaluate Fröhlich polaron coupling constant alpha_F
+        alpha_frohlich = float(
+            (E_CHARGE**2) / (4.0 * np.pi * VACUUM_PERMITTIVITY * HBAR)
+            * np.sqrt(m_eff / max(1e-35, 2.0 * hw_opt_j))
+            * (eps_p_inv * VACUUM_PERMITTIVITY)
+        ) if eps_p_inv > 1e-18 else 0.0
+
+        if alpha_frohlich >= 1.0:
+            # Strong electron-phonon coupling collapses wavepacket to localized small polaron (Holstein hopping)
+            e_hop_j = 0.12 * hw_opt_j * max(1.5, alpha_frohlich)
+            a_jump = 3.0e-10
+            w_lo = hw_opt_j / HBAR
+            mu_polaron = ((E_CHARGE * (a_jump**2) * w_lo) / (6.0 * k_b_t)) * np.exp(-min(40.0, e_hop_j / max(1e-25, k_b_t)))
+            mobility_cm2_v_s = float(np.clip(mu_polaron * 1.0e4, 0.05, 0.5))
+        else:
+            # Delocalized Bloch wave momentum relaxation
+            mobility_m2_v_s = (E_CHARGE * tau_total) / m_eff
+            mobility_cm2_v_s = float(np.clip(mobility_m2_v_s * 1.0e4, 0.05, 50000.0))
 
         return {
             "rate_acoustic_phonon_s_inv": float(rate_ac),
@@ -97,9 +121,11 @@ class MatthiessenTransportEngine:
             "rate_ionized_impurity_s_inv": float(rate_imp),
             "rate_dislocation_s_inv": float(rate_dis),
             "rate_grain_boundary_s_inv": float(rate_gb),
+            "rate_mott_sd_s_inv": float(rate_sd),
             "rate_total_s_inv": rate_total,
             "relaxation_time_tau_s": float(tau_total),
-            "carrier_mobility_cm2_v_s": float(np.clip(mobility_cm2_v_s, 0.05, 50000.0)),
+            "carrier_mobility_cm2_v_s": mobility_cm2_v_s,
+            "frohlich_coupling_alpha": alpha_frohlich,
         }
 
     def compute_coupled_multichannel_thermal_conductivity(
@@ -156,12 +182,17 @@ class MatthiessenTransportEngine:
         # 5. Electronic Thermal Conductivity via Wiedemann-Franz Law with Degeneracy Lorenz Ratio
         mu_m2 = carrier_mobility_cm2_v_s * 1.0e-4
         sigma_el = carrier_concentration_m3 * E_CHARGE * mu_m2  # S/m
-        # Sommerfeld degenerate Lorenz number L0 = pi^2/3 * (k_B/e)^2 = 2.44e-8 W*Ohm/K^2
-        # Non-degenerate limit L_nondeg = 2.0 * (k_B/e)^2 = 1.48e-8
         is_metal = carrier_concentration_m3 > 1.0e26
         lorenz_number = 2.44e-8 if is_metal else 1.65e-8
-        kappa_electronic = float(lorenz_number * sigma_el * self.T)
 
+        # Mott-Ioffe-Regel saturation in concentrated multi-component solid solutions
+        sigma_mir_sat = float(1.2e6)  # Minimum metallic conductivity limit ~ 1.2e6 S/m
+        if is_metal and solute_fraction > 0.05:
+            sigma_eff = (sigma_el * sigma_mir_sat) / max(1.0, sigma_el + sigma_mir_sat)
+        else:
+            sigma_eff = sigma_el
+
+        kappa_electronic = float(lorenz_number * sigma_eff * self.T)
         kappa_total = float(kappa_lattice + kappa_electronic)
 
         return {

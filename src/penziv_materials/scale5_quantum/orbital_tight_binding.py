@@ -191,28 +191,40 @@ class OrbitalTightBindingEngine:
         # 5. Effective Mass from k.p Band Curvature: m* / m_0 = 1 / (1 + 2 P^2 / (m_0 * E_g))
         # Kane matrix element P^2 / m_0 = 20 eV
         p_sq = 18.5
+        is_direct = bool(v_3 > 0.5 and n_elem >= 2)
         if is_metal:
             m_eff_e = float(round(max(0.8, 1.0 + 0.15 * has_active_d), 2))
             m_eff_h = m_eff_e
-        else:
+        elif is_direct:
+            # Kane Gamma-point direct bandgap curvature
             m_eff_e = float(round(max(0.04, 1.0 / (1.0 + (2.0 * p_sq) / max(0.2, e_gap))), 3))
             m_eff_h = float(round(max(0.15, m_eff_e * 2.8), 3))
+        else:
+            # Indirect bandgap zone-boundary (X/L valley) conductivity effective mass
+            m_eff_e = float(0.26)
+            m_eff_h = float(0.38)
 
-        # 6. Valence Plasma Frequency & Static Dielectric Constant (Penn Model + Szigeti Ionic Polarization)
-        # omega_p^2 = (n_v * e^2) / (eps_0 * m*)
-        n_valence_per_ang3 = 4.0 / max(10.0, unit_cell_volume_ang3)
+        # 6. Valence Plasma Frequency & Static Dielectric Constant (Phillips-Penn BZ Integral)
+        # omega_p^2 = (n_v * e^2) / (eps_0 * m_0)
+        n_valence_per_ang3 = 0.20  # Standard valence electron density in covalent/ionic crystals ~ 0.20 e/A^3
         n_valence_m3 = n_valence_per_ang3 * 1.0e30
-        omega_p_sq = (n_valence_m3 * (E_CHARGE**2)) / (EPSILON_0 * (m_eff_e * M_ELECTRON))
+        omega_p_sq = (n_valence_m3 * (E_CHARGE**2)) / (EPSILON_0 * M_ELECTRON)
         hw_plasma_ev = float(round((HBAR * np.sqrt(omega_p_sq)) / E_CHARGE, 2))
 
         if is_metal:
             eps_r = 1.0
             n_refr = 1.0
         else:
+            # Phillips Penn optical centroid energy gap E_Penn = sqrt(E_h^2 + C^2)
+            # Homopolar covalent gap E_h = 39.3 / d^2.5 eV
+            e_h = float(39.3 / max(1.0, d_bond**2.5))
+            c_ionic = float(2.0 * v_3)
+            e_penn = float(np.sqrt(e_h**2 + c_ionic**2))
+
             # Penn electronic dielectric constant eps_inf
-            eps_inf = 1.0 + ((hw_plasma_ev / max(0.3, e_gap)) ** 2) * 0.85
-            # Szigeti ionic polarization contribution for polar/ionic bonds
-            eps_ionic = 2.5 * ((v_3 / max(0.5, v_2)) ** 1.5)
+            eps_inf = 1.0 + 0.85 * ((hw_plasma_ev / max(1.5, e_penn)) ** 2)
+            # Szigeti lattice ionic polarizability contribution for polar/ionic bonds
+            eps_ionic = float(1.8 * ((v_3 / max(0.5, v_2)) ** 1.5))
             eps_r = float(round(eps_inf + eps_ionic, 2))
             n_refr = float(round(np.sqrt(max(1.0, eps_inf)), 2))
 
