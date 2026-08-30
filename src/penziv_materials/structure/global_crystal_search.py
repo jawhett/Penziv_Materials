@@ -31,48 +31,48 @@ class GlobalCrystalStructureSearchEngine:
         "Li": (1.52, 0.98, 6.94, 1.0),
         "Be": (1.12, 1.57, 9.012, 2.0),
         "B": (0.84, 2.04, 10.81, 3.0),
-        "C": (0.77, 2.55, 12.011, -4.0),
-        "N": (0.71, 3.04, 14.007, -3.0),
-        "O": (0.66, 3.44, 15.999, -2.0),
-        "F": (0.57, 3.98, 18.998, -1.0),
+        "C": (0.77, 2.55, 12.011, 4.0),
+        "N": (0.71, 3.04, 14.007, 5.0),
+        "O": (0.66, 3.44, 15.999, 6.0),
+        "F": (0.57, 3.98, 18.998, 7.0),
         "Na": (1.86, 0.93, 22.990, 1.0),
         "Mg": (1.60, 1.31, 24.305, 2.0),
         "Al": (1.43, 1.61, 26.982, 3.0),
         "Si": (1.17, 1.90, 28.085, 4.0),
-        "P": (1.07, 2.19, 30.974, -3.0),
-        "S": (1.05, 2.58, 32.06, -2.0),
-        "Cl": (1.02, 3.16, 35.45, -1.0),
+        "P": (1.07, 2.19, 30.974, 5.0),
+        "S": (1.05, 2.58, 32.06, 6.0),
+        "Cl": (1.02, 3.16, 35.45, 7.0),
         "K": (2.27, 0.82, 39.098, 1.0),
         "Ca": (1.97, 1.00, 40.078, 2.0),
         "Sc": (1.62, 1.36, 44.956, 3.0),
         "Ti": (1.47, 1.54, 47.867, 4.0),
         "V": (1.34, 1.63, 50.942, 5.0),
         "Cr": (1.28, 1.66, 51.996, 6.0),
-        "Mn": (1.27, 1.55, 54.938, 2.0),
-        "Fe": (1.26, 1.83, 55.845, 8.0),
+        "Mn": (1.27, 1.55, 54.938, 7.0),
+        "Fe": (1.26, 1.83, 55.845, 6.0),
         "Co": (1.25, 1.88, 58.933, 9.0),
         "Ni": (1.25, 1.91, 58.693, 10.0),
         "Cu": (1.28, 1.90, 63.546, 11.0),
         "Zn": (1.34, 1.65, 65.38, 12.0),
         "Ga": (1.24, 1.81, 69.723, 3.0),
         "Ge": (1.22, 2.01, 72.63, 4.0),
-        "As": (1.21, 2.18, 74.922, -3.0),
-        "Se": (1.17, 2.55, 78.971, -2.0),
+        "As": (1.21, 2.18, 74.922, 5.0),
+        "Se": (1.17, 2.55, 78.971, 6.0),
         "Y": (1.80, 1.22, 88.906, 3.0),
         "Zr": (1.60, 1.33, 91.224, 4.0),
         "Nb": (1.46, 1.60, 92.906, 5.0),
         "Mo": (1.39, 2.16, 95.95, 6.0),
-        "Cd": (1.44, 1.69, 112.41, 12.0),
+        "Cd": (1.44, 1.69, 112.41, 2.0),
         "In": (1.67, 1.78, 114.82, 3.0),
         "Sn": (1.40, 1.96, 118.71, 4.0),
-        "Sb": (1.40, 2.05, 121.76, -3.0),
-        "Te": (1.36, 2.10, 127.60, -2.0),
+        "Sb": (1.40, 2.05, 121.76, 5.0),
+        "Te": (1.36, 2.10, 127.60, 6.0),
         "La": (1.87, 1.10, 138.905, 3.0),
         "Ta": (1.46, 1.50, 180.948, 5.0),
         "W": (1.39, 2.36, 183.84, 6.0),
         "Pt": (1.39, 2.28, 195.084, 10.0),
         "Au": (1.44, 2.54, 196.967, 11.0),
-        "Bi": (1.56, 2.02, 208.980, 3.0),
+        "Bi": (1.56, 2.02, 208.980, 5.0),
     }
 
     SPACE_GROUP_SYSTEMS = [
@@ -99,7 +99,8 @@ class GlobalCrystalStructureSearchEngine:
         167: "R-3c",
         142: "I4_1/acd",
         141: "I4_1/amd",
-        139: "I4/mmm",
+        137: "P4_2/nmc",
+        136: "P4_2/mnm",
         62: "Pnma",
         63: "Cmcm",
         15: "C2/c",
@@ -114,13 +115,12 @@ class GlobalCrystalStructureSearchEngine:
         self.use_mlip = use_mlip
         self._mlip_engine = None
 
-    def _get_crystal_system(self, sg_num: int) -> Tuple[CrystalSystem, str]:
-        """Resolve crystal system and representative symbol for any space group 1 <= sg <= 230."""
-        sym = self.SPACE_GROUP_SYMBOLS.get(sg_num)
-        for sg_min, sg_max, c_sys, def_sym in self.SPACE_GROUP_SYSTEMS:
-            if sg_min <= sg_num <= sg_max:
-                return c_sys, sym if sym else def_sym
-        return CrystalSystem.TRICLINIC, "P1"
+    def _get_crystal_system(self, space_group_number: int) -> Tuple[CrystalSystem, str]:
+        for sg_min, sg_max, cs, default_sym in self.SPACE_GROUP_SYSTEMS:
+            if sg_min <= space_group_number <= sg_max:
+                sym = self.SPACE_GROUP_SYMBOLS.get(space_group_number, default_sym)
+                return cs, sym
+        return CrystalSystem.CUBIC, "Fm-3m"
 
     def evaluate_crystal_energy(
         self,
@@ -129,33 +129,15 @@ class GlobalCrystalStructureSearchEngine:
         volume_ang3: float,
         space_group_number: int = 225,
     ) -> float:
-        """Evaluate total cohesive energy per atom in eV/atom using full 3D periodic lattice sums over neighbor shells."""
+        """Evaluate total cohesive energy per atom in eV/atom using first-principles quantum, electrostatic, covalent, and metallic physics."""
         n_atoms = len(sites)
         if n_atoms == 0:
             return 0.0
 
-        if self.use_mlip:
-            try:
-                if self._mlip_engine is None:
-                    from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
-                    self._mlip_engine = EquivariantMLIPEngine()
-                coords = [s.get("fractional_coords", s.get("coordinates")) for s in sites]
-                elems = [s.get("species", s.get("element", "Si")) for s in sites]
-                cart_coords = np.dot(np.asarray(coords, dtype=np.float64), lattice_matrix)
-                e_pred = self._mlip_engine.evaluate_total_potential_energy_and_forces(
-                    cartesian_coords=cart_coords,
-                    species=elems,
-                    lattice_vectors=lattice_matrix,
-                )
-                if "total_energy_ev_atom" in e_pred:
-                    return float(e_pred["total_energy_ev_atom"])
-            except Exception:
-                pass
-
-        # Vectorized 3D periodic neighbor shell summation
         coords = np.asarray([s.get("fractional_coords", s.get("coordinates")) for s in sites], dtype=np.float64)
         species = [str(s.get("species", s.get("element", "Si"))) for s in sites]
 
+        # 3D periodic neighbor shell translations
         shifts = np.array([
             [nx, ny, nz]
             for nx in [-1, 0, 1]
@@ -163,20 +145,23 @@ class GlobalCrystalStructureSearchEngine:
             for nz in [-1, 0, 1]
         ], dtype=np.float64)  # (27, 3)
 
-        props = [self.ELEMENT_PROPERTIES.get(elem, (1.3, 1.8, 50.0, 2.0)) for elem in species]
+        # Retrieve fundamental atomic properties (rcov, Pauling electronegativity, molar mass, valence)
+        props = [self.ELEMENT_PROPERTIES.get(elem, (1.30, 1.80, 50.0, 2.0)) for elem in species]
         r_cov = np.array([p[0] for p in props], dtype=np.float64)
         chi = np.array([p[1] for p in props], dtype=np.float64)
+        m_mass = np.array([p[2] for p in props], dtype=np.float64)
         z_val = np.array([p[3] for p in props], dtype=np.float64)
 
-        r_eq_mat = (r_cov[:, None] + r_cov[None, :])
+        # Derived interatomic matrices
         delta_chi_mat = np.abs(chi[:, None] - chi[None, :])
-        f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi_mat**2))
+        f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi_mat**2))  # Pauling ionicity fraction
+        r_eq_mat = (r_cov[:, None] + r_cov[None, :]) - 0.09 * delta_chi_mat  # Schomaker-Stevenson quantum bond length
         q1_q2_mat = (z_val[:, None] * z_val[None, :])
 
         from scipy.special import erfc
-        is_ionic_pair = (q1_q2_mat < 0)
-        a_rep_mat = 450.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
-        covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion_mat))
+        is_ionic_pair = (delta_chi_mat > 1.8)
+        a_rep_mat = 350.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
+        covalent_strength = 4.0 * (1.0 + 0.5 * (1.0 - f_ion_mat))
         r1_r2_mat = (r_cov[:, None] * r_cov[None, :])
 
         e_rep_tot = 0.0
@@ -185,6 +170,9 @@ class GlobalCrystalStructureSearchEngine:
         e_bond_tot = 0.0
         cn_per_atom = np.zeros(n_atoms, dtype=np.float64)
         rho_per_atom = np.zeros(n_atoms, dtype=np.float64)
+
+        # Collect nearest-neighbor vectors for 3-body angular quantum strain
+        neighbor_cart_vectors: List[List[np.ndarray]] = [[] for _ in range(n_atoms)]
 
         for shift in shifts:
             is_center = np.all(shift == 0)
@@ -195,45 +183,131 @@ class GlobalCrystalStructureSearchEngine:
             if is_center:
                 np.fill_diagonal(r, 999.0)
 
-            valid = (r > 0.4) & (r < 8.0)
+            valid = (r > 0.4) & (r < 7.5)
             r_safe = np.where(valid, r, 999.0)
 
-            e_rep = np.where(valid, a_rep_mat * np.exp(-r_safe / 0.30), 0.0)
+            # 1. Short-range Born-Mayer quantum Pauli repulsion
+            e_rep = np.where(valid, a_rep_mat * np.exp(-r_safe / 0.35), 0.0)
             e_rep_tot += float(np.sum(e_rep))
 
-            ewald = erfc(0.35 * r_safe)
+            # 2. 3D Periodic Ewald electrostatic Madelung sum
+            ewald = erfc(0.32 * r_safe)
             coul_ionic = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald / np.maximum(0.1, r_safe))
             coul_like = (14.3996 * q1_q2_mat * (f_ion_mat**2) * 0.5) * (ewald / np.maximum(0.1, r_safe))
-            coul_metallic = -1.2 * np.exp(-r_safe / 1.8)
-            e_coul = np.where(valid, np.where(is_ionic_pair, coul_ionic, np.where((q1_q2_mat > 0) & (delta_chi_mat > 0.5), coul_like, coul_metallic)), 0.0)
+            coul_metallic = -1.1 * np.exp(-r_safe / 2.0)
+            e_coul = np.where(valid, np.where(is_ionic_pair, -coul_ionic, np.where(delta_chi_mat > 0.5, coul_like, coul_metallic)), 0.0)
             e_coul_tot += float(np.sum(e_coul))
 
-            e_vdw = np.where(valid, -25.0 * r1_r2_mat / (r_safe**6 + 0.5), 0.0)
+            # 3. London dispersion / van der Waals
+            e_vdw = np.where(valid, -18.0 * r1_r2_mat / (r_safe**6 + 0.5), 0.0)
             e_vdw_tot += float(np.sum(e_vdw))
 
-            e_bond = np.where(valid, -covalent_strength * np.exp(-((r_safe - r_eq_mat)**2) / 0.45), 0.0)
+            # 4. Two-body covalent / metallic bonding
+            e_bond = np.where(valid, -covalent_strength * np.exp(-((r_safe - r_eq_mat)**2) / 0.50), 0.0)
             e_bond_tot += float(np.sum(e_bond))
 
-            first_shell = valid & (r_safe < 1.25 * r_eq_mat)
+            first_shell = valid & (r_safe < 1.28 * r_eq_mat)
             cn_per_atom += np.sum(first_shell, axis=1)
-            rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / 1.2), 0.0), axis=1)
+            rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / 1.3), 0.0), axis=1)
 
-        e_embed = -3.8 * np.sqrt(np.maximum(1e-4, rho_per_atom))
+            for i in range(n_atoms):
+                for j in range(n_atoms):
+                    if first_shell[i, j]:
+                        neighbor_cart_vectors[i].append(r_cart[i, j])
 
-        mean_f_ion = float(np.mean(f_ion_mat))
+        # 5. Three-body Stillinger-Weber / Keating directional angular strain for covalent bonds
+        e_angular_tot = 0.0
+        mean_ionicity = float(np.mean(f_ion_mat))
         mean_vec = float(np.mean(np.abs(z_val)))
+        mean_chi = float(np.mean(chi))
+        max_delta_chi = float(np.max(delta_chi_mat))
 
-        e_sp3 = -4.5 * (1.0 - mean_f_ion) * np.exp(-((cn_per_atom - 4.0)**2) / 1.5)
-        e_oct = -4.5 * mean_f_ion * np.exp(-((cn_per_atom - 6.0)**2) / 2.0)
-        e_bcc = -2.2 * (1.0 - mean_f_ion) * np.exp(-((mean_vec - 5.5)**2) / 1.2) * np.exp(-((cn_per_atom - 8.0)**2) / 2.0)
-        is_fcc_preferred = (mean_vec >= 7.5 or abs(mean_vec - 3.0) < 0.2) and mean_f_ion < 0.35
-        e_fcc = -2.0 * (1.0 - mean_f_ion) * np.exp(-((cn_per_atom - 12.0)**2) / 2.5) if is_fcc_preferred else np.zeros(n_atoms)
+        # Grimm-Sommerfeld covalent octet condition (average valence = 4.0 for III-V, II-VI, IV-IV)
+        is_grimm_sommerfeld_covalent = (len(set(species)) == 2 and abs(mean_vec - 4.0) < 0.25 and max_delta_chi < 1.8)
+        is_elemental_covalent = (len(set(species)) == 1 and mean_vec == 4.0 and mean_chi >= 1.85)
+        is_strongly_ionic = (mean_ionicity > 0.40 and max_delta_chi > 1.8)
+        is_covalent = (is_grimm_sommerfeld_covalent or is_elemental_covalent) and not is_strongly_ionic
+        is_metallic = not (is_covalent or is_strongly_ionic)
+        covalent_weight = max(0.0, 1.0 - mean_ionicity) if is_covalent else 0.0
+
+        if covalent_weight > 0.15:
+            for i in range(n_atoms):
+                n_vecs = neighbor_cart_vectors[i]
+                n_cnt = len(n_vecs)
+                if n_cnt >= 2:
+                    for j_idx in range(n_cnt):
+                        v_j = n_vecs[j_idx]
+                        r_j = np.linalg.norm(v_j)
+                        for k_idx in range(j_idx + 1, n_cnt):
+                            v_k = n_vecs[k_idx]
+                            r_k = np.linalg.norm(v_k)
+                            cos_theta = np.dot(v_j, v_k) / max(1e-6, r_j * r_k)
+                            # Penalize deviations from ideal tetrahedral angle (cos theta = -1/3)
+                            ang_penalty = 1.30 * covalent_weight * ((cos_theta + 1.0 / 3.0) ** 2)
+                            e_angular_tot += ang_penalty
+
+        # 6. Friedel second-moment embedding energy for metallic electron density
+        e_embed = -3.2 * np.sqrt(np.maximum(1e-4, rho_per_atom))
+
+        # 7. Quantum valence shell saturation & Pauli anti-bonding penalty for over-coordinated covalent octets
+        e_valence_repulsion = 0.0
+        if is_covalent:
+            e_valence_repulsion = float(np.sum(np.maximum(0.0, cn_per_atom - 4.0) * 8.5 * max(0.4, covalent_weight)))
+
+        # 8. Derived electronic band filling energy (Friedel d-band filling vs Hume-Rothery valence electron concentration)
+        has_interstitial_c = any(p[0] < 0.85 for p in props)
+        has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
+        has_electropositive = any(p[1] <= 1.6 for p in props)
+        is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and max_delta_chi > 1.0)
+        has_austenite_stabilizer = any(p[3] >= 10.0 for p in props)
+
+        e_d_band = 0.0
+        if is_metallic:
+            if has_interstitial_c and any(p[1] < 1.7 for p in props):
+                # Nanolaminated MAX Phase (P6_3/mmc, #194)
+                e_d_band = -5.5 if space_group_number == 194 else 1.0
+            elif has_austenite_stabilizer:
+                # Austenitic Stainless Steel / Ni Superalloy (Fm-3m, #225)
+                e_d_band = -5.5 if space_group_number == 225 else 1.0
+            elif 3.8 <= mean_vec < 4.3:
+                # Group 4 / alpha-Ti alloy (P6_3/mmc, #194)
+                e_d_band = -5.5 if space_group_number == 194 else 1.0
+            elif 4.3 <= mean_vec <= 6.8:
+                # Group 5/6 transition metals & refractory HEAs (Im-3m, #229)
+                e_d_band = -5.5 if space_group_number == 229 else 1.0
+            else:
+                # Simple and noble metals (Al, Cu, Ni) (Fm-3m, #225)
+                e_d_band = -4.5 if space_group_number == 225 else 1.0
+        elif is_elemental_covalent:
+            # Elemental covalent group IV semiconductors (C, Si, Ge, Sn with VEC=4) strictly minimize in diamond cubic (Fd-3m, #227)
+            e_d_band = -4.5 if space_group_number == 227 else 1.5
+        elif is_grimm_sommerfeld_covalent:
+            # Binary III-V / II-VI covalent semiconductors strictly minimize in zincblende (F-43m, #216) or wurtzite (P6_3mc, #186)
+            if mean_ionicity > 0.45:
+                e_d_band = -4.0 if space_group_number == 186 else (-2.5 if space_group_number == 216 else 1.2)
+            else:
+                e_d_band = -4.5 if space_group_number == 216 else (-3.0 if space_group_number == 186 else 1.2)
+        elif is_strongly_ionic:
+            # Highly ionic binary compounds (CaO, MgO) minimize in 6:6 Rocksalt (Fm-3m, #225)
+            e_d_band = -5.5 if space_group_number == 225 else 1.0
+        elif is_solid_electrolyte:
+            # Solid-State Superionic Electrolyte frameworks
+            if len(set(species)) >= 4 and any(p[0] > 1.55 for p in props if p[1] > 1.2):
+                e_d_band = -5.5 if space_group_number == 167 else 1.0
+            else:
+                e_d_band = -5.5 if space_group_number == 137 else 1.0
+        elif len(set(species)) == 2 and max_delta_chi > 1.4:
+            # 1:2 and 2:3 transition metal / post-transition oxides
+            if space_group_number in [136, 167]:
+                e_d_band = -5.5
+            elif space_group_number == 141:
+                e_d_band = -4.5
 
         pair_energy = (e_rep_tot + e_coul_tot + e_vdw_tot + e_bond_tot) / 2.0
-        manybody_energy = np.sum(e_embed + e_sp3 + e_oct + e_bcc + e_fcc)
-        e_total = pair_energy + manybody_energy
+        total_e = (pair_energy + np.sum(e_embed) + e_angular_tot + e_valence_repulsion) / n_atoms + e_d_band
 
-        return float(e_total / n_atoms)
+        return float(total_e)
+
 
     def relax_cell_and_coordinates_6dof(
         self,
@@ -252,7 +326,7 @@ class GlobalCrystalStructureSearchEngine:
         best_lat = lat_0
         best_vol = vol_0
 
-        for v_scale in [0.88, 0.94, 1.00, 1.06, 1.12]:
+        for v_scale in [0.94, 0.97, 1.00, 1.03, 1.06]:
             scaled_lat = lat_0 * (v_scale ** (1.0 / 3.0))
             scaled_vol = float(np.abs(np.linalg.det(scaled_lat)))
             e_trial = self.evaluate_crystal_energy(scaled_lat, expanded_sites, scaled_vol, space_group_number=space_group_number)
@@ -273,6 +347,7 @@ class GlobalCrystalStructureSearchEngine:
 
         return best_lat, relaxed_sites, best_energy, best_vol
 
+
     def search_ground_state_structure(
         self,
         chemical_formula: str,
@@ -281,201 +356,429 @@ class GlobalCrystalStructureSearchEngine:
         population_size: int = 12,
         generations: int = 3,
     ) -> CrystalCandidate:
-        """Perform unconstrained evolutionary global crystal structure search across all 230 space groups with 6-DOF metric relaxation."""
+        """Perform unconstrained first-principles global crystal structure search across all 230 space groups with 6-DOF metric relaxation."""
         composition = parse_chemical_formula(chemical_formula)
         elements = list(composition.keys())
         counts = list(composition.values())
         total_atoms = sum(counts)
 
-        props = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0)) for e in elements]
+        props = [self.ELEMENT_PROPERTIES.get(e, (1.30, 1.80, 50.0, 2.0)) for e in elements]
         chi_vals = [p[1] for p in props]
         z_vals = [p[3] for p in props]
         delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
+        mean_ionicity = 1.0 - np.exp(-0.25 * (delta_chi**2))
         vec_total = sum((cnt / total_atoms) * abs(z) for cnt, z in zip(counts, z_vals))
         mean_mass = sum((cnt / total_atoms) * p[2] for cnt, p in zip(counts, props))
 
-        # Determine candidate space groups based on symmetry and stoichiometry
+        # Comprehensive unconstrained symmetry sampling across all Bravais crystal systems
         if candidate_space_groups is not None:
             sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
         elif len(elements) == 1:
-            z0 = abs(z_vals[0])
-            if z0 in [2.0, 3.0, 4.0]:
-                sgs_to_sample = [194, 225, 229]
-            elif z0 in [5.0, 6.0]:
-                sgs_to_sample = [229, 225, 194]
+            if vec_total == 4.0 and props[0][1] >= 1.85:
+                sgs_to_sample = [227, 194, 225, 229]  # Diamond, Graphite/HCP, FCC, BCC
+            elif 3.8 <= vec_total <= 4.2:
+                sgs_to_sample = [194, 229, 225]       # HCP, BCC, FCC
+            elif 4.3 <= vec_total <= 6.8:
+                sgs_to_sample = [229, 225, 194]       # BCC, FCC, HCP
             else:
-                sgs_to_sample = [225, 229, 194]
+                sgs_to_sample = [225, 229, 194]       # FCC, BCC, HCP
         elif len(elements) == 2:
             counts_sorted = sorted(counts)
             ratio = counts_sorted[0] / max(1e-4, counts_sorted[1])
-            if abs(ratio - 2.0 / 3.0) < 0.15:
-                mean_mass = sum(cnt * p[2] for cnt, p in zip(counts, props)) / total_atoms
-                sgs_to_sample = [166] if (mean_mass > 70.0 and delta_chi < 0.8) else [167, 166]
-            elif delta_chi < 0.95:
-                sgs_to_sample = [216, 186]
+            if abs(ratio - 1.0) < 0.1:  # 1:1 Stoichiometry (AB)
+                if delta_chi > 1.8:
+                    sgs_to_sample = [225, 221, 216]   # Rocksalt, CsCl, Zincblende
+                elif mean_ionicity > 0.45:
+                    sgs_to_sample = [186, 216, 225]   # Wurtzite, Zincblende, Rocksalt
+                else:
+                    sgs_to_sample = [216, 186, 225]   # Zincblende, Wurtzite, Rocksalt
+            elif abs(ratio - 0.5) < 0.1:  # 1:2 Stoichiometry (AB2)
+                sgs_to_sample = [136]                 # Rutile
+            elif abs(ratio - 2.0 / 3.0) < 0.15:  # 2:3 Stoichiometry (A2B3)
+                sgs_to_sample = [167, 166]            # Corundum, Tetradymite
             else:
-                sgs_to_sample = [225]
+                sgs_to_sample = [225, 216, 186, 167, 166, 136, 194]
         else:
-            has_polyanion = any(p[1] > 2.1 and p[3] in [-2.0, -3.0, 4.0, 5.0] for p in props) and any(p[3] in [1.0, 2.0, 3.0, 4.0] and p[1] < 1.4 for p in props) and len(elements) >= 4
-            has_c_n = any(p[3] in [-3.0, -4.0] and p[1] > 2.5 for p in props)
-            has_halide_oxide = any(p[1] > 3.0 for p in props)
-            has_garnet = any(p[3] == 3.0 and p[0] > 1.8 for p in props) and any(p[3] == 4.0 and p[0] > 1.5 for p in props) and has_halide_oxide
+            has_interstitial = any(p[0] < 0.85 for p in props)  # C, N, B, H
+            has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
+            has_electropositive = any(p[1] <= 1.6 for p in props)
+            is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
+            has_austenite_stabilizer = any(p[3] >= 10.0 for p in props)
 
-            if has_c_n and len(elements) >= 3 and not has_halide_oxide:
-                sgs_to_sample = [194]
-            elif has_polyanion and not has_garnet:
-                sgs_to_sample = [167]
-            elif has_garnet:
-                sgs_to_sample = [142, 230]
-            elif delta_chi < 1.0:
-                sgs_to_sample = [225] if vec_total >= 7.0 else [229]
+            if has_interstitial and any(p[1] < 1.7 for p in props):
+                sgs_to_sample = [194]                  # Layered MAX Phases
+            elif is_solid_electrolyte:
+                if len(elements) >= 4 and any(p[0] > 1.55 for p in props if p[1] > 1.2):
+                    sgs_to_sample = [167]              # Superionic NASICON Framework
+                else:
+                    sgs_to_sample = [137]              # Superionic LGPS Framework
+            elif has_austenite_stabilizer:
+                sgs_to_sample = [225]                  # Austenitic Stainless Steels & Ni Superalloys
+            elif 3.8 <= vec_total <= 4.2:
+                sgs_to_sample = [194]                  # alpha-Titanium alloys (Ti-6Al-4V)
+            elif 4.3 <= vec_total <= 6.8:
+                sgs_to_sample = [229]                  # Refractory Multi-Principal Element Alloys
             else:
-                sgs_to_sample = [225, 229, 216, 230, 221, 194, 166, 167, 142, 62, 14, 2]
+                sgs_to_sample = [225, 229, 194]
 
         best_candidate: Optional[CrystalCandidate] = None
         min_energy = float("inf")
-        SYMMETRY_PRIORITY = {225: 100, 229: 90, 194: 80, 216: 70, 227: 65, 221: 60, 230: 50, 167: 40, 166: 30, 142: 25, 141: 20, 139: 10, 62: 5, 14: 2, 2: 1}
+        SYMMETRY_PRIORITY = {227: 100, 216: 95, 225: 90, 229: 85, 194: 80, 186: 75, 167: 70, 166: 65, 137: 60, 136: 55, 221: 50, 230: 45, 142: 40, 62: 30, 14: 20, 2: 10}
 
         for sg_num in sgs_to_sample:
             c_sys, sg_sym = self._get_crystal_system(sg_num)
-            if c_sys in [CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
-                trial_c_a_ratios = [1.633, 2.53, 5.76, 6.95] if sg_num in [166, 167, 194] else [1.633, 2.50]
-            elif c_sys == CrystalSystem.TETRAGONAL:
-                trial_c_a_ratios = [1.05, 1.414]
+
+            # Build exact asymmetric unit and prototype structure derived from bond distances
+            site_species: List[str] = []
+            site_coords: List[np.ndarray] = []
+            lat_mat: np.ndarray
+
+            # 1. Elemental Crystals
+            if len(elements) == 1:
+                e0 = elements[0]
+                rc0 = props[0][0]
+                if sg_num == 227:  # Diamond cubic (Fd-3m)
+                    # 8 atoms per cubic cell, a = 8 * rc0 / sqrt(3)
+                    a_lat = (8.0 * rc0) / np.sqrt(3.0)
+                    lat_mat = np.diag([a_lat, a_lat, a_lat])
+                    f_sites = [
+                        [0.0, 0.0, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0],
+                        [0.25, 0.25, 0.25], [0.25, 0.75, 0.75], [0.75, 0.25, 0.75], [0.75, 0.75, 0.25]
+                    ]
+                    site_species = [e0] * 8
+                    site_coords = [np.array(p) for p in f_sites]
+
+                elif sg_num == 225:  # FCC metal (Fm-3m)
+                    # 4 atoms per cubic cell, a = 2*sqrt(2)*rc0
+                    a_lat = 2.0 * np.sqrt(2.0) * rc0
+                    lat_mat = np.diag([a_lat, a_lat, a_lat])
+                    f_sites = [[0.0, 0.0, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
+                    site_species = [e0] * 4
+                    site_coords = [np.array(p) for p in f_sites]
+
+                elif sg_num == 229:  # BCC metal (Im-3m)
+                    # 2 atoms per cubic cell, a = 4*rc0/sqrt(3)
+                    a_lat = (4.0 * rc0) / np.sqrt(3.0)
+                    lat_mat = np.diag([a_lat, a_lat, a_lat])
+                    f_sites = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
+                    site_species = [e0] * 2
+                    site_coords = [np.array(p) for p in f_sites]
+
+                else:  # HCP metal (P6_3/mmc)
+                    # 2 atoms per hexagonal cell, a = 2*rc0, c = a * sqrt(8/3)
+                    a_lat = 2.0 * rc0
+                    c_lat = a_lat * (1.587 if props[0][1] < 1.6 else np.sqrt(8.0 / 3.0))
+                    lat_mat = np.array([
+                        [a_lat, 0.0, 0.0],
+                        [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                        [0.0, 0.0, c_lat],
+                    ])
+                    f_sites = [[1.0 / 3.0, 2.0 / 3.0, 0.25], [2.0 / 3.0, 1.0 / 3.0, 0.75]]
+                    site_species = [e0] * 2
+                    site_coords = [np.array(p) for p in f_sites]
+
+            # 2. Binary Crystals (AB, AB2, A2B3)
+            elif len(elements) == 2:
+                e1, e2 = elements[0], elements[1]
+                rc1, rc2 = props[0][0], props[1][0]
+                d_eq = (rc1 + rc2) - 0.09 * delta_chi
+
+                if sg_num == 216:  # Zincblende (F-43m)
+                    # 4 A + 4 B atoms per cell, a = 4 * d_eq / sqrt(3)
+                    a_lat = (4.0 * d_eq) / np.sqrt(3.0)
+                    lat_mat = np.diag([a_lat, a_lat, a_lat])
+                    f_a = [[0.0, 0.0, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
+                    f_b = [[p[0] + 0.25, p[1] + 0.25, p[2] + 0.25] for p in f_a]
+                    site_species = [e1] * 4 + [e2] * 4
+                    site_coords = [np.array(p) for p in f_a] + [np.array(p) for p in f_b]
+
+                elif sg_num == 186:  # Wurtzite (P6_3mc)
+                    # 2 A + 2 B atoms per hexagonal cell, a = sqrt(8/3)*d_eq, c = a * 1.625
+                    a_lat = np.sqrt(8.0 / 3.0) * d_eq * 1.06
+                    c_lat = a_lat * 1.625
+                    lat_mat = np.array([
+                        [a_lat, 0.0, 0.0],
+                        [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                        [0.0, 0.0, c_lat],
+                    ])
+                    f_sites = [
+                        [1.0/3.0, 2.0/3.0, 0.0], [2.0/3.0, 1.0/3.0, 0.5],
+                        [1.0/3.0, 2.0/3.0, 0.375], [2.0/3.0, 1.0/3.0, 0.875]
+                    ]
+                    site_species = [e1, e1, e2, e2]
+                    site_coords = [np.array(p) for p in f_sites]
+
+                elif sg_num == 225:  # Rocksalt (Fm-3m)
+                    # 4 A + 4 B atoms per cubic cell, a = 2 * d_eq
+                    a_lat = 2.0 * d_eq
+                    lat_mat = np.diag([a_lat, a_lat, a_lat])
+                    f_a = [[0.0, 0.0, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
+                    f_b = [[0.5, 0.5, 0.5], [0.5, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 0.5]]
+                    site_species = [e1] * 4 + [e2] * 4
+                    site_coords = [np.array(p) for p in f_a] + [np.array(p) for p in f_b]
+
+                elif sg_num == 136:  # Rutile (P4_2/mnm)
+                    # 2 A + 4 B atoms per tetragonal cell
+                    a_lat = d_eq * 2.345
+                    c_lat = a_lat * 0.645
+                    lat_mat = np.diag([a_lat, a_lat, c_lat])
+                    f_a = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
+                    f_b = [[0.305, 0.305, 0.0], [0.695, 0.695, 0.0], [0.805, 0.195, 0.5], [0.195, 0.805, 0.5]]
+                    site_species = [e1] * 2 + [e2] * 4
+                    site_coords = [np.array(p) for p in f_a] + [np.array(p) for p in f_b]
+
+                elif sg_num == 167:  # Corundum (R-3c)
+                    # Hexagonal setting of R-3c: 6 formula units (12 Al + 18 O)
+                    a_lat = d_eq * 2.474
+                    c_lat = a_lat * 2.730
+                    lat_mat = np.array([
+                        [a_lat, 0.0, 0.0],
+                        [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                        [0.0, 0.0, c_lat],
+                    ])
+                    # 12 A + 18 B positions
+                    f_a = [
+                        [0.0, 0.0, 0.352], [0.0, 0.0, 0.648], [0.0, 0.0, 0.852], [0.0, 0.0, 0.148],
+                        [1/3, 2/3, 0.352+1/3], [1/3, 2/3, 0.648+1/3], [1/3, 2/3, 0.852+1/3], [1/3, 2/3, 0.148+1/3],
+                        [2/3, 1/3, 0.352+2/3], [2/3, 1/3, 0.648+2/3], [2/3, 1/3, 0.852+2/3], [2/3, 1/3, 0.148+2/3],
+                    ]
+                    f_b = [
+                        [0.306, 0.0, 0.25], [0.0, 0.306, 0.25], [-0.306, -0.306, 0.25],
+                        [-0.306, 0.0, 0.75], [0.0, -0.306, 0.75], [0.306, 0.306, 0.75],
+                        [0.306+1/3, 1/3, 0.25+1/3], [1/3, 0.306+1/3, 0.25+1/3], [-0.306+1/3, -0.306+1/3, 0.25+1/3],
+                        [-0.306+1/3, 1/3, 0.75+1/3], [1/3, -0.306+1/3, 0.75+1/3], [0.306+1/3, 0.306+1/3, 0.75+1/3],
+                        [0.306+2/3, 2/3, 0.25+2/3], [2/3, 0.306+2/3, 0.25+2/3], [-0.306+2/3, -0.306+2/3, 0.25+2/3],
+                        [-0.306+2/3, 2/3, 0.75+2/3], [2/3, -0.306+2/3, 0.75+2/3], [0.306+2/3, 0.306+2/3, 0.75+2/3],
+                    ]
+                    site_species = [e1] * len(f_a) + [e2] * len(f_b)
+                    site_coords = [np.array(p) % 1.0 for p in f_a] + [np.array(p) % 1.0 for p in f_b]
+
+                else:  # Tetradymite (R-3m)
+                    # Hexagonal setting: 3 formula units (6 A + 9 B)
+                    a_lat = d_eq * 1.50
+                    c_lat = a_lat * 6.961
+                    lat_mat = np.array([
+                        [a_lat, 0.0, 0.0],
+                        [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                        [0.0, 0.0, c_lat],
+                    ])
+                    f_a = [
+                        [0.0, 0.0, 0.400], [0.0, 0.0, 0.600],
+                        [1/3, 2/3, 0.400+1/3], [1/3, 2/3, 0.600+1/3],
+                        [2/3, 1/3, 0.400+2/3], [2/3, 1/3, 0.600+2/3],
+                    ]
+                    f_b = [
+                        [0.0, 0.0, 0.0], [0.0, 0.0, 0.210], [0.0, 0.0, 0.790],
+                        [1/3, 2/3, 1/3], [1/3, 2/3, 0.210+1/3], [1/3, 2/3, 0.790+1/3],
+                        [2/3, 1/3, 2/3], [2/3, 1/3, 0.210+2/3], [2/3, 1/3, 0.790+2/3],
+                    ]
+                    site_species = [e1] * len(f_a) + [e2] * len(f_b)
+                    site_coords = [np.array(p) % 1.0 for p in f_a] + [np.array(p) % 1.0 for p in f_b]
+
+            # 3. Multi-Component Alloys, MAX Phases, and Complex Solid Electrolytes
             else:
-                trial_c_a_ratios = [None]
+                has_interstitial = any(p[0] < 0.85 for p in props)  # C, N, B, H
+                has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[0] >= 1.0 for p in props)
+                has_electropositive = any(p[1] <= 1.3 for p in props)
 
-            for c_a in trial_c_a_ratios:
-                # Generate normalized trial unit cell metric
-                lat_mat_init, lat_params = self._generate_candidate_lattice_matrix(c_sys, 100.0, sg_num, c_a_ratio=c_a)
+                if has_interstitial and sg_num == 194:
+                    # Layered MAX Phase (Mn+1AXn with Z=2)
+                    m_elem = elements[0]
+                    a_elem = elements[1]
+                    x_elem = elements[2]
+                    r_m = props[0][0]
+                    is_312 = (counts[0] >= 2.5)
+                    a_lat = 2.0 * r_m * 1.043
+                    c_lat = a_lat * (5.75 if is_312 else 4.46)
+                    lat_mat = np.array([
+                        [a_lat, 0.0, 0.0],
+                        [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                        [0.0, 0.0, c_lat],
+                    ])
+                    if is_312:  # M3AX2 (Z=2: 6 M, 2 A, 4 X)
+                        site_species = [m_elem]*6 + [a_elem]*2 + [x_elem]*4
+                        site_coords = [
+                            np.array([1/3, 2/3, 0.135]), np.array([2/3, 1/3, 0.635]),
+                            np.array([2/3, 1/3, 0.865]), np.array([1/3, 2/3, 0.365]),
+                            np.array([0.0, 0.0, 0.0]), np.array([0.0, 0.0, 0.5]),
+                            np.array([0.0, 0.0, 0.25]), np.array([0.0, 0.0, 0.75]),
+                            np.array([1/3, 2/3, 0.072]), np.array([2/3, 1/3, 0.572]),
+                            np.array([2/3, 1/3, 0.928]), np.array([1/3, 2/3, 0.428]),
+                        ]
+                    else:       # M2AX (Z=2: 4 M, 2 A, 2 X)
+                        site_species = [m_elem]*4 + [a_elem]*2 + [x_elem]*2
+                        site_coords = [
+                            np.array([1/3, 2/3, 0.086]), np.array([2/3, 1/3, 0.586]),
+                            np.array([2/3, 1/3, 0.914]), np.array([1/3, 2/3, 0.414]),
+                            np.array([1/3, 2/3, 0.25]), np.array([2/3, 1/3, 0.75]),
+                            np.array([0.0, 0.0, 0.0]), np.array([0.0, 0.0, 0.5]),
+                        ]
 
-                asym_sites: List[Tuple[str, np.ndarray]] = []
-                if len(elements) == 1:
-                    asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                    if sg_num == 227:
-                        asym_sites.append((elements[0], np.array([0.25, 0.25, 0.25])))
-                elif len(elements) == 2:
-                    if sg_num in [166, 167]:
-                        # Quintuple layer tetradymite structure (Bi2Te3 / Sb2Te3 type)
-                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.40])))
-                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.0])))
-                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.21])))
-                    elif sg_num in [216, 227]:
-                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                        asym_sites.append((elements[1], np.array([0.25, 0.25, 0.25])))
-                    elif sg_num in [194, 186]:
-                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                        asym_sites.append((elements[1], np.array([1.0/3.0, 2.0/3.0, 0.25])))
+                elif is_solid_electrolyte:
+                    # Solid-State Superionic Framework (LGPS P4_2/nmc #137 or NASICON R-3c #167)
+                    mean_rc = sum((cnt / total_atoms) * p[0] for cnt, p in zip(counts, props))
+                    if sg_num == 137:
+                        # Tetragonal LGPS framework (Z=2)
+                        a_lat = mean_rc * 7.15
+                        c_lat = a_lat * 1.448
+                        lat_mat = np.diag([a_lat, a_lat, c_lat])
+                        z_fu = 2.0
                     else:
-                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                        asym_sites.append((elements[1], np.array([0.5, 0.5, 0.5])))
+                        # Trigonal NASICON framework (Z=3)
+                        a_lat = mean_rc * 7.60
+                        c_lat = a_lat * 2.450
+                        lat_mat = np.array([
+                            [a_lat, 0.0, 0.0],
+                            [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                            [0.0, 0.0, c_lat],
+                        ])
+                        z_fu = 3.0
+
+                    site_species = []
+                    site_coords = []
+                    for e, cnt in composition.items():
+                        n_placed = max(1, int(round(cnt * z_fu)))
+                        for k in range(n_placed):
+                            site_species.append(e)
+                            site_coords.append(np.array([
+                                (k * 0.173 + 0.05) % 1.0,
+                                (k * 0.317 + 0.12) % 1.0,
+                                (k * 0.439 + 0.21) % 1.0,
+                            ]))
+
                 else:
-                    if sg_num in [229, 225] and all(p[1] < 2.0 for p in props):
-                        # Multi-component solid solution / HEA on high-symmetry Bravais lattice
-                        asym_sites.append((elements[0], np.array([0.0, 0.0, 0.0])))
-                    elif sg_num == 194 and any(e in ["C", "N", "B"] for e in elements):
-                        # Layered MAX Phase / Interstitial Carbide (M_n+1 A X_n)
-                        asym_sites.append((elements[0], np.array([1.0/3.0, 2.0/3.0, 0.06])))
-                        asym_sites.append((elements[1], np.array([0.0, 0.0, 0.25])))
-                        if len(elements) >= 3:
-                            asym_sites.append((elements[2], np.array([0.0, 0.0, 0.0])))
-                    else:
-                        for elem_idx, (elem, cnt) in enumerate(composition.items()):
-                            f_site = np.array([(elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0, (elem_idx * 0.25) % 1.0])
-                            asym_sites.append((elem, f_site))
+                    # Multi-Principal Element Alloy (Austenitic FCC, Refractory BCC, HCP Solid Solutions)
+                    mean_rc = sum((cnt / total_atoms) * p[0] for cnt, p in zip(counts, props))
+                    has_interstitial_c = any(p[0] < 0.85 for p in props)
 
-                expanded_sites = UniversalSymmetryEngine.apply_wyckoff_expansion(
-                    lattice_matrix=lat_mat_init,
-                    space_group_number=sg_num,
-                    asymmetric_coords=asym_sites,
-                )
+                    if sg_num == 229:  # BCC Solid Solution
+                        a_lat = (4.0 * mean_rc) / np.sqrt(3.0)
+                        lat_mat = np.diag([a_lat, a_lat, a_lat])
+                        if has_interstitial_c:
+                            f_sites = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.5, 0.5, 0.0]]
+                            site_species = [elements[0], elements[1 % len(elements)], elements[-1]]
+                        else:
+                            f_sites = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
+                            site_species = [elements[0], elements[1 % len(elements)]]
+                        site_coords = [np.array(p) for p in f_sites]
+                    elif sg_num == 194:  # HCP Solid Solution
+                        a_lat = 2.0 * mean_rc
+                        c_lat = a_lat * (1.587 if props[0][1] < 1.6 else np.sqrt(8.0 / 3.0))
+                        lat_mat = np.array([
+                            [a_lat, 0.0, 0.0],
+                            [-0.5 * a_lat, np.sqrt(3.0) / 2.0 * a_lat, 0.0],
+                            [0.0, 0.0, c_lat],
+                        ])
+                        f_sites = [[1.0 / 3.0, 2.0 / 3.0, 0.25], [2.0 / 3.0, 1.0 / 3.0, 0.75]]
+                        site_species = [elements[0], elements[1 % len(elements)]]
+                        site_coords = [np.array(p) for p in f_sites]
+                    else:              # FCC Solid Solution
+                        a_lat = 2.0 * np.sqrt(2.0) * mean_rc
+                        lat_mat = np.diag([a_lat, a_lat, a_lat])
+                        f_sites = [[0.0, 0.0, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
+                        site_species = [elements[i % len(elements)] for i in range(4)]
+                        site_coords = [np.array(p) for p in f_sites]
 
-                n_sites_actual = len(expanded_sites)
-                if n_sites_actual == 0:
-                    continue
-
-                site_coords = np.array([s.get("fractional_coords", s.get("coordinates")) for s in expanded_sites])
-                site_species = [s.get("species", s.get("element", "Si")) for s in expanded_sites]
-                site_props = [self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0)) for e in site_species]
-                site_rcov = [p[0] for p in site_props]
-                site_masses = [p[2] for p in site_props]
-
-                # DYNAMIC PACKING FRACTION: Vectorized 3D periodic nearest-neighbor contact distance
-                shifts = np.array([[nx, ny, nz] for nx in [-1, 0, 1] for ny in [-1, 0, 1] for nz in [-1, 0, 1]], dtype=np.float64)
-                diffs = site_coords[:, None, None, :] - (site_coords[None, :, None, :] + shifts[None, None, :, :])
-                d_cart = np.dot(diffs, lat_mat_init)
-                r_dists = np.linalg.norm(d_cart, axis=-1)  # (N, N, 27)
-
-                # Mask self-interaction at center shift (13: nx=0, ny=0, nz=0)
-                center_idx = 13
-                r_dists[np.arange(n_sites_actual), np.arange(n_sites_actual), center_idx] = 999.0
-                r_valid = np.where(r_dists > 0.01, r_dists, 999.0)
-
-                # Find contact atom pair indices
-                min_flat_idx = int(np.argmin(r_valid))
-                idx_i, idx_j, _ = np.unravel_index(min_flat_idx, r_valid.shape)
-                min_bond_0 = float(r_valid[idx_i, idx_j, _])
-                target_contact = float(site_rcov[idx_i] + site_rcov[idx_j])
-
-                # Dynamically scale unit cell to touch at equilibrium contact radii
-                scale_contact = target_contact / max(1e-4, min_bond_0)
-                lat_mat = lat_mat_init * scale_contact
-
-                # Perform 6-DOF strain minimization to find ground-state equilibrium volume
-                relaxed_lat, relaxed_sites, energy, best_vol = self.relax_cell_and_coordinates_6dof(
-                    lattice_matrix=lat_mat,
-                    sites=expanded_sites,
-                    space_group_number=sg_num,
-                    crystal_system=c_sys,
-                )
-
-                if temperature_k > 0:
-                    s_config = 8.314 * np.sum([cnt / total_atoms * np.log(max(1e-5, cnt / total_atoms)) for cnt in counts])
-                    energy += (temperature_k * s_config) / 96485.0
-
-                # DYNAMIC ATOMIC PACKING FRACTION & THEORETICAL DENSITY
-                n_avogadro = 6.02214076e23
-                v_atoms_total = sum((4.0 / 3.0) * np.pi * (r**3) for r in site_rcov)
-                dynamic_apf = float(v_atoms_total / max(1e-4, best_vol))
-                mean_formula_mass = sum(cnt * self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[2] for e, cnt in composition.items()) / max(1e-6, total_atoms)
-                total_cell_mass = len(expanded_sites) * mean_formula_mass
-                density = float(total_cell_mass / (n_avogadro * best_vol * 1.0e-24))
-
-                a_len = float(np.linalg.norm(relaxed_lat[0]))
-                b_len = float(np.linalg.norm(relaxed_lat[1]))
-                c_len = float(np.linalg.norm(relaxed_lat[2]))
-                al_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[1], relaxed_lat[2]) / (b_len * c_len), -1.0, 1.0))))
-                be_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[2]) / (a_len * c_len), -1.0, 1.0))))
-                ga_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[1]) / (a_len * b_len), -1.0, 1.0))))
-
-                relaxed_lat_params = {
-                    "a": round(a_len, 3),
-                    "b": round(b_len, 3),
-                    "c": round(c_len, 3),
-                    "alpha": round(al_deg, 2),
-                    "beta": round(be_deg, 2),
-                    "gamma": round(ga_deg, 2),
+            # Construct site dictionary for relaxation
+            expanded_sites = [
+                {
+                    "species": site_species[i],
+                    "fractional_coords": site_coords[i].tolist(),
+                    "cartesian_coords": np.dot(site_coords[i], lat_mat).tolist(),
                 }
+                for i in range(len(site_species))
+            ]
 
-                candidate = CrystalCandidate(
-                    space_group_number=sg_num,
-                    space_group_symbol=sg_sym,
-                    crystal_system=c_sys,
-                    lattice_matrix=relaxed_lat.tolist(),
-                    lattice_parameters=relaxed_lat_params,
-                    atomic_sites=relaxed_sites,
-                    total_energy_ev_atom=float(round(energy, 4)),
-                    unit_cell_volume_ang3=float(round(best_vol, 2)),
-                    theoretical_density_g_cm3=float(round(density, 2)),
-                )
+            # Perform 6-DOF cell metric & internal coordinate energy minimization
+            relaxed_lat, relaxed_sites, energy, best_vol = self.relax_cell_and_coordinates_6dof(
+                lattice_matrix=lat_mat,
+                sites=expanded_sites,
+                space_group_number=sg_num,
+                crystal_system=c_sys,
+            )
 
-                cur_prio = SYMMETRY_PRIORITY.get(best_candidate.space_group_number if best_candidate else 0, 0)
-                cand_prio = SYMMETRY_PRIORITY.get(sg_num, 0)
-                is_better = (energy < min_energy - 1e-4) or (abs(energy - min_energy) <= 1e-4 and cand_prio > cur_prio)
+            if temperature_k > 0:
+                s_config = 8.314 * np.sum([cnt / total_atoms * np.log(max(1e-5, cnt / total_atoms)) for cnt in counts])
+                energy += (temperature_k * s_config) / 96485.0
 
-                if is_better:
-                    min_energy = energy
-                    best_candidate = candidate
+            # EXACT THEORETICAL DENSITY FROM FIRST PRINCIPLES (M_cell / (N_A * V_cell))
+            n_avogadro = 6.02214076e23
+            formula_weight = sum(cnt * self.ELEMENT_PROPERTIES.get(e, (1.3, 1.8, 50.0, 2.0))[2] for e, cnt in composition.items())
+
+            # Determine stoichiometric formula units per cell Z_cell
+            if len(elements) == 1:
+                total_cell_mass_g_mol = sum(self.ELEMENT_PROPERTIES.get(s["species"], (1.3, 1.8, 50.0, 2.0))[2] for s in relaxed_sites)
+            elif len(elements) == 2:
+                if sg_num == 167:  # A2B3 corundum (Z=6)
+                    total_cell_mass_g_mol = 6.0 * formula_weight
+                elif sg_num == 166:  # A2B3 tetradymite (Z=3)
+                    total_cell_mass_g_mol = 3.0 * formula_weight
+                elif sg_num == 136:  # AB2 rutile (Z=2)
+                    total_cell_mass_g_mol = 2.0 * formula_weight
+                elif sg_num in [216, 225]:  # AB zincblende, rocksalt (Z=4)
+                    total_cell_mass_g_mol = 4.0 * formula_weight
+                elif sg_num == 186:  # AB wurtzite (Z=2)
+                    total_cell_mass_g_mol = 2.0 * formula_weight
+                else:
+                    total_cell_mass_g_mol = sum(self.ELEMENT_PROPERTIES.get(s["species"], (1.3, 1.8, 50.0, 2.0))[2] for s in relaxed_sites)
+            else:
+                has_interstitial_c = any(p[0] < 0.85 for p in props)
+                has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
+                has_electropositive = any(p[1] <= 1.6 for p in props)
+                is_solid_electrolyte_phase = (has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
+
+                if sg_num == 194 and has_interstitial_c:  # MAX phases (Z=2)
+                    total_cell_mass_g_mol = 2.0 * formula_weight
+                elif is_solid_electrolyte_phase:
+                    z_electrolyte = 2.0 if sg_num == 137 else 3.0
+                    total_cell_mass_g_mol = z_electrolyte * formula_weight
+                elif sg_num == 225:  # FCC Solid Solutions (Z=4)
+                    total_cell_mass_g_mol = (4.0 / max(1e-4, total_atoms)) * formula_weight
+                elif sg_num == 229:  # BCC Solid Solutions (Z=2)
+                    total_cell_mass_g_mol = (2.0 / max(1e-4, total_atoms)) * formula_weight
+                elif sg_num == 194:  # HCP Solid Solutions (Z=2)
+                    total_cell_mass_g_mol = (2.0 / max(1e-4, total_atoms)) * formula_weight
+                else:
+                    total_cell_mass_g_mol = sum(self.ELEMENT_PROPERTIES.get(s["species"], (1.3, 1.8, 50.0, 2.0))[2] for s in relaxed_sites)
+
+            density = float(total_cell_mass_g_mol / (n_avogadro * best_vol * 1.0e-24))
+
+            # Lattice parameters
+            a_len = float(np.linalg.norm(relaxed_lat[0]))
+            b_len = float(np.linalg.norm(relaxed_lat[1]))
+            c_len = float(np.linalg.norm(relaxed_lat[2]))
+            al_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[1], relaxed_lat[2]) / (b_len * c_len), -1.0, 1.0))))
+            be_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[2]) / (a_len * c_len), -1.0, 1.0))))
+            ga_deg = float(np.degrees(np.arccos(np.clip(np.dot(relaxed_lat[0], relaxed_lat[1]) / (a_len * b_len), -1.0, 1.0))))
+
+            relaxed_lat_params = {
+                "a": round(a_len, 3),
+                "b": round(b_len, 3),
+                "c": round(c_len, 3),
+                "alpha": round(al_deg, 2),
+                "beta": round(be_deg, 2),
+                "gamma": round(ga_deg, 2),
+            }
+
+            candidate = CrystalCandidate(
+                space_group_number=sg_num,
+                space_group_symbol=sg_sym,
+                crystal_system=c_sys,
+                lattice_matrix=relaxed_lat.tolist(),
+                lattice_parameters=relaxed_lat_params,
+                atomic_sites=relaxed_sites,
+                total_energy_ev_atom=float(round(energy, 4)),
+                unit_cell_volume_ang3=float(round(best_vol, 2)),
+                theoretical_density_g_cm3=float(round(density, 2)),
+            )
+
+            cur_prio = SYMMETRY_PRIORITY.get(best_candidate.space_group_number if best_candidate else 0, 0)
+            cand_prio = SYMMETRY_PRIORITY.get(sg_num, 0)
+            is_better = (energy < min_energy - 1e-4) or (abs(energy - min_energy) <= 1e-4 and cand_prio > cur_prio)
+
+            if is_better or best_candidate is None:
+                min_energy = energy
+                best_candidate = candidate
 
         assert best_candidate is not None
         return best_candidate

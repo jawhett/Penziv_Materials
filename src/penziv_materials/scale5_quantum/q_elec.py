@@ -215,21 +215,23 @@ class QElecAgent:
             _, r1, chi1, _, z1, _ = UniversalElementalProperties.get_element(species_list[i])
             for j in range(n_atoms):
                 _, r2, chi2, _, z2, _ = UniversalElementalProperties.get_element(species_list[j])
-                r_eq = r1 + r2
+                delta_chi = abs(chi1 - chi2)
+                r_eq = (r1 + r2) - 0.09 * delta_chi
+                r_cut = 1.35 * r_eq
                 diff_f = frac_coords[i] - frac_coords[j]
                 for shift in shifts:
                     if i == j and np.all(shift == 0):
                         continue
                     r_cart = np.dot(diff_f + shift, lattice_matrix)
                     r = float(np.linalg.norm(r_cart))
-                    if 0.5 < r < 8.0:
-                        delta_chi = abs(chi1 - chi2)
+                    if 0.5 < r < r_cut:
                         f_ion = 1.0 - np.exp(-0.25 * (delta_chi**2))
                         e_coul = (14.4 * z1 * z2 * (f_ion**2) * erfc(0.35 * r)) / r if (z1 * z2 < 0) else -0.5 * np.exp(-r / 2.0)
                         covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion))
-                        u = 1.5 * (r - r_eq)
+                        u = 2.0 * (r - r_eq)
                         e_morse = covalent_strength * (np.exp(-2.0 * u) - 2.0 * np.exp(-u))
-                        e_tot += 0.5 * (e_morse + e_coul)
+                        fc = 0.5 * (1.0 + np.cos(np.pi * (r / r_cut)))
+                        e_tot += 0.5 * (e_morse + e_coul) * fc
 
         return float(e_tot)
 
