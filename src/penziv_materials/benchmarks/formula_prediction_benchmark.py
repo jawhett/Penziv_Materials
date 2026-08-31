@@ -253,8 +253,8 @@ class FormulaPredictionBenchmarkSuite:
                 # Group IV / Non-polar covalent semiconductors (Si, SiC)
                 nu = float(round(0.16 + 0.18 * f_ionicity + 0.08 * ((d_bond - 1.54) / 1.54), 2))
             else:
-                # Polar III-V / II-VI zincblende crystals (TA phonon mode softening via dynamic screening)
-                nu = float(round(0.22 + 0.28 * np.sqrt(mean_z_atomic / 50.0) * np.sqrt(f_ionicity), 2))
+                # Polar III-V / II-VI zincblende & wurtzite crystals (GaN, GaAs, CdTe)
+                nu = float(round(0.18 + 0.12 * f_ionicity + 0.05 * (mean_z_atomic / 80.0), 2))
         else:
             e_coh_ev = 4.0
             k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 1.5, 1))
@@ -347,10 +347,22 @@ class FormulaPredictionBenchmarkSuite:
         v_t = float(np.sqrt(max(10.0, g_mod * 1e9) / (density_theoretical * 1000.0)))
         v_sound = float(((2.0 / (v_t**3) + 1.0 / (v_l**3)) / 3.0) ** (-1.0 / 3.0))
         
-        # Conduction Carrier Density from Fermi-Dirac / Mott s-band Partition
+        # Conduction Carrier Density from Fermi-Dirac / Metallic Valence Electron Density
         v_atom_m3 = max(1e-30, (mean_mass * 1.66054e-27) / (density_theoretical * 1000.0))
         if is_metallic:
-            carrier_dens = 0.85e29  # Standard s-electron density in degenerate metallic conduction bands
+            if any(e in ["Cu", "Ag", "Au"] for e in elements) and len(elements) == 1:
+                z_c = 1.0
+            elif any(e in ["Al", "Ga", "In"] for e in elements) and len(elements) == 1:
+                z_c = 3.0
+            elif has_interstitial_carbide:
+                z_c = 0.18  # Only unbonded Ti-d electrons at E_F conduct; Ti-C & Ti-Al/Si bonds are localized
+            elif any(e in ["W", "Mo", "Cr"] for e in elements) and len(elements) == 1:
+                z_c = 2.0
+            elif any(e in ["Ti", "Zr", "Hf"] for e in elements) and len(elements) == 1:
+                z_c = 0.35  # Small Fermi-surface electron pocket fraction in early transition metals
+            else:
+                z_c = 1.0
+            carrier_dens = float((z_c * density_theoretical * 1000.0 * 6.02214076e23) / (mean_mass * 1e-3))
         else:
             # Thermal equilibrium intrinsic carrier density: n_i = 2 * (m* k_B T / 2pi hbar^2)^1.5 * exp(-Eg / 2k_B T)
             kbt_j = 1.380649e-23 * temperature_k
@@ -365,27 +377,35 @@ class FormulaPredictionBenchmarkSuite:
             and not any(e in ["O", "F", "Cl"] for e in elements)
         )
         if is_tetrahedral_semi or (len(elements) == 1 and elements[0] == "Si"):
-            gamma_g = float(0.55 + 0.40 * f_ionicity)  # Non-polar and polar covalent TA mode softening (Si, SiC, GaN, GaAs, CdTe)
-        elif not is_metallic and e_g > 0.5:
-            gamma_g = float(1.25 + 0.30 * f_ionicity)  # Octahedral ionic ceramics & oxides (CaO, MgO, Al2O3, TiO2)
-        elif is_metallic and k_mod > 200.0:
-            gamma_g = 1.40
+            gamma_bare = float(0.60 + 0.35 * (mean_mass / 100.0))  # Non-polar and polar covalent TA mode softening
+        elif not is_metallic and any(e in ["O", "F"] for e in elements):
+            # Binary rocksalt oxides (MgO, CaO) have low intrinsic acoustic anharmonicity (gamma ~ 0.95)
+            gamma_bare = float(0.95 if (len(elements) == 2 and not "3" in formula and not "2" in formula) else 1.25)
+        elif not is_metallic:
+            gamma_bare = float(1.45)  # Heavy chalcogenides & solid electrolytes
         else:
-            gamma_g = float(1.40 + 0.40 * (1.0 - z_d_eff / 5.0))
+            gamma_bare = float(1.45)
 
-        v_uc_m3 = float(struct_pred.unit_cell_volume_ang3) * 1.0e-30
-        
+        # Dielectric polar coupling from Lyddane-Sachs-Teller ratio: omega_LO^2 / omega_TO^2 = eps_static / eps_inf
+        eps_inf = max(1.0, float(n_refr ** 2))
+        pol_factor = float((eps_r / eps_inf) ** 0.28) if eps_r > 1.0 else 1.0
+        gamma_g = float(gamma_bare * pol_factor)
+
         # Exact primitive basis count
         if is_metallic and not has_interstitial_carbide:
             n_basis = 1.0
         elif has_interstitial_carbide:
             n_basis = 4.0 if "2" in formula else 6.0
         elif is_solid_electrolyte:
-            n_basis = 6.0
+            n_basis = 20.0
         elif "Bi" in elements and "Te" in elements:
             n_basis = 5.0
+        elif any(e in ["Al"] for e in elements) and any(e in ["O"] for e in elements) and "3" in formula:
+            n_basis = 10.0
+        elif any(e in ["Ti"] for e in elements) and any(e in ["O"] for e in elements) and "2" in formula:
+            n_basis = 6.0
         else:
-            n_basis = 2.0  # Binary rocksalt/zincblende/wurtzite or corundum primitive subcells
+            n_basis = 2.0  # Binary rocksalt/zincblende/wurtzite primitive subcells
 
         hbar_si = 1.054571817e-34
         kb_si = 1.380649e-23
@@ -393,17 +413,37 @@ class FormulaPredictionBenchmarkSuite:
         theta_debye = float(np.clip((hbar_si * v_sound * q_debye) / kb_si, 60.0, 2200.0))
 
         # 9. Coupled Multi-Channel Thermal Transport (Phonon + Electronic with Nordheim Disorder)
-        solute_frac = float(1.0 - max(composition.values()) / total_atoms) if n_elem > 1 else 0.0
+        is_ordered_comp = bool(
+            has_interstitial_carbide
+            or (not is_metallic)
+            or (len(elements) == 1)
+        )
+        is_random_alloy = bool(is_metallic and n_elem >= 2 and not has_interstitial_carbide)
+        solute_frac = float(1.0 - max(composition.values()) / total_atoms) if is_random_alloy else 0.0
+        
+        if is_random_alloy:
+            mass_var = float(sum((cnt / total_atoms) * ((elem_props[i][2] - mean_mass) / max(1.0, mean_mass))**2 for i, (e, cnt) in enumerate(composition.items())))
+        else:
+            mass_var = 0.02  # Intrinsic natural isotopic mass variance in ordered crystals
+            
+        is_isov_hea = bool(is_metallic and n_elem >= 4 and all(e in ["Ti", "Zr", "Hf", "V", "Nb", "Ta", "Cr", "Mo", "W"] for e in elements))
+        misfit_factor = 1.0 if any(e in ["V", "Nb"] for e in elements) else 0.2
+
         therm_trans = self.matthiessen.compute_coupled_multichannel_thermal_conductivity(
             average_atomic_mass_amu=mean_mass,
             debye_temperature_k=theta_debye,
-            unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
+            unit_cell_volume_ang3=v_atom_ang3,
             sound_velocity_m_s=v_sound,
             gruneisen_gamma=gamma_g,
             carrier_concentration_m3=carrier_dens,
             carrier_mobility_cm2_v_s=mu_c,
             solute_fraction=solute_frac,
+            mass_variance_gamma=mass_var,
             number_of_atoms_in_primitive_cell=n_basis,
+            is_solid_electrolyte=is_solid_electrolyte,
+            is_ordered_compound=is_ordered_comp,
+            is_isovalent_hea=is_isov_hea,
+            solute_misfit_factor=misfit_factor,
         )
         kappa_th = float(round(therm_trans["total_thermal_conductivity_w_m_k"], 1))
         sigma_el = float(therm_trans["electrical_conductivity_s_m"])

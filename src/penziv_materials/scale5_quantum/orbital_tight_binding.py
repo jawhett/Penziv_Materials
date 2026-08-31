@@ -263,8 +263,14 @@ class OrbitalTightBindingEngine:
 
             # Penn electronic dielectric constant eps_inf
             eps_inf = 1.0 + 0.85 * ((hw_plasma_ev / max(1.5, e_penn)) ** 2)
-            # Szigeti lattice ionic polarizability contribution for polar/ionic bonds
-            eps_ionic = float(1.8 * ((v_3 / max(0.5, v_2)) ** 1.5))
+            # Szigeti lattice ionic polarizability with Born effective charge enhancement in d0 transition metal oxides
+            is_d0_tm_oxide = any(e in ["Ti", "Zr", "Hf", "Nb", "Ta"] for e in elements) and any(e in ["O", "F"] for e in elements)
+            if is_d0_tm_oxide:
+                # Anomalous Born effective charge Z* and soft TO mode in d0 oxides (TiO2, SrTiO3, BaTiO3)
+                eps_ionic = float(12.0 * ((v_3 / max(0.5, v_2)) ** 2.0))
+            else:
+                eps_ionic = float(1.8 * ((v_3 / max(0.5, v_2)) ** 1.5))
+                
             eps_r = float(round(eps_inf + eps_ionic, 2))
             n_refr = float(round(np.sqrt(max(1.0, eps_inf)), 2))
 

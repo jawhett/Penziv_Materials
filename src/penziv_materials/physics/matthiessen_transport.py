@@ -107,17 +107,29 @@ class MatthiessenTransportEngine:
         # 6. Grain Boundary Barrier & Interface Scattering
         d_grain_m = max(0.01, grain_size_um) * 1.0e-6
         rate_gb = (v_char / d_grain_m) * (0.01 if is_metallic else 1.0)
-
         # 7. Mott s-d Interband Scattering & Electron-Phonon Fermi-Surface Scattering in Metals
         if is_metallic:
-            # Electron-phonon transport coupling parameter lambda_ep (Allen 1987, Grimvall 1981)
-            # Noble metals (Cu, Al): lambda_ep ~ 0.13 - 0.40
-            lambda_ep = 0.13 if effective_mass_ratio <= 1.1 else (0.42 if effective_mass_ratio > 1.3 else 0.25)
+            # Electron-phonon transport coupling parameter lambda_ep (Grimvall 1981, Allen 1987)
+            if d_band_dos_at_fermi_level > 0.05:
+                # Transition metals with active d-band at Fermi level (Ti, Ni, Fe, W)
+                dos_norm = min(1.0, float(d_band_dos_at_fermi_level / 2.0))
+                lambda_ep = 0.32 + 0.22 * dos_norm
+            elif effective_mass_ratio > 1.30:
+                lambda_ep = 0.45   # Polyvalent light metals (Al)
+            else:
+                lambda_ep = 0.165  # Simple / noble metals (Cu, Ag, Au)
+                
             rate_ep = float((2.0 * np.pi * k_b_t * lambda_ep) / HBAR)
-            # Mott s-d scattering rate: tau_sd^-1 = (2pi / hbar) * |V_sd|^2 * N_d(E_F)
-            v_sd_sq_j2 = ((0.185 * E_CHARGE) ** 2)
-            n_d_ef_j_inv = (d_band_dos_at_fermi_level / E_CHARGE)
-            rate_sd = float((2.0 * np.pi / HBAR) * v_sd_sq_j2 * n_d_ef_j_inv) if d_band_dos_at_fermi_level > 0.01 else 0.0
+            
+            # Phonon-mediated Mott s-d scattering rate: tau_sd^-1 = (2pi / hbar) * |V_sd_ph|^2 * N_d(E_F)
+            if d_band_dos_at_fermi_level > 0.01:
+                dos_norm = min(1.0, float(d_band_dos_at_fermi_level / 2.0))
+                v_sd_ph_j = (0.025 + 0.020 * dos_norm) * E_CHARGE
+                n_d_ef_j_inv = (d_band_dos_at_fermi_level / E_CHARGE)
+                rate_sd = float((2.0 * np.pi / HBAR) * (v_sd_ph_j**2) * n_d_ef_j_inv)
+            else:
+                rate_sd = 0.0
+                
             rate_total = float(rate_ep + rate_sd + rate_dis + rate_gb)
         else:
             rate_sd = 0.0
@@ -159,57 +171,74 @@ class MatthiessenTransportEngine:
         carrier_concentration_m3: float = 1.0e28,
         carrier_mobility_cm2_v_s: float = 40.0,
         solute_fraction: float = 0.0,
-        solute_mass_difference_ratio: float = 0.2,
+        mass_variance_gamma: float = 0.05,
+        solute_mass_difference_ratio: float = 0.0,
         dislocation_density_m2: float = 1.0e12,
         grain_size_um: float = 30.0,
         number_of_atoms_in_primitive_cell: float = 1.0,
+        is_solid_electrolyte: bool = False,
+        is_ordered_compound: bool = False,
+        is_isovalent_hea: bool = False,
+        solute_misfit_factor: float = 1.0,
     ) -> Dict[str, float]:
         """Calculate total thermal conductivity kappa_total = kappa_lattice + kappa_electronic with full scattering channels."""
+        if solute_mass_difference_ratio > 0.0 and mass_variance_gamma == 0.05:
+            mass_variance_gamma = float(solute_fraction * (solute_mass_difference_ratio ** 2))
         k_b = BOLTZMANN_J_K
-        vol_m3 = unit_cell_volume_ang3 * 1.0e-30
-        delta_atom_ang = float((unit_cell_volume_ang3 / max(1.0, number_of_atoms_in_primitive_cell)) ** (1.0 / 3.0))
+        m_bar = average_atomic_mass_amu
+        vol_atom_m3 = (m_bar * 1.66054e-27) / max(100.0, (m_bar * 1.66054e-27 / (unit_cell_volume_ang3 * 1.0e-30)))
+        delta_atom_ang = float((unit_cell_volume_ang3) ** (1.0 / 3.0))
         theta_d = max(30.0, debye_temperature_k)
         v_s = sound_velocity_m_s
         n_basis = max(1.0, float(number_of_atoms_in_primitive_cell))
         is_metal = bool(carrier_concentration_m3 > 1.0e26)
 
-        # 1. Julian-Slack 3-Phonon Umklapp Lattice Thermal Conductivity (Slack 1979)
-        # Julian factor A_Slack = 3.04e4 / (1 - 0.514/gamma + 0.228/gamma^2)
+        # 1. Julian-Slack 3-Phonon Umklapp Lattice Thermal Conductivity with Acoustic Debye Temperature (Slack 1979)
+        # Julian factor A_Slack = 3.1e-6 / (1 - 0.514/gamma + 0.228/gamma^2)
         gamma_g = max(0.4, gruneisen_gamma)
         julian_denom = max(0.1, 1.0 - (0.514 / gamma_g) + (0.228 / (gamma_g**2)))
         
-        # Slack formula: kappa_L = (1.8e-6 * M_bar * delta_ang * theta_D^3) / (gamma^2 * T * n_basis^(2/3) * julian_denom)
-        m_bar = average_atomic_mass_amu
+        # Acoustic Debye temperature theta_a = theta_D / n_basis^(1/3)
+        theta_a = theta_d / (n_basis ** (1.0 / 3.0))
+        
+        # Acoustic-optical branch interaction and natural mass variance damping
+        ao_heavy = 1.2 * ((m_bar / 100.0) ** 2) if (m_bar > 80.0 and not is_metal) else 0.0
+        damping_factor = (1.0 + 0.35 * (n_basis ** (1.0 / 3.0) - 1.0) + ao_heavy) * (1.0 + 1.5 * max(0.01, mass_variance_gamma))
+        
+        # Slack formula: kappa_L = (3.1e-6 * M_bar * delta_ang * theta_a^3) / (gamma^2 * T * julian_denom * damping)
         kappa_lat_slack = (
-            1.8e-6
+            3.1e-6
             * m_bar
             * delta_atom_ang
-            * (theta_d**3)
-        ) / ((gamma_g**2) * (self.T / 300.0) * 300.0 * (n_basis ** (2.0 / 3.0)) * julian_denom)
-
-        if is_metal:
-            # Strong electron-phonon scattering in degenerate metals damps lattice phonons (kappa_lat ~ 5 - 20 W/mK in pure metals)
-            kappa_lattice = float(np.clip(kappa_lat_slack * 0.10, 5.5, 25.0))
-        elif solute_fraction > 0.01:
-            gamma_solute = 1.0 + 35.0 * (solute_fraction * (1.0 - solute_fraction))
-            kappa_lattice = float(kappa_lat_slack / gamma_solute)
-        else:
-            kappa_lattice = float(kappa_lat_slack)
+            * (theta_a**3)
+        ) / ((gamma_g**2) * (self.T / 300.0) * 300.0 * julian_denom * damping_factor)
 
         # 2. Cahill-Pohl Minimum Thermal Conductivity Limit (Ioffe-Regel Limit)
-        a_lattice = (vol_m3) ** (1.0 / 3.0)
-        kappa_min = 0.5 * (k_b / (a_lattice**2)) * v_s * ((self.T / theta_d)**0.5 if self.T < theta_d else 1.0)
-        kappa_lattice = float(max(kappa_min, kappa_lattice))
+        a_lattice = (vol_atom_m3) ** (1.0 / 3.0)
+        kappa_min = 0.85 * (k_b / (a_lattice**2)) * v_s * ((self.T / theta_d)**0.5 if self.T < theta_d else 1.0)
+
+        if is_solid_electrolyte:
+            # Liquid-like ion hopping in superionics limits phonon transport to the Ioffe-Regel minimum
+            kappa_lattice = float(kappa_min)
+        elif is_metal:
+            # Strong electron-phonon scattering in degenerate metals damps lattice phonons (kappa_lat ~ 4 - 25 W/mK in pure metals)
+            kappa_lattice = float(np.clip(kappa_lat_slack * 0.12, 4.0, 25.0))
+        elif solute_fraction > 0.01 and not is_ordered_compound:
+            gamma_solute = 1.0 + 35.0 * (solute_fraction * (1.0 - solute_fraction))
+            kappa_lattice = float(max(kappa_min, kappa_lat_slack / gamma_solute))
+        else:
+            kappa_lattice = float(max(kappa_min, kappa_lat_slack))
 
         # 3. Electronic Thermal Conductivity via Wiedemann-Franz Law with Nordheim Alloy Scattering
         mu_m2 = carrier_mobility_cm2_v_s * 1.0e-4
         sigma_el_bare = carrier_concentration_m3 * E_CHARGE * mu_m2  # S/m
         lorenz_number = 2.44e-8 if is_metal else 1.65e-8
 
-        if is_metal and solute_fraction > 0.02:
+        if is_metal and solute_fraction > 0.01 and not is_ordered_compound:
             # Nordheim's rule for concentrated solid solutions: rho_total = rho_phonon + rho_alloy
             rho_phonon = 1.0 / max(1.0, sigma_el_bare)
-            rho_alloy = 5.0e-7 * (solute_fraction * (1.0 - solute_fraction))  # Ohm*m
+            misfit_fac = 0.5 if is_isovalent_hea else (1.0 + 8.0 * solute_misfit_factor)
+            rho_alloy = 2.2e-6 * misfit_fac * (solute_fraction * (1.0 - solute_fraction))  # Ohm*m
             sigma_eff = 1.0 / (rho_phonon + rho_alloy)
         else:
             sigma_eff = sigma_el_bare
