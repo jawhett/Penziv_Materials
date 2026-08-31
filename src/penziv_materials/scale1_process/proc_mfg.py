@@ -49,7 +49,8 @@ class ProcMfgAgent:
         """
         thermal_stress_mpa = (youngs_modulus_gpa * 1000.0 * thermal_expansion_coeff * delta_t_k) / (1.0 - poissons_ratio)
         chi_crack = thermal_stress_mpa / max(1.0, yield_strength_mpa)
-        synthesizability_score = 1.0 / (1.0 + np.exp(chi_crack - 2.0))
+        chi_exp = np.clip(chi_crack - 2.0, -50.0, 50.0)
+        synthesizability_score = 1.0 / (1.0 + np.exp(chi_exp))
 
         return {
             "thermal_mismatch_stress_mpa": float(thermal_stress_mpa),

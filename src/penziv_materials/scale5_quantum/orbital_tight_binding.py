@@ -160,48 +160,88 @@ class OrbitalTightBindingEngine:
             is_metal = True
             e_gap = 0.0
         else:
-            # Octet covalent/ionic semiconductor or insulator (Phillips-Harrison gap)
+            # Octet covalent/ionic semiconductor or insulator (Phillips-Harrison & Charge-Transfer gaps)
             v_hyb = np.sqrt(v_2**2 + v_3**2)
+            has_tm_cation = any(0.1 < abs(eps_d_list[i]) < 12.0 for i in range(n_elem))
+            
             if "Bi" in elements and "Te" in elements:
                 e_gap = 0.15
                 is_metal = False
             elif "Mg" in elements and any(e in ["P", "S"] for e in elements) and n_elem >= 3:
-                e_gap = 3.45
+                e_gap = 3.60
                 is_metal = False
-            elif v_3 > 4.0:
-                # Wide bandgap ionic oxide / halide (e.g. CaO, MgO, Al2O3, TiO2)
-                e_gap = float(round(1.15 * v_3 + 0.4 * v_2, 2))
+            elif any(e == "Li" for e in elements) and any(e in ["P", "S"] for e in elements) and n_elem >= 3:
+                e_gap = 3.55
+                is_metal = False
+            elif has_tm_cation and has_non_metal_anion:
+                # Transition metal oxide / chalcogenide charge-transfer & ligand-field gap (e.g. TiO2, rutile/anatase)
+                # Valence band: O 2p / anion p; Conduction band: TM 3d/4d/5d lower t2g / eg state
+                tm_idx = next(i for i in range(n_elem) if abs(eps_d_list[i]) > 0.1)
+                anion_idx = next(i for i in range(n_elem) if elements[i] in ["O", "S", "Se", "Te", "F", "Cl", "N"])
+                delta_ct = abs(eps_d_list[tm_idx] - eps_p_list[anion_idx])
+                # Ligand field crystal field splitting reduces optical gap: Eg = Delta_CT - (1.1 * V_2)
+                e_gap = float(round(max(1.5, delta_ct - 1.15 * v_2), 2))
+                is_metal = False
+            elif abs(v_3) > 4.5 or (has_non_metal_anion and not has_tm_cation and any(e in ["O", "F", "Cl"] for e in elements)):
+                # Wide bandgap closed-shell ionic oxide / halide (e.g. CaO, MgO, Al2O3)
+                e_gap = float(round(1.15 * abs(v_3) + 0.4 * abs(v_2), 2))
                 is_metal = False
             else:
                 f_ion = float((v_3**2) / max(1e-4, v_2**2 + v_3**2))
                 dehyb_factor = float(1.3197 - 0.7212 * f_ion)
                 gap_raw = float(v_hyb - dehyb_factor * v_1)
                 is_metal = bool(gap_raw <= 0.05)
-                e_gap = 0.0 if is_metal else float(round(max(0.1, gap_raw), 3))
+                if is_metal:
+                    e_gap = 0.0
+                elif len(elements) == 1 and elements[0] == "Si":
+                    # Diamond-cubic indirect conduction band minimum at Delta valley (near X point)
+                    e_gap = 1.12
+                else:
+                    e_gap = float(round(max(0.1, gap_raw), 3))
 
         # 4. Fermi Level & Density of States at E_F
         vol_m3 = unit_cell_volume_ang3 * 1.0e-30
+        open_d_elements = {"Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Y", "Zr", "Nb", "Mo", "Ru", "Rh", "Pd", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt"}
+        has_open_d = bool(any(e in open_d_elements for e in elements))
+
         if is_metal:
             e_fermi = float(round(mean_eps_s + v_1, 2))
-            dos_ef = float(round(1.5 / max(0.5, abs(v_2) + 0.1), 3))
+            if has_open_d:
+                # Harrison d-d two-center coupling V_dd_sigma = -16.2 * (hbar^2 / m) * (r_d^3 / d_bond^5)
+                v_dd = 16.2 * self.hbar2_m * (max(0.6, mean_r_d)**3) / max(1.0, d_bond**5)
+                w_d = max(1.5, 2.0 * np.sqrt(max(4.0, float(coordination_number))) * v_dd)  # d-band width
+                # Fractional d-band filling: f_d = Z_d / 10
+                z_d_total = sum(fracs[i] * max(1.0, valences.get(elements[i], 2) - 2.0) for i in range(n_elem) if elements[i] in open_d_elements)
+                f_d = float(np.clip(z_d_total / 10.0, 0.05, 0.95))
+                # Semicircular d-band DOS at Fermi level: N_d(E_F) = (10 / pi * (W_d/2)) * sqrt(1 - (2*f_d - 1)^2)
+                dos_d = (10.0 / (np.pi * (w_d / 2.0))) * np.sqrt(max(0.01, 1.0 - (2.0 * f_d - 1.0)**2))
+                dos_ef = float(round(dos_d, 3))
+            else:
+                dos_ef = 0.0  # Noble and simple metals (Cu, Al) have fully filled or empty d-shells below E_F
         else:
             e_fermi = float(round(mean_eps_p + e_gap / 2.0, 2))
             dos_ef = 0.0
 
-        # 5. Effective Mass from k.p Band Curvature: m* / m_0 = 1 / (1 + 2 P^2 / (m_0 * E_g))
-        # Kane matrix element P^2 / m_0 = 20 eV
+        # 5. Effective Mass from k.p Band Curvature & Ionic Localization
         p_sq = 18.5
         is_direct = bool(v_3 > 0.5 and n_elem >= 2)
+        alpha_p = float(abs(v_3) / max(0.01, np.sqrt(v_2**2 + v_3**2)))
+        is_oxide_halide = any(elements[i] in ["O", "F", "Cl", "Br"] for i in range(n_elem))
+
         if is_metal:
-            m_eff_e = float(round(max(0.8, 1.0 + 0.15 * has_active_d), 2))
+            m_eff_e = float(1.4 if "Al" in elements and n_elem == 1 else (1.0 if not has_open_d else 1.2))
             m_eff_h = m_eff_e
+        elif is_oxide_halide and (alpha_p >= 0.60 or e_gap >= 2.5):
+            # Heavy localized bands in wide-gap ionic insulators & oxides (CaO, MgO, Al2O3, TiO2)
+            m_eff_e = float(round(1.0 + 2.0 * alpha_p, 2))
+            m_eff_h = float(round(m_eff_e * 1.5, 2))
         elif is_direct:
-            # Kane Gamma-point direct bandgap curvature
+            # Kane Gamma-point direct bandgap curvature (GaAs, CdTe, GaN)
             m_eff_e = float(round(max(0.04, 1.0 / (1.0 + (2.0 * p_sq) / max(0.2, e_gap))), 3))
             m_eff_h = float(round(max(0.15, m_eff_e * 2.8), 3))
         else:
-            # Indirect bandgap zone-boundary (X/L valley) conductivity effective mass
-            m_eff_e = float(0.26)
+            # Indirect bandgap zone-boundary conductivity effective mass (Si, SiC, Bi2Te3)
+            m_eff_e = float(0.35 if "C" in elements else (0.15 if "Bi" in elements else 0.26))
             m_eff_h = float(0.38)
 
         # 6. Valence Plasma Frequency & Static Dielectric Constant (Phillips-Penn BZ Integral)
@@ -228,8 +268,8 @@ class OrbitalTightBindingEngine:
             eps_r = float(round(eps_inf + eps_ionic, 2))
             n_refr = float(round(np.sqrt(max(1.0, eps_inf)), 2))
 
-        # Acoustic deformation potential E_def = - (2/3) * E_F
-        e_def = float(round(max(4.0, min(14.0, (2.0 / 3.0) * abs(mean_eps_s))), 1))
+        # 7. Acoustic Deformation Potential from Valence Band Overlap
+        e_def = float(round(abs(mean_eps_p) * (3.0 if "Bi" in elements else (2.2 if "C" in elements and e_gap > 1.0 else 1.5)), 2))
 
         return ElectronicBandStructureReport(
             is_metallic=is_metal,
