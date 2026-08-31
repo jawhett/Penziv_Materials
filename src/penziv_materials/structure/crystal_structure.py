@@ -125,11 +125,23 @@ class CrystalStructure:
         sites: List[Site],
         space_group: str = "P1",
         space_group_number: int = 1,
+        formula: Optional[str] = None,
     ):
         self.lattice = lattice
         self.sites = sites
         self.space_group = space_group
         self.space_group_number = space_group_number
+        if formula is not None:
+            self._formula = formula
+        else:
+            species_counts: Dict[str, int] = {}
+            for s in sites:
+                species_counts[s.species] = species_counts.get(s.species, 0) + 1
+            self._formula = "".join(f"{k}{v if v > 1 else ''}" for k, v in sorted(species_counts.items()))
+
+    @property
+    def formula(self) -> str:
+        return self._formula
 
     @property
     def num_sites(self) -> int:

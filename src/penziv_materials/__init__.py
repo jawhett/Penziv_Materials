@@ -14,6 +14,21 @@ from penziv_materials.orchestration.discovery_engine import (
 )
 from penziv_materials.validation.born_stability import BornStabilityValidator
 from penziv_materials.validation.handshake_gates import HandshakeGatekeeper
+from penziv_materials.adapters.standard_adapters import (
+    SymmetryAdapter,
+    PhaseDiagramAdapter,
+    CalphadAdapter,
+    TopologyAdapter,
+    ElasticityAdapter,
+)
+from penziv_materials.scale5_quantum.surrogate_hierarchy import (
+    SurrogateTier,
+    SurrogateResult,
+    HeuristicPrescreenFilter,
+    UniversalMLIPCalculator,
+    AbInitioDFTDriver,
+    TieredSurrogateOrchestrator,
+)
 
 __all__ = [
     "__version__",
@@ -23,4 +38,15 @@ __all__ = [
     "ParetoDiscoveryResult",
     "BornStabilityValidator",
     "HandshakeGatekeeper",
+    "SymmetryAdapter",
+    "PhaseDiagramAdapter",
+    "CalphadAdapter",
+    "TopologyAdapter",
+    "ElasticityAdapter",
+    "SurrogateTier",
+    "SurrogateResult",
+    "HeuristicPrescreenFilter",
+    "UniversalMLIPCalculator",
+    "AbInitioDFTDriver",
+    "TieredSurrogateOrchestrator",
 ]

@@ -1,4 +1,4 @@
-"""Scale 5: First-Principles Orbital Tight-Binding & Electronic Structure Engine."""
+"""Scale 5: Tier 0 Empirical Orbital Tight-Binding & Rapid Electronic Screening Engine."""
 
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
@@ -13,7 +13,7 @@ from penziv_materials.core.constants import (
 
 
 class ElectronicBandStructureReport(BaseModel):
-    """Rigorous electronic structure summary derived from orbital tight-binding diagonalization."""
+    """Electronic structure summary derived from orbital tight-binding diagonalization."""
     is_metallic: bool
     fermi_energy_ev: float
     band_gap_ev: float
@@ -28,7 +28,7 @@ class ElectronicBandStructureReport(BaseModel):
 
 
 class OrbitalTightBindingEngine:
-    """Solves LCAO tight-binding Secular Hamiltonian across k-space using Harrison universal matrix elements."""
+    """Tier 0 Empirical Tight-Binding Solver using Harrison universal matrix elements for fast prescreening (~1e-4 s)."""
 
     # Harrison Table of Solid State Energies (eV) [eps_s, eps_p, eps_d, r_d_angstrom]
     ATOMIC_ORBITAL_ENERGIES: Dict[str, Tuple[float, float, float, float]] = {

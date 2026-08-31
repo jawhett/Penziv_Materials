@@ -24,7 +24,12 @@ class CrystalCandidate(BaseModel):
 
 
 class GlobalCrystalStructureSearchEngine:
-    """Performs unconstrained global crystal structure prediction (CSP) using stochastic basin-hopping, space-group generation, and Birch-Murnaghan volume relaxation across all 230 space groups."""
+    """Tier 0 Heuristic Crystal Structure Prediction (CSP) Generator and Basin-Hopping Sampler.
+    
+    NOTE: Internal fast evaluations rely on empirical Harrison tight-binding heuristics and Pauling ionicity
+    for rapid prescreening (~1e-4 s/structure). For rigorous first-principles verification, candidate structures
+    should be refined via TieredSurrogateOrchestrator (Tier 1 MLIP / Tier 2 DFT).
+    """
 
     ELEMENT_PROPERTIES: Dict[str, Tuple[float, float, float, float]] = {
         "H": (0.31, 2.20, 1.008, 1.0),
@@ -862,6 +867,47 @@ class GlobalCrystalStructureSearchEngine:
             lat_mat = np.diag([a, b, c])
 
         return lat_mat, lat_params
+
+    @classmethod
+    def refine_candidate_with_tiered_surrogate(
+        cls,
+        candidate: CrystalCandidate,
+        formula: str,
+        target_tier: Any = None,
+    ) -> Dict[str, Any]:
+        """Refine a Tier 0 candidate structure using Tier 1 MLIP or Tier 2 DFT first-principles calculator."""
+        from penziv_materials.scale5_quantum.surrogate_hierarchy import TieredSurrogateOrchestrator, SurrogateTier
+        from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+
+        lattice = PeriodicLattice(np.array(candidate.lattice_matrix, dtype=np.float64))
+        sites = [
+            Site(
+                species=s["species"],
+                fractional_coords=np.array(s["coords"], dtype=np.float64),
+            )
+            for s in candidate.atomic_sites
+        ]
+        cstruct = CrystalStructure(
+            formula=formula,
+            lattice=lattice,
+            sites=sites,
+            space_group_number=candidate.space_group_number,
+        )
+
+        orchestrator = TieredSurrogateOrchestrator()
+        tier_enum = target_tier if target_tier is not None else SurrogateTier.TIER_1_MLIP
+        res = orchestrator.evaluate_structure(cstruct, target_tier=tier_enum)
+
+        return {
+            "candidate_space_group": candidate.space_group_number,
+            "surrogate_tier": res.tier.value,
+            "refined_energy_per_atom_ev": res.energy_per_atom_ev,
+            "total_energy_ev": res.total_energy_ev,
+            "max_force_ev_ang": res.max_force_ev_ang,
+            "epistemic_uncertainty": res.epistemic_uncertainty,
+            "calculator": res.calculator_name,
+            "is_converged": res.is_converged,
+        }
 
 
 
