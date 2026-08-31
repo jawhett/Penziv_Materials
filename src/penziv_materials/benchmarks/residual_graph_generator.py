@@ -68,26 +68,36 @@ class ResidualGraphGenerator:
         preds = [float(d["pred"]) for d in material_data]
         acts = [float(d["act"]) for d in material_data]
 
-        all_vals = preds + acts
-        min_v = min(all_vals)
-        max_v = max(all_vals)
+        # Logarithmic Scale Domain Bounds
+        pos_vals = [p for p in preds if p > 0] + [a for a in acts if a > 0]
+        if not pos_vals:
+            pos_vals = [1.0]
+        min_pos = min(pos_vals)
+        max_pos = max(pos_vals)
 
-        if min_v >= 0:
-            axis_min = 0.0
-            axis_max = max_v * 1.16 if max_v > 0 else 1.0
-        else:
-            axis_min = min_v * 1.15
-            axis_max = max_v * 1.15
+        log_min = float(math.floor(math.log10(min_pos)))
+        log_max = float(math.ceil(math.log10(max_pos)))
 
-        if axis_max <= axis_min:
-            axis_max = axis_min + 1.0
+        if log_max <= log_min:
+            log_max = log_min + 1.0
+
+        def to_log(val: float) -> float:
+            if val <= 0:
+                return log_min
+            return max(log_min, min(log_max, math.log10(val)))
 
         def scale_x(val: float) -> float:
-            norm = (val - axis_min) / (axis_max - axis_min)
+            lv = to_log(val)
+            norm = (lv - log_min) / (log_max - log_min)
             return margin_left + norm * plot_width
 
         def scale_y(val: float) -> float:
-            norm = (val - axis_min) / (axis_max - axis_min)
+            lv = to_log(val)
+            norm = (lv - log_min) / (log_max - log_min)
+            return margin_top + (1.0 - norm) * plot_height
+
+        def scale_y_log(log_val: float) -> float:
+            norm = (log_val - log_min) / (log_max - log_min)
             return margin_top + (1.0 - norm) * plot_height
 
         # Calculate exact statistical metrics (R^2, RMSE)
@@ -98,14 +108,32 @@ class ResidualGraphGenerator:
         ss_res = sum(d**2 for d in diffs)
         r2 = max(0.0, 1.0 - (ss_res / ss_tot)) if ss_tot > 1e-6 else 1.0
 
-        # Compute 5 axis tick intervals
-        tick_vals = [
-            axis_min,
-            axis_min + (axis_max - axis_min) * 0.25,
-            axis_min + (axis_max - axis_min) * 0.50,
-            axis_min + (axis_max - axis_min) * 0.75,
-            axis_max,
-        ]
+        # Compute integer decade ticks and minor sub-decade ticks
+        decade_ints = list(range(int(math.floor(log_min)), int(math.ceil(log_max)) + 1))
+
+        def format_decade(k: int) -> str:
+            superscripts = {"-": "⁻", "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"}
+            exp_str = "".join(superscripts.get(c, c) for c in str(k))
+            if k == 0:
+                return "1"
+            elif k == 1:
+                return "10"
+            elif k == 2:
+                return "100"
+            elif k == 3:
+                return "10³"
+            elif k == 4:
+                return "10⁴"
+            elif k == 5:
+                return "10⁵"
+            elif k == -1:
+                return "0.1"
+            elif k == -2:
+                return "0.01"
+            elif k == -3:
+                return "0.001"
+            else:
+                return f"10{exp_str}"
 
         svg_parts = []
         svg_parts.append(
@@ -133,11 +161,11 @@ class ResidualGraphGenerator:
         svg_parts.append(
             f'<text x="{margin_left}" y="34" fill="{cls.COLOR_TEXT_PRIMARY}" font-size="18" '
             f'font-weight="bold" letter-spacing="-0.01em">'
-            f'Predicted vs. Actual Parity: {html.escape(property_name)}{html.escape(unit_str)}</text>'
+            f'Predicted vs. Actual Parity (Log-Log): {html.escape(property_name)}{html.escape(unit_str)}</text>'
         )
         svg_parts.append(
             f'<text x="{margin_left}" y="54" fill="{cls.COLOR_TEXT_SECONDARY}" font-size="12" font-style="italic">'
-            f'Zero-Parameter First-Principles Multiscale Predictions vs. Experimental Benchmark (N = {n})</text>'
+            f'Zero-Parameter First-Principles Multiscale Predictions vs. Experimental Benchmark (Logarithmic Axes, N = {n})</text>'
         )
 
         # Academic Statistics Inset Box (Top-Left or Bottom-Right depending on data density)
@@ -158,56 +186,85 @@ class ResidualGraphGenerator:
             f'</g>'
         )
 
-        # Gridlines (Subtle academic gray)
-        for t_val in tick_vals:
-            px = scale_x(t_val)
-            py = scale_y(t_val)
+        # Minor Sub-Decade Gridlines (m * 10^k for m in 2..9)
+        for k in range(int(math.floor(log_min)), int(math.ceil(log_max))):
+            for mult in [2, 3, 4, 5, 6, 7, 8, 9]:
+                sub_val = mult * (10.0 ** k)
+                sub_log = math.log10(sub_val)
+                if log_min <= sub_log <= log_max:
+                    spx = scale_x(sub_val)
+                    spy = scale_y(sub_val)
+                    # Vertical minor grid
+                    svg_parts.append(
+                        f'<line x1="{spx:.1f}" y1="{margin_top}" x2="{spx:.1f}" y2="{margin_top + plot_height}" '
+                        f'stroke="#F3F4F6" stroke-width="0.6" />'
+                    )
+                    # Horizontal minor grid
+                    svg_parts.append(
+                        f'<line x1="{margin_left}" y1="{spy:.1f}" x2="{margin_left + plot_width}" y2="{spy:.1f}" '
+                        f'stroke="#F3F4F6" stroke-width="0.6" />'
+                    )
+                    # Minor axis tick marks
+                    svg_parts.append(
+                        f'<line x1="{margin_left - 3}" y1="{spy:.1f}" x2="{margin_left}" y2="{spy:.1f}" '
+                        f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="0.8" opacity="0.6" />'
+                    )
+                    svg_parts.append(
+                        f'<line x1="{spx:.1f}" y1="{margin_top + plot_height}" x2="{spx:.1f}" y2="{margin_top + plot_height + 3}" '
+                        f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="0.8" opacity="0.6" />'
+                    )
 
-            # Vertical gridline
+        # Major Decade Gridlines and Ticks
+        for k in decade_ints:
+            val_decade = 10.0 ** k
+            px = scale_x(val_decade)
+            py = scale_y(val_decade)
+
+            # Major vertical gridline
             svg_parts.append(
                 f'<line x1="{px:.1f}" y1="{margin_top}" x2="{px:.1f}" y2="{margin_top + plot_height}" '
-                f'stroke="{cls.COLOR_GRID_LINE}" stroke-width="0.8" stroke-dasharray="2,2" />'
+                f'stroke="{cls.COLOR_GRID_LINE}" stroke-width="1.0" stroke-dasharray="3,3" />'
             )
-            # Horizontal gridline
+            # Major horizontal gridline
             svg_parts.append(
                 f'<line x1="{margin_left}" y1="{py:.1f}" x2="{margin_left + plot_width}" y2="{py:.1f}" '
-                f'stroke="{cls.COLOR_GRID_LINE}" stroke-width="0.8" stroke-dasharray="2,2" />'
+                f'stroke="{cls.COLOR_GRID_LINE}" stroke-width="1.0" stroke-dasharray="3,3" />'
             )
 
-            # Format Tick Values
-            val_fmt = f"{t_val:.1f}" if abs(t_val) < 100 else f"{t_val:.0f}"
-            if abs(t_val) < 0.01:
-                val_fmt = "0"
+            lbl = format_decade(k)
 
-            # Y-Tick Label & Tick Mark
+            # Y-Tick Label & Major Tick Mark
             svg_parts.append(
-                f'<line x1="{margin_left - 5}" y1="{py:.1f}" x2="{margin_left}" y2="{py:.1f}" '
-                f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="1.2" />'
+                f'<line x1="{margin_left - 6}" y1="{py:.1f}" x2="{margin_left}" y2="{py:.1f}" '
+                f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="1.3" />'
             )
             svg_parts.append(
                 f'<text x="{margin_left - 10}" y="{py + 4:.1f}" fill="{cls.COLOR_TEXT_PRIMARY}" '
-                f'font-size="12" font-weight="500" text-anchor="end">{val_fmt}</text>'
+                f'font-size="12.5" font-weight="bold" text-anchor="end">{lbl}</text>'
             )
 
-            # X-Tick Label & Tick Mark
+            # X-Tick Label & Major Tick Mark
             svg_parts.append(
-                f'<line x1="{px:.1f}" y1="{margin_top + plot_height}" x2="{px:.1f}" y2="{margin_top + plot_height + 5}" '
-                f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="1.2" />'
+                f'<line x1="{px:.1f}" y1="{margin_top + plot_height}" x2="{px:.1f}" y2="{margin_top + plot_height + 6}" '
+                f'stroke="{cls.COLOR_AXIS_FRAME}" stroke-width="1.3" />'
             )
             svg_parts.append(
-                f'<text x="{px:.1f}" y="{margin_top + plot_height + 22:.1f}" fill="{cls.COLOR_TEXT_PRIMARY}" '
-                f'font-size="12" font-weight="500" text-anchor="middle">{val_fmt}</text>'
+                f'<text x="{px:.1f}" y="{margin_top + plot_height + 23:.1f}" fill="{cls.COLOR_TEXT_PRIMARY}" '
+                f'font-size="12.5" font-weight="bold" text-anchor="middle">{lbl}</text>'
             )
 
-        # 1:1 Parity Diagonal Geometry
-        x_start, y_start = scale_x(axis_min), scale_y(axis_min)
-        x_end, y_end = scale_x(axis_max), scale_y(axis_max)
+        # 1:1 Parity Diagonal Geometry (Log-Log is a straight 45 deg line)
+        x_start, y_start = scale_x(10.0 ** log_min), scale_y(10.0 ** log_min)
+        x_end, y_end = scale_x(10.0 ** log_max), scale_y(10.0 ** log_max)
 
-        # ±10% Confidence Envelope Polygon
-        upper_start_y = scale_y(axis_min * 1.10)
-        upper_end_y = scale_y(axis_max * 1.10)
-        lower_start_y = scale_y(axis_min * 0.90)
-        lower_end_y = scale_y(axis_max * 0.90)
+        # ±10% Confidence Envelope Polygon in Log-Log (Parallel Offset Ribbon)
+        log_offset_up = math.log10(1.10)
+        log_offset_down = math.log10(0.90)
+
+        upper_start_y = scale_y_log(log_min + log_offset_up)
+        upper_end_y = scale_y_log(log_max + log_offset_up)
+        lower_start_y = scale_y_log(log_min + log_offset_down)
+        lower_end_y = scale_y_log(log_max + log_offset_down)
 
         poly_points = f"{x_start:.1f},{upper_start_y:.1f} {x_end:.1f},{upper_end_y:.1f} {x_end:.1f},{lower_end_y:.1f} {x_start:.1f},{lower_start_y:.1f}"
         svg_parts.append(
@@ -246,12 +303,12 @@ class ResidualGraphGenerator:
         svg_parts.append(
             f'<text x="{margin_left + plot_width / 2.0:.1f}" y="{margin_top + plot_height + 52:.1f}" '
             f'fill="{cls.COLOR_TEXT_PRIMARY}" font-size="14.5" font-weight="bold" text-anchor="middle">'
-            f'Experimental / Literature Ground Truth Value{html.escape(unit_str)}</text>'
+            f'Experimental Ground Truth Value{html.escape(unit_str)} [Log₁₀ Scale]</text>'
         )
         svg_parts.append(
             f'<text x="32" y="{margin_top + plot_height / 2.0:.1f}" fill="{cls.COLOR_TEXT_PRIMARY}" '
             f'font-size="14.5" font-weight="bold" text-anchor="middle" transform="rotate(-90 32 {margin_top + plot_height / 2.0})">'
-            f'Penziv First-Principles Predicted Value{html.escape(unit_str)}</text>'
+            f'Penziv Predicted Value{html.escape(unit_str)} [Log₁₀ Scale]</text>'
         )
 
         # Plot Data Points, Residual Drops, and High-Legibility Labels
