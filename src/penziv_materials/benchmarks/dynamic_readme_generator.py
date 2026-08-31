@@ -626,9 +626,9 @@ class DynamicReadmeGenerator:
             punit = f" [{prop['unit']}]" if prop["unit"] else ""
             mape_v = mapes[pkey]
             parity_sections.append(
-                f"#### Figure {i}: Parity Analysis of {pname}{punit}\n\n"
+                f"#### Figure {i}: Parity Analysis of {pname}{punit} (Log-Log)\n\n"
                 f"![{pname} Parity](docs/assets/benchmark_parity_{pkey}.svg)\n\n"
-                f"*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) across $N = {n_materials}$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\\pm 10\\%$ confidence envelope with vertical residual stems. Statistical quality: $\\text{{MAPE}} = {mape_v:.2f}\\%$.*\n"
+                f"*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\\log_{{10}}$) axes across $N = {n_materials}$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\\pm 10\\%$ confidence envelope with vertical residual stems. Statistical quality: $\\text{{MAPE}} = {mape_v:.2f}\\%$.*\n"
             )
         parity_sections_str = "\n".join(parity_sections)
 
@@ -714,7 +714,7 @@ The predictive fidelity of Penziv Materials is benchmarked against authoritative
 
 ## 3. Predicted vs. Actual Parity Scatter Figures (Publication Standard)
 
-Each figure displays predicted first-principles values on the vertical axis ($y$) against experimental literature ground truth on the horizontal axis ($x$) across all $N = {n_materials}$ benchmark materials. Graphs feature the ideal 1:1 parity line ($y = x$), shaded $\\pm 10\\%$ confidence envelopes, and statistical summary insets ($R^2$, MAPE, RMSE):
+Each figure displays predicted first-principles values on the vertical axis ($y$) against experimental literature ground truth on the horizontal axis ($x$) on **logarithmic ($\log_{{10}}$) axes** across all $N = {n_materials}$ benchmark materials. Graphs feature the ideal 1:1 parity line ($y = x$), shaded $\\pm 10\\%$ confidence envelopes, sub-decade minor gridlines, and statistical summary insets ($R^2$, MAPE, RMSE):
 
 {parity_sections_str}
 
