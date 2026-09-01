@@ -9,7 +9,7 @@ from penziv_materials.core.constants import BOLTZMANN_J_K, E_CHARGE, EPSILON_0
 from penziv_materials.multiphysics.coupled_pnp_mechanics import CoupledPNPMechanicsSolver
 from penziv_materials.scale2_continuum.odf_crystal_plasticity import ODFTexturePlasticityEngine
 from penziv_materials.physics.cohesive_interface import CohesiveZoneInterfaceEngine
-from penziv_materials.structure.laguerre_voronoi import MulticomponentLaguerreVoronoiEngine
+from penziv_materials.adapters.standard_adapters import TopologyAdapter
 from penziv_materials.structure.reverse_monte_carlo import ReverseMonteCarloEngine
 from penziv_materials.economics.economic_tools import (
     evaluate_supply_chain_risk,
@@ -90,7 +90,7 @@ class AdvancedPhysicalValidationSuite:
 
     @staticmethod
     def validate_vitreous_silica_glass_network_topology() -> AdvancedSubsystemValidationReport:
-        """Validate Reverse Monte Carlo & Laguerre Voronoi against experimental neutron diffraction for v-SiO2."""
+        """Validate Reverse Monte Carlo & Persistent Homology against experimental neutron diffraction for v-SiO2."""
         # Experimental neutron scattering for vitreous SiO2: first Si-O peak distance = 1.61 Angstrom
         experimental_r_si_o_angstrom = 1.610
 
@@ -103,12 +103,10 @@ class AdvancedPhysicalValidationSuite:
 
         res_rmc = rmc.run_rmc_refinement(initial_coordinates=init_coords, target_g_r=target_gr, max_mc_steps=30)
 
-        # Laguerre Voronoi coordination check
-        elements = ["Si"] * 21 + ["O"] * 43
-        vor_engine = MulticomponentLaguerreVoronoiEngine(box_length_angstrom=12.0)
-        top_res = vor_engine.compute_weighted_laguerre_voronoi(
-            atomic_coordinates=np.array(res_rmc["refined_coordinates_angstrom"]),
-            species_list=elements,
+        # Standard persistent homology topology check
+        betti_res = TopologyAdapter.compute_persistent_betti_numbers(
+            point_cloud=np.array(res_rmc["refined_coordinates_angstrom"]),
+            max_edge_length=3.0,
         )
 
         pred_r_peak = r_mids[np.argmax(target_gr)]
@@ -116,13 +114,13 @@ class AdvancedPhysicalValidationSuite:
 
         return AdvancedSubsystemValidationReport(
             benchmark_name="Vitreous Silica (v-SiO2) Glass Network Topology",
-            target_physics_domain="Scale 4: Reverse Monte Carlo & Laguerre Voronoi Ring Homology",
+            target_physics_domain="Scale 4: Reverse Monte Carlo & Persistent Homology Betti Invariants",
             predicted_metric_value=float(round(pred_r_peak, 3)),
             literature_ground_truth_value=float(round(experimental_r_si_o_angstrom, 3)),
             absolute_percentage_error=float(round(error_pct, 2)),
             analytical_or_experimental_source="Wright (1994) Neutron Total Scattering for v-SiO2 (r_Si-O = 1.61 Å)",
             validation_status="PASSED" if error_pct < 1.0 else "FAILED",
-            details=f"Fitted Si-O first shell distance {pred_r_peak:.3f} Å matching experimental neutron diffraction peak.",
+            details=f"Fitted Si-O first shell distance {pred_r_peak:.3f} Å matching experimental neutron diffraction peak (Betti-0: {betti_res['betti_0']}).",
         )
 
     @staticmethod

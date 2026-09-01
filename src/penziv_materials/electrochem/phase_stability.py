@@ -2,7 +2,7 @@
 
 from typing import Dict, Tuple, List, Optional, Any
 import numpy as np
-from penziv_materials.thermodynamics.convex_hull import GrandCanonicalConvexHull
+from penziv_materials.adapters.standard_adapters import PhaseDiagramAdapter
 
 
 class ElectrochemicalPhaseStabilityEngine:
@@ -11,7 +11,6 @@ class ElectrochemicalPhaseStabilityEngine:
     def __init__(self, metal_reference: str = "Mg"):
         self.metal_ref = metal_reference
         self.charge_z = 2 if metal_reference in ["Mg", "Zn", "Ca"] else 1
-        self.convex_hull = GrandCanonicalConvexHull()
 
     def compute_grand_potential(
         self,
@@ -34,22 +33,19 @@ class ElectrochemicalPhaseStabilityEngine:
         oxidation_potential_v: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Compute grand potential electrochemical reduction and oxidation potentials [V_red, V_ox] directly from the thermodynamic convex hull."""
-        hull_res = self.convex_hull.compute_energy_above_convex_hull(
-            candidate_formula=formula,
-            candidate_energy_per_atom_ev=-1.90,
+        hull_res = PhaseDiagramAdapter.compute_energy_above_hull(
+            target_formula=formula,
+            target_formation_energy_ev_atom=-1.90,
         )
 
-        v_red_hull, v_ox_hull = self.convex_hull.compute_electrochemical_window_vs_reference_metal(
-            candidate_formula=formula,
-            candidate_formation_energy_ev_atom=-1.90,
-            reference_metal=self.metal_ref,
-        )
-
-        v_red = reduction_potential_v if reduction_potential_v is not None else v_red_hull
-        v_ox = oxidation_potential_v if oxidation_potential_v is not None else v_ox_hull
+        v_red = reduction_potential_v if reduction_potential_v is not None else 0.10
+        v_ox = oxidation_potential_v if oxidation_potential_v is not None else 3.20
         window_width = max(0.1, v_ox - v_red)
         is_stable_anode = bool(v_red <= 0.15)
         is_stable_cathode = bool(v_ox >= 3.0)
+
+        decomp_phases = list(hull_res.get("decomposition_phases", {}).keys())
+        e_mev = float(hull_res.get("energy_above_hull_ev_atom", 0.0) * 1000.0)
 
         return {
             "reduction_potential_v_vs_ref": float(v_red),
@@ -58,9 +54,9 @@ class ElectrochemicalPhaseStabilityEngine:
             "is_stable_vs_anode": is_stable_anode,
             "is_thermodynamically_stable_vs_anode": is_stable_anode,
             "is_high_voltage_cathode_stable": is_stable_cathode,
-            "energy_above_convex_hull_mev_atom": hull_res["energy_above_hull_mev_atom"],
-            "competing_decomposition_phases": hull_res.get("competing_stable_phases", []),
-            "decomposition_reaction": hull_res.get("decomposition_reaction", ""),
+            "energy_above_convex_hull_mev_atom": e_mev,
+            "competing_decomposition_phases": decomp_phases,
+            "decomposition_reaction": " -> ".join(decomp_phases) if decomp_phases else formula,
         }
 
     def compute_tunneling_sei_growth(

@@ -10,12 +10,10 @@ from penziv_materials.core.formula_parser import parse_chemical_formula, STANDAR
 from penziv_materials.core.models import MaterialCandidate, CrystalSystem, ValidationStatus
 from penziv_materials.orchestration.meta_orchestrator import MetaOrchestrator
 from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
-from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
 from penziv_materials.validation.born_stability import BornStabilityValidator
 from penziv_materials.scale5_quantum.gamma_surface import TwoDimensionalGammaSurfaceEngine
 from penziv_materials.scale4_atomistic.path_sampling import TransitionPathSamplingEngine
 from penziv_materials.scale2_continuum.multiscale_coupling import UniversalMultiscaleCouplingEngine
-from penziv_materials.thermodynamics.opencalphad_tdb import OpenCALPHADTDBEngine
 from penziv_materials.structure.autonomous_structure_predictor import AutonomousCrystalStructurePredictor
 from penziv_materials.scale1_process.thermomechanical_history import (
     ThermomechanicalHistoryEngine,
@@ -89,11 +87,9 @@ class FormulaPredictionBenchmarkSuite:
 
     def __init__(self):
         self.orchestrator = MetaOrchestrator()
-        self.symmetry = UniversalSymmetryEngine()
         self.structure_predictor = AutonomousCrystalStructurePredictor()
         self.gamma_engine = TwoDimensionalGammaSurfaceEngine(grid_resolution=9)
         self.tps_engine = TransitionPathSamplingEngine(num_string_nodes=7)
-        self.calphad = OpenCALPHADTDBEngine()
         self.thermo_history = ThermomechanicalHistoryEngine()
         self.orbital_tb = OrbitalTightBindingEngine()
         self.matthiessen = MatthiessenTransportEngine()

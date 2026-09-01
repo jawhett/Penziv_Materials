@@ -1,9 +1,10 @@
-"""Unit tests for Universal Neumann Tensors, Wigner-Peierls Transport, CALPHAD Grand Potential Phase-Field, and Cohesive Zone Interface Mechanics."""
+"""Unit tests for Pymatgen Elastic Tensor, Wigner-Peierls Transport, CALPHAD Grand Potential Phase-Field, and Cohesive Zone Interface Mechanics."""
 
 import unittest
 import numpy as np
 
-from penziv_materials.structure.universal_neumann import UniversalNeumannTensorEngine
+from pymatgen.analysis.elasticity import ElasticTensor as PmgElasticTensor
+from penziv_materials.adapters.standard_adapters import ElasticityAdapter
 from penziv_materials.physics.wigner_peierls_transport import UnifiedThermalElectronicTransportEngine
 from penziv_materials.scale3_mesoscale.calphad_grand_potential import CALPHADGrandPotentialPhaseFieldEngine
 from penziv_materials.physics.cohesive_interface import CohesiveZoneInterfaceEngine
@@ -15,24 +16,21 @@ class TestTransportAndPhaseField(unittest.TestCase):
         self.calphad_pf = CALPHADGrandPotentialPhaseFieldEngine(num_phases=3, grid_shape=(8, 8, 8))
         self.cohesive = CohesiveZoneInterfaceEngine(temperature_k=300.0)
 
-    def test_universal_neumann_arbitrary_rank_projection(self):
-        # Rank 2
-        d2 = np.random.uniform(1.0, 10.0, (3, 3))
-        ops = [np.eye(3), -np.eye(3)]
-        p2 = UniversalNeumannTensorEngine.project_tensor(d2, ops, rank=2)
-        self.assertEqual(p2.shape, (3, 3))
+    def test_elastic_tensor_homogenization_and_symmetrization(self):
+        c_mat = np.zeros((6, 6))
+        c_mat[0, 0] = c_mat[1, 1] = c_mat[2, 2] = 160.0
+        c_mat[0, 1] = c_mat[0, 2] = c_mat[1, 2] = 65.0
+        c_mat[1, 0] = c_mat[2, 0] = c_mat[2, 1] = 65.0
+        c_mat[3, 3] = c_mat[4, 4] = c_mat[5, 5] = 80.0
 
-        # Rank 3
-        d3 = np.random.uniform(1.0, 10.0, (3, 3, 3))
-        p3 = UniversalNeumannTensorEngine.project_piezoelectric_rank3(d3, ops)
-        self.assertEqual(p3.shape, (3, 3, 3))
+        t = PmgElasticTensor.from_voigt(c_mat)
+        self.assertEqual(t.voigt.shape, (6, 6))
+        self.assertEqual(t.voigt_symmetrized.shape, (3, 3, 3, 3))
+        self.assertGreater(t.k_vrh, 0.0)
 
-        # Rank 4
-        c4 = np.random.uniform(10.0, 200.0, (3, 3, 3, 3))
-        p4 = UniversalNeumannTensorEngine.project_elastic_stiffness_rank4(c4, ops)
-        self.assertEqual(p4.shape, (3, 3, 3, 3))
-        # Verify major symmetry C_ijkl == C_klij
-        np.testing.assert_allclose(p4, np.swapaxes(np.swapaxes(p4, 0, 2), 1, 3), atol=1e-5)
+        res = ElasticityAdapter.analyze_elastic_tensor_6x6(c_mat)
+        self.assertEqual(res["backend"], "pymatgen")
+        self.assertTrue(res["born_stable"])
 
     def test_dual_channel_peierls_wigner_thermal_transport(self):
         freqs = np.linspace(1.0, 15.0, 25)

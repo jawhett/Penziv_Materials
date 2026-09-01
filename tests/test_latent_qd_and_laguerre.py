@@ -1,33 +1,25 @@
-"""Unit tests for Laguerre Voronoi, Unsupervised Latent QD, and Anisotropic Spectral Solvers."""
+"""Unit tests for Persistent Topology, Unsupervised Latent QD, and Anisotropic Spectral Solvers."""
 
 import unittest
 import numpy as np
 
-from penziv_materials.structure.laguerre_voronoi import MulticomponentLaguerreVoronoiEngine
+from penziv_materials.adapters.standard_adapters import TopologyAdapter
 from penziv_materials.orchestration.latent_qd_engine import UnsupervisedLatentQDEngine
 from penziv_materials.scale2_continuum.unified_spectral_solver import Unified3DSpectralMultiphysicsSolver
 
 
 class TestLatentQDAndLaguerre(unittest.TestCase):
     def setUp(self):
-        self.laguerre = MulticomponentLaguerreVoronoiEngine(box_length_angstrom=12.0)
         self.latent_qd = UnsupervisedLatentQDEngine(latent_dim=2)
         self.spectral = Unified3DSpectralMultiphysicsSolver(grid_shape=(8, 8, 8))
 
-    def test_multicomponent_laguerre_voronoi_and_rings(self):
+    def test_persistent_homology_topology(self):
         coords = np.random.uniform(0.0, 12.0, (24, 3))
-        species = ["Si"] * 8 + ["O"] * 16
-
-        lag_res = self.laguerre.compute_weighted_laguerre_voronoi(coords, species)
-        self.assertTrue(lag_res["is_multicomponent_weighted"])
-        self.assertIn("mean_laguerre_coordination", lag_res)
-
-        ring_res = self.laguerre.compute_kings_ring_statistics(coords, species)
-        self.assertIn("ring_size_distribution", ring_res)
-        self.assertIn("medium_range_order_index", ring_res)
-
-        homology_res = self.laguerre.compute_betti_persistent_homology_invariants(coords)
-        self.assertIn("betti_1_topological_loops", homology_res)
+        betti = TopologyAdapter.compute_persistent_betti_numbers(coords, max_edge_length=3.0)
+        self.assertEqual(betti["backend"], "gudhi")
+        self.assertIn("betti_0", betti)
+        self.assertIn("betti_1", betti)
+        self.assertIn("betti_2", betti)
 
     def test_unsupervised_latent_qd_discovery(self):
         res = self.latent_qd.execute_unsupervised_discovery(

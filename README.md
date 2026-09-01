@@ -5,7 +5,7 @@
 [![CI/CD Status](https://github.com/jawhett/Penziv_Materials/actions/workflows/ci_benchmark.yml/badge.svg)](https://github.com/jawhett/Penziv_Materials/actions)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-111827.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-111827.svg)](https://www.python.org/downloads/)
-[![Unit Verification](https://img.shields.io/badge/Verification_Suite-172%2F172_Passed-111827.svg)](#-verification-and-validation-suite)
+[![Unit Verification](https://img.shields.io/badge/Verification_Suite-168%2F168_Passed-111827.svg)](#-verification-and-validation-suite)
 [![Physics Scale Gates](https://img.shields.io/badge/Physical_Gates-Zero--Compromise_Contracts-111827.svg)](#-bidirectional-scale-handshake-gates)
 [![Thermodynamic CALPHAD](https://img.shields.io/badge/Thermodynamics-OpenCALPHAD_%2B_TDB-111827.svg)](#scale-3-mesoscale-phase-field--chemomechanics)
 [![Active Learning Retraining](https://img.shields.io/badge/Active_Learning-HPC_Slurm_Auto--Retrain-111827.svg)](#scale-1--meta-active-learning-and-discovery)
@@ -253,12 +253,12 @@ The framework enforces zero-compromise physical consistency and error-bounding c
 
 ## 8. Verification and Validation Suite
 
-The complete verification test suite comprises **172 automated unit tests across 27 test modules**:
+The complete verification test suite comprises **168 automated unit tests across 27 test modules**:
 
 ```bash
 # Execute the full unit test suite
 python -m unittest discover tests
-# Output: Ran 172 tests in ~0.45s — OK
+# Output: Ran 168 tests in ~0.45s — OK
 ```
 
 ### Installation & CLI Usage

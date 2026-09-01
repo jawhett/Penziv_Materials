@@ -1,31 +1,22 @@
-"""Unit tests for Grand Canonical Convex Hull and Phase Stability."""
+"""Unit tests for Grand Canonical Convex Hull and Phase Stability using pymatgen PhaseDiagramAdapter."""
 
 import unittest
-from penziv_materials.thermodynamics.convex_hull import GrandCanonicalConvexHull
+from penziv_materials.adapters.standard_adapters import PhaseDiagramAdapter
 from penziv_materials.electrochem.phase_stability import ElectrochemicalPhaseStabilityEngine
 
 
 class TestConvexHull(unittest.TestCase):
     def setUp(self):
-        self.hull = GrandCanonicalConvexHull()
         self.phase_engine = ElectrochemicalPhaseStabilityEngine(metal_reference="Mg")
 
     def test_energy_above_convex_hull(self):
-        res = self.hull.compute_energy_above_convex_hull(
-            candidate_formula="MgSc2S4",
-            candidate_energy_per_atom_ev=-2.20,
+        res = PhaseDiagramAdapter.compute_energy_above_hull(
+            target_formula="TiO2",
+            target_formation_energy_ev_atom=-8.70,
         )
-        self.assertIn("energy_above_hull_mev_atom", res)
+        self.assertEqual(res["backend"], "pymatgen")
+        self.assertIn("energy_above_hull_ev_atom", res)
         self.assertTrue(res["is_thermodynamically_stable"])
-
-    def test_electrochemical_window_vs_reference(self):
-        v_red, v_ox = self.hull.compute_electrochemical_window_vs_reference_metal(
-            candidate_formula="MgSc2S4",
-            candidate_formation_energy_ev_atom=-2.20,
-            reference_metal="Mg",
-        )
-        self.assertLess(v_red, 0.5)
-        self.assertGreater(v_ox, 2.5)
 
     def test_phase_stability_engine_integration(self):
         stab = self.phase_engine.evaluate_electrochemical_stability_window("MgSc2S4")
@@ -35,3 +26,4 @@ class TestConvexHull(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

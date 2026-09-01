@@ -36,9 +36,11 @@ class ReverseMonteCarloEngine:
         inv_lat = np.linalg.pinv(lat_mat)
         vol = float(np.abs(np.linalg.det(lat_mat)))
 
-        from penziv_materials.structure.laguerre_voronoi import MetricDisorderedTessellationEngine
-        frac_s = np.dot(coords, inv_lat) % 1.0
-        dists, _ = MetricDisorderedTessellationEngine.compute_periodic_distance_matrix(frac_s, lat_mat)
+        frac_s = (np.dot(coords, inv_lat) % 1.0)
+        delta_frac = frac_s[:, np.newaxis, :] - frac_s[np.newaxis, :, :]
+        delta_frac -= np.round(delta_frac)
+        delta_cart = np.dot(delta_frac, lat_mat)
+        dists = np.linalg.norm(delta_cart, axis=-1)
         np.fill_diagonal(dists, np.inf)
 
         r_edges = np.linspace(0.5, r_max, n_bins + 1)

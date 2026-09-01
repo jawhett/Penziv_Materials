@@ -127,6 +127,16 @@ class PhaseDiagramAdapter:
         {"formula": "TiC", "energy_ev_atom": -8.50},
     ]
 
+    DEFAULT_ELEMENTAL_ENERGIES: Dict[str, float] = {
+        "H": -3.40, "Li": -1.90, "Be": -3.75, "B": -6.65, "C": -9.10, "N": -8.30, "O": -4.95, "F": -1.80,
+        "Na": -1.30, "Mg": -1.50, "Al": -3.36, "Si": -5.40, "P": -5.30, "S": -4.10, "Cl": -1.50,
+        "K": -1.10, "Ca": -2.00, "Sc": -6.30, "Ti": -7.70, "V": -8.90, "Cr": -9.50, "Mn": -8.80,
+        "Fe": -8.31, "Co": -7.00, "Ni": -4.45, "Cu": -3.49, "Zn": -1.30, "Ga": -3.00, "Ge": -4.60,
+        "As": -4.70, "Se": -3.50, "Br": -1.20, "Y": -6.40, "Zr": -8.50, "Nb": -10.2, "Mo": -10.8,
+        "Cd": -1.00, "In": -2.70, "Sn": -3.90, "Sb": -4.10, "Te": -3.10, "La": -4.90, "Ta": -11.8,
+        "W": -12.1, "Pt": -5.80, "Au": -3.80, "Bi": -4.00,
+    }
+
     @classmethod
     def compute_energy_above_hull(
         cls,
@@ -135,18 +145,35 @@ class PhaseDiagramAdapter:
         reference_entries: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Calculate thermodynamic stability Delta E_hull (eV/atom) and equilibrium decomposition using pymatgen."""
-        pmg_entries: List[PDEntry] = []
-        ref_list = reference_entries or cls.STANDARD_REFERENCE_DATABASE
+        target_comp = parse_chemical_formula(target_formula)
+        target_elements = set(target_comp.keys())
+        target_total = sum(target_comp.values())
 
+        pmg_entries: List[PDEntry] = []
+        present_elemental_entries = set()
+
+        ref_list = reference_entries or cls.STANDARD_REFERENCE_DATABASE
         for r in ref_list:
             f = r["formula"]
             e = float(r["energy_ev_atom"])
-            comp_dict = parse_chemical_formula(f)
-            total_atoms = sum(comp_dict.values())
-            pmg_entries.append(PDEntry(f, e * total_atoms))
+            try:
+                comp_dict = parse_chemical_formula(f)
+            except Exception:
+                continue
 
-        target_comp = parse_chemical_formula(target_formula)
-        target_total = sum(target_comp.values())
+            # Only retain reference entries that belong strictly to the target chemical space
+            if set(comp_dict.keys()).issubset(target_elements):
+                total_atoms = sum(comp_dict.values())
+                pmg_entries.append(PDEntry(f, e * total_atoms))
+                if len(comp_dict) == 1:
+                    present_elemental_entries.add(list(comp_dict.keys())[0])
+
+        # Guarantee terminal elemental entries for all elements in the target formula
+        for el in target_elements:
+            if el not in present_elemental_entries:
+                e_ref = cls.DEFAULT_ELEMENTAL_ENERGIES.get(el, -2.50)
+                pmg_entries.append(PDEntry(el, e_ref * 1.0))
+
         target_pd_entry = PDEntry(target_formula, target_formation_energy_ev_atom * target_total)
         pmg_entries.append(target_pd_entry)
 

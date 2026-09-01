@@ -9,7 +9,7 @@ from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEn
 from penziv_materials.scale3_mesoscale.calphad_grand_potential import CALPHADGrandPotentialPhaseFieldEngine
 from penziv_materials.physics.wigner_peierls_transport import UnifiedThermalElectronicTransportEngine
 from penziv_materials.physics.cohesive_interface import CohesiveZoneInterfaceEngine
-from penziv_materials.structure.universal_neumann import UniversalNeumannTensorEngine
+from pymatgen.analysis.elasticity import ElasticTensor as PmgElasticTensor
 
 
 class MaterialDomainTarget(BaseModel):
@@ -39,23 +39,20 @@ class StateDrivenDAGOrchestrator:
         tgt = target or MaterialDomainTarget()
         T = tgt.target_temperature_k
 
-        # 1. Quantum State evaluation
+        # 1. Quantum & Atomistic Tier
         q_state = self.q_agent.execute_quantum_state_evaluation(
             formula=candidate_name,
             composition=composition,
             temperature_k=T,
         )
-        c_voigt = np.array(q_state.c_voigt_gpa)
 
-        # 2. Universal Neumann Point Group Tensor Symmetrization
-        c_rank4 = np.zeros((3, 3, 3, 3))
-        for i in range(3):
-            for j in range(3):
-                c_rank4[i, i, j, j] = c_voigt[i, j]
-                if i != j:
-                    c_rank4[i, j, i, j] = c_voigt[i + 3 if i + 3 < 6 else 3, j + 3 if j + 3 < 6 else 3]
-        ops = [np.eye(3), -np.eye(3)]
-        c_rank4_sym = UniversalNeumannTensorEngine.project_elastic_stiffness_rank4(c_rank4, ops)
+        c_voigt = np.array(q_state.c_voigt_gpa)
+        if c_voigt.shape != (6, 6):
+            c_voigt = np.eye(6) * 120.0
+
+        # 2. Standard Pymatgen Elastic Tensor Symmetrization
+        el_tensor = PmgElasticTensor.from_voigt(c_voigt)
+        c_rank4_sym = np.asarray(el_tensor.voigt_symmetrized, dtype=np.float64)
 
         # 3. Transport and Domain-Specific Multiphysics Tier
         transport_engine = UnifiedThermalElectronicTransportEngine(temperature_k=T)

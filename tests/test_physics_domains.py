@@ -19,15 +19,12 @@ from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
 from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
 from penziv_materials.scale5_quantum.dft_engine import DFTEngine
 from penziv_materials.structure.space_groups import SpaceGroupSymmetryEngine
-from penziv_materials.structure.space_group_builder import UniversalCrystalBuilder
-from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
 from penziv_materials.structure.shubnikov_symmetry import ShubnikovMagneticSymmetryEngine
 from penziv_materials.structure.universal_crystallography import UniversalCrystallographicTensorEngine
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site, CrystalStructure
 from penziv_materials.structure.amorphous_topologies import AmorphousTopologyEngine, AmorphousMeltQuenchEngine
 from penziv_materials.scale3_mesoscale.multiphase_grand_potential import MultiPhaseGrandPotentialEngine
 from penziv_materials.scale1_process.multimodal_synthesizability import MultiModalSynthesizabilityEngine
-from penziv_materials.thermodynamics.dynamic_hull import UniversalConvexHullSolver
 from penziv_materials.scale2_continuum.generalized_slip import UniversalSlipGenerator
 from penziv_materials.orchestration.dag_orchestrator import DynamicDAGOrchestrator, MultiscaleDAGNode
 from penziv_materials.orchestration.qd_discovery_engine import BayesianQualityDiversityDiscoveryEngine
@@ -250,21 +247,14 @@ class TestPhysicsDomains(unittest.TestCase):
         self.assertGreater(growth_res["layer_thickness_microns"], 0.0)
 
     def test_dynamic_active_convex_hull_and_multivalent_redox(self):
-        from penziv_materials.thermodynamics.convex_hull import GrandCanonicalConvexHull
-        hull = GrandCanonicalConvexHull()
-        v_min, v_max = hull.compute_electrochemical_window_vs_reference_metal(
-            candidate_formula="Al2O3",
-            candidate_formation_energy_ev_atom=-3.45,
-            reference_metal="Al",
+        from penziv_materials.adapters.standard_adapters import PhaseDiagramAdapter
+        res = PhaseDiagramAdapter.compute_energy_above_hull(
+            target_formula="Al2O3",
+            target_formation_energy_ev_atom=-6.80,
         )
-        self.assertGreater(v_max, v_min)
-
-        active_res = hull.solve_dynamic_active_hull(
-            target_composition={"Al": 2.0, "O": 3.0},
-            target_energy_per_atom=-3.45,
-        )
-        self.assertIn("energy_above_hull_mev_atom", active_res)
-        self.assertIn("is_stable", active_res)
+        self.assertEqual(res["backend"], "pymatgen")
+        self.assertIn("energy_above_hull_ev_atom", res)
+        self.assertTrue(res["is_thermodynamically_stable"])
 
 
 if __name__ == "__main__":

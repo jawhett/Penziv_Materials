@@ -1,38 +1,39 @@
-"""Unit tests for OpenCALPHAD TDB Engine and First-Principles HPC Dispatcher."""
+"""Unit tests for PyCALPHAD Adapter and First-Principles HPC Dispatcher."""
 
 import unittest
 import numpy as np
 
-from penziv_materials.thermodynamics.opencalphad_tdb import OpenCALPHADTDBEngine
+from penziv_materials.adapters.standard_adapters import CalphadAdapter
 from penziv_materials.meta_bridge.hpc_dispatch import FirstPrinciplesHPCDispatcher
+
+MINIMAL_NI_AL_TDB = """
+ELEMENT /- ELECTRON_GAS 0.0000E+00 0.0000E+00 0.0000E+00!
+ELEMENT VA VACUUM 0.0000E+00 0.0000E+00 0.0000E+00!
+ELEMENT NI FCC_A1 5.8693E+01 4.7870E+03 2.9796E+01!
+ELEMENT AL FCC_A1 2.6982E+01 4.5400E+03 2.8300E+01!
+SPECIES NI NI1!
+SPECIES AL AL1!
+PHASE FCC_A1 % 1 1.0 !
+CONSTITUENT FCC_A1 :AL,NI: !
+PARAMETER G(FCC_A1,AL;0) 298.15 -7976.15+137.093038*T-24.3671976*T*LN(T)-.001884662*T**2-8.77664E-07*T**3+74092*T**(-1); 6000.0 N !
+PARAMETER G(FCC_A1,NI;0) 298.15 -5179.15+117.854*T-22.096*T*LN(T)-.0048407*T**2; 6000.0 N !
+"""
 
 
 class TestOpenCALPHADAndHPC(unittest.TestCase):
     def setUp(self):
-        self.calphad = OpenCALPHADTDBEngine()
         self.hpc = FirstPrinciplesHPCDispatcher(cluster_partition="gpu-a100", num_nodes=2)
 
     def test_calphad_tdb_parser_and_minimizer(self):
-        sample_tdb = """
-        ELEMENT NI FCC_A1 58.6934 $
-        ELEMENT CR BCC_A2 51.9961 $
-        ELEMENT AL FCC_A1 26.9815 $
-        PHASE FCC_A1 % 1 1.0 $
-        PHASE BCC_A2 % 1 1.0 $
-        PHASE GAMMA_PRIME % 2 0.75 0.25 $
-        PARAMETER G(FCC_A1,NI;0) 298.15 -5120.0 + 120.0*T - 25.0*T*LN(T);
-        """
-        parse_res = self.calphad.parse_tdb_content(sample_tdb)
-        self.assertTrue(parse_res["is_tdb_valid"])
-        self.assertGreater(parse_res["num_phases"], 0)
-
-        min_res = self.calphad.minimize_multicomponent_gibbs_energy(
-            overall_composition={"Ni": 0.70, "Al": 0.20, "Cr": 0.10},
+        min_res = CalphadAdapter.evaluate_gibbs_equilibrium(
+            elements=["NI", "AL"],
+            phases=["FCC_A1"],
             temperature_k=1123.15,
+            tdb_file_content=MINIMAL_NI_AL_TDB,
         )
-        self.assertIn("stable_primary_phase", min_res)
-        self.assertIn("equilibrium_phase_fractions", min_res)
-        self.assertAlmostEqual(sum(min_res["equilibrium_phase_fractions"].values()), 1.0, places=4)
+        self.assertEqual(min_res["backend"], "pycalphad")
+        self.assertIn("stable_phases", min_res)
+        self.assertIn("gibbs_energy_j_mol", min_res)
 
     def test_first_principles_hpc_dispatch_and_ingestion(self):
         lat = np.eye(3) * 3.85

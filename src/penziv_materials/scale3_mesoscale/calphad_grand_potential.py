@@ -2,8 +2,7 @@
 
 from typing import Dict, Tuple, List, Optional, Any, Union
 import numpy as np
-
-from penziv_materials.thermodynamics.opencalphad_tdb import OpenCALPHADTDBEngine
+from penziv_materials.adapters.standard_adapters import CalphadAdapter
 
 
 class CALPHADGrandPotentialPhaseFieldEngine:
@@ -15,14 +14,14 @@ class CALPHADGrandPotentialPhaseFieldEngine:
         grid_shape: Tuple[int, int, int] = (16, 16, 16),
         dx_nm: float = 1.0,
         temperature_k: float = 800.0,
-        calphad_engine: Optional[OpenCALPHADTDBEngine] = None,
+        calphad_engine: Optional[Any] = None,
     ):
         self.num_phases = num_phases
         self.grid_shape = grid_shape
         self.nx, self.ny, self.nz = grid_shape
         self.dx = dx_nm
         self.T = temperature_k
-        self.calphad_engine = calphad_engine or OpenCALPHADTDBEngine()
+        self.calphad_engine = calphad_engine
 
     def compute_calphad_grand_potentials(
         self,

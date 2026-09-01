@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from penziv_materials.core.models import CrystalSystem
 from penziv_materials.core.formula_parser import parse_chemical_formula
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
-from penziv_materials.structure.universal_symmetry import UniversalSymmetryEngine
+from penziv_materials.adapters.standard_adapters import SymmetryAdapter
 
 
 class CrystalCandidate(BaseModel):
