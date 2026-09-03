@@ -10,7 +10,9 @@ class ElectrochemicalPhaseStabilityEngine:
 
     def __init__(self, metal_reference: str = "Mg"):
         self.metal_ref = metal_reference
-        self.charge_z = 2 if metal_reference in ["Mg", "Zn", "Ca"] else 1
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        nom_val = abs(UniversalElementalProperties.get_element(metal_reference)[4])
+        self.charge_z = int(round(nom_val)) if nom_val > 0 else 1
 
     def compute_grand_potential(
         self,

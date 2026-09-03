@@ -77,15 +77,33 @@ class HeuristicPrescreenFilter:
             unit_cell_volume_ang3=vol,
         )
 
-        e_atom = -4.5 if elec_report.is_metallic else (-5.2 - elec_report.band_gap_ev * 0.1)
+        from penziv_materials.scale5_quantum.q_elec import QElecAgent, UniversalElementalProperties
+        q_agent = QElecAgent(use_mlip=False)
+        delta_h_form = q_agent.compute_miedema_formation_energy(comp)
+        counts_arr = np.array(stoich)
+        fracs_arr = counts_arr / max(1e-6, np.sum(counts_arr))
+        mean_tm = sum(fracs_arr[i] * UniversalElementalProperties.get_element(elements[i])[5] for i in range(len(elements)))
+        e_coh_ref = 0.0028 * max(300.0, mean_tm)
+        e_atom = float(round(-e_coh_ref + delta_h_form, 3))
         bandgap = float(elec_report.band_gap_ev)
+
+        if isinstance(structure_or_formula, CrystalStructure) and len(structure_or_formula.sites) > 0:
+            from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+            eq = EquivariantMLIPEngine()
+            numbers = [UniversalElementalProperties.get_atomic_number(s.species) for s in structure_or_formula.sites]
+            coords = np.array([structure_or_formula.lattice.fractional_to_cartesian(s.fractional_coords) for s in structure_or_formula.sites])
+            cell = structure_or_formula.lattice.matrix
+            _, forces, _, _ = eq.predict_energy_forces_virial(numbers, coords, cell)
+            max_f = float(np.max(np.linalg.norm(forces, axis=1))) if len(forces) > 0 else 0.01
+        else:
+            max_f = 0.01
 
         return SurrogateResult(
             tier=SurrogateTier.TIER_0_HEURISTIC,
             formula=formula,
             energy_per_atom_ev=e_atom,
             total_energy_ev=e_atom * num_atoms,
-            max_force_ev_ang=0.05,
+            max_force_ev_ang=max_f,
             band_gap_ev=bandgap,
             epistemic_uncertainty=0.15,
             is_converged=True,

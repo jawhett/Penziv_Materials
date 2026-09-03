@@ -32,15 +32,15 @@ class ThermalExtremeTransportEngine:
         denominator = (gamma**2) * (n_cell ** (2.0 / 3.0)) * max(1.0, self.T)
 
         kappa_slack = (numerator / max(1e-30, denominator)) * gamma_factor
-        kappa_clamped = float(np.clip(kappa_slack, 0.05, 3500.0))
+        kappa_lat = float(max(1e-4, kappa_slack))
 
         c_v_approx = 3.0 * (BOLTZMANN_J_K / (volume_per_atom_ang3 * 1.0e-30))
         v_s_approx = (BOLTZMANN_J_K * theta_d / HBAR) * (delta_ang * 1.0e-10)
-        mfp_nm = float((3.0 * kappa_clamped / (c_v_approx * v_s_approx)) * 1.0e9)
+        mfp_nm = float((3.0 * kappa_lat / (c_v_approx * v_s_approx)) * 1.0e9)
 
         return {
-            "lattice_thermal_conductivity_w_m_k": kappa_clamped,
-            "phonon_mean_free_path_nm": float(np.clip(mfp_nm, 0.2, 500.0)),
+            "lattice_thermal_conductivity_w_m_k": kappa_lat,
+            "phonon_mean_free_path_nm": float(max(0.1, mfp_nm)),
             "sound_velocity_m_s": float(v_s_approx),
             "debye_temperature_k": float(theta_d),
         }
@@ -84,9 +84,9 @@ class ThermalExtremeTransportEngine:
         kappa_total = kappa_diag + kappa_offdiag
 
         return {
-            "thermal_conductivity_total_w_m_k": float(np.clip(kappa_total, 0.1, 3000.0)),
-            "kappa_diagonal_peierls_w_m_k": float(np.clip(kappa_diag, 0.05, 3000.0)),
-            "kappa_offdiagonal_wigner_w_m_k": float(np.clip(kappa_offdiag, 0.0, 1000.0)),
+            "thermal_conductivity_total_w_m_k": float(max(1e-4, kappa_total)),
+            "kappa_diagonal_peierls_w_m_k": float(max(1e-4, kappa_diag)),
+            "kappa_offdiagonal_wigner_w_m_k": float(max(0.0, kappa_offdiag)),
             "wigner_diffusive_fraction": float(kappa_offdiag / max(1e-6, kappa_total)),
         }
 

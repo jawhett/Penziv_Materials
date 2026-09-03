@@ -77,8 +77,8 @@ class OnlineActiveRetrainingWorkflow:
         lattice_matrix: np.ndarray,
         simulated_dft_ground_truth_energy: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Execute closed-loop active learning cycle: Uncertainty check -> HPC dispatch -> Ingest -> Retrain."""
-        atom_numbers = [28 if sp == "Ni" else 13 for sp in atomic_species]
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        atom_numbers = [UniversalElementalProperties.get_atomic_number(sp) for sp in atomic_species]
         cart_coords = np.dot(fractional_coords, lattice_matrix)
 
         uncert = self.evaluate_candidate_uncertainty(

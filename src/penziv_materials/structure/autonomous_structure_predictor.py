@@ -104,6 +104,10 @@ class AutonomousCrystalStructurePredictor:
         )
         dynamic_apf = float(round(v_atoms_total / max(1e-4, unit_cell_vol), 4))
 
+        # Bragg-Williams order-disorder transition temperature: T_c = |Delta E_ord| / (k_B * ln(N))
+        is_orderable_superlattice = bool(len(elements) >= 2 and z_fu >= 2 and dynamic_apf >= 0.65)
+        tc_k = float(round((abs(e_atom) * 0.08 * 11604.5) / np.log(len(elements)), 1)) if is_orderable_superlattice else None
+
         return PredictedCrystallographicState(
             chemical_formula=chemical_formula,
             material_class=mat_class,
@@ -118,6 +122,6 @@ class AutonomousCrystalStructurePredictor:
             valence_electron_concentration_vec=float(round(vec_total, 2)),
             pauling_electronegativity_difference=float(round(delta_chi, 2)),
             radius_ratio=float(round(r_ratio, 3)),
-            order_disorder_temperature_tc_k=400.0 if sg_num in [142, 230] else None,
+            order_disorder_temperature_tc_k=tc_k,
             prediction_rationale=rationale,
         )

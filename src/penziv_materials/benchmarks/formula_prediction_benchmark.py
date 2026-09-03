@@ -180,31 +180,42 @@ class FormulaPredictionBenchmarkSuite:
             )
             mu_c = float(round(rel_rates["carrier_mobility_cm2_v_s"], 1))
 
-        # Thermoelectric / Transport parameters from bandgap & electronegativity
+        # Thermoelectric / Transport parameters from Goldsmid-Sharp bandgap & Nernst-Einstein kinetics
         if is_metallic:
             s_seebeck = float(round(2.0 * (vec - 6.0), 1))
-            zt = 0.001
             sigma_ion = 0.0
             e_window = "N/A (Conductor)"
-        elif e_g < 0.35:
-            # Narrow-gap topological thermoelectric
-            s_seebeck = float(round(-300.0 * (0.8 + e_g), 1))
-            zt = float(round(1.20 / (1.0 + 0.5 * e_g), 2))
-            sigma_ion = 0.0
-            e_window = "N/A (Thermoelectric)"
         elif is_solid_electrolyte:
             # Solid-state superionic electrolyte
             s_seebeck = 0.0
-            zt = 0.0
-            carrier_elem = next(e for e in ["Li", "Na", "Mg", "K", "Ag", "Cu"] if e in elements)
-            sigma_ion = float(round(1.5 * (1.0 + 0.5 * delta_chi), 2))
-            e_window = f"0.00 V - {3.5 + delta_chi:.2f} V vs {carrier_elem}/{carrier_elem}ⁿ⁺"
+            carrier_elem = next((e for e in elements if UniversalElementalProperties.get_element(e)[4] > 0 and e in ["Li", "Na", "Mg", "Zn", "Ca", "K", "Al"]), elements[0])
+            charge_z = int(round(abs(UniversalElementalProperties.get_element(carrier_elem)[4])))
+            r_ion = float(UniversalElementalProperties.get_element(carrier_elem)[1])
+            
+            from penziv_materials.electrochem.ion_transport import SolidStateIonTransportEngine
+            eng = SolidStateIonTransportEngine(mobile_ion_charge_z=charge_z, ionic_radius_angstrom=r_ion)
+            anion_polar = 3.88 if any(e in ["S", "Se", "Te"] for e in elements) else 2.0
+            penalty = eng.compute_multivalent_polarization_penalty(anion_polarizability_ang3=anion_polar, dielectric_constant_epsilon_r=12.5)
+            r_bn = 2.45
+            geom_barrier = float(max(0.15, 0.40 * (2.8 - r_bn)))
+            barrier_ev = float(max(0.18, geom_barrier + penalty))
+            
+            d_ion = 2.5e-3 * np.exp(-barrier_ev / (0.02585 * (temperature_k / 300.0)))
+            c_carrier = float(composition.get(carrier_elem, 1.0))
+            n_carrier_cm3 = (c_carrier / total_atoms) * 3.5e21
+            cond_report = eng.compute_nernst_einstein_ionic_conductivity(
+                diffusivity_cm2_s=d_ion,
+                carrier_concentration_cm3=n_carrier_cm3,
+                temperature_k=temperature_k,
+            )
+            sigma_ion = float(round(cond_report["ionic_conductivity_ms_cm"], 2))
+            e_window = f"0.00 V - {e_g:.2f} V vs {carrier_elem}/{carrier_elem}ⁿ⁺"
         else:
-            # Semiconductor / Wide-gap insulator
-            s_seebeck = float(round(-250.0 * e_g, 1))
-            zt = 0.02
+            # Semiconductor / Thermoelectric: Goldsmid-Sharp relation
+            kbt_ev = 0.02585 * (temperature_k / 300.0)
+            s_seebeck = float(round(-86.17 * ((e_g / (2.0 * max(0.01, kbt_ev))) + 0.60), 1))
             sigma_ion = 0.0
-            e_window = f"0.00 V - {min(5.5, 2.5 + e_g):.2f} V"
+            e_window = f"0.00 V - {e_g:.2f} V"
 
         # 5. First-Principles Equation of State Elastic Constants (VRH Homogenization)
         # Atomic volume: V_atom = M_bar / (N_A * rho)
@@ -370,7 +381,9 @@ class FormulaPredictionBenchmarkSuite:
             kbt_j = 1.380649e-23 * temperature_k
             hbar_const = 1.054571817e-34
             n_quantum = 2.0 * ((m_eff * 9.10938e-31 * kbt_j) / (2.0 * np.pi * (hbar_const**2))) ** 1.5
-            carrier_dens = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
+            n_intrinsic = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
+            n_defect = float(2.5e25 * np.exp(-e_g / 0.35)) if e_g < 0.35 else 0.0
+            carrier_dens = max(n_intrinsic, n_defect)
 
         # 8. Anharmonic Grüneisen Parameter & First-Principles Debye Temperature
         # Derived from continuum Poisson's ratio: nu = (3K - 2G) / (2(3K + G))
@@ -424,8 +437,12 @@ class FormulaPredictionBenchmarkSuite:
         else:
             mass_var = 0.02  # Intrinsic natural isotopic mass variance in ordered crystals
             
-        is_isov_hea = bool(is_metallic and n_elem >= 4 and all(e in ["Ti", "Zr", "Hf", "V", "Nb", "Ta", "Cr", "Mo", "W"] for e in elements))
-        misfit_factor = 1.0 if any(e in ["V", "Nb"] for e in elements) else 0.2
+        is_isov_hea = bool(is_metallic and n_elem >= 4 and all(UniversalElementalProperties.get_element(e)[5] > 2000.0 for e in elements))
+        if is_random_alloy and n_elem >= 2:
+            misfit_factor = float(np.sqrt(sum(fracs[i] * ((elem_props[i][0] - mean_rcov) / max(0.1, mean_rcov))**2 for i in range(n_elem))))
+            misfit_factor = float(np.clip(misfit_factor * 10.0, 0.1, 2.5))
+        else:
+            misfit_factor = 0.2
 
         therm_trans = self.matthiessen.compute_coupled_multichannel_thermal_conductivity(
             average_atomic_mass_amu=mean_mass,
@@ -446,6 +463,16 @@ class FormulaPredictionBenchmarkSuite:
         kappa_th = float(round(therm_trans["total_thermal_conductivity_w_m_k"], 1))
         sigma_el = float(therm_trans["electrical_conductivity_s_m"])
         rho_el = float(round(therm_trans["electrical_resistivity_uohm_cm"], 3))
+
+        # Thermoelectric Figure of Merit ZT = S^2 * sigma * T / kappa
+        if is_metallic:
+            zt = 0.001
+        elif is_solid_electrolyte:
+            zt = 0.0
+        else:
+            s_v_k = s_seebeck * 1.0e-6
+            power_factor = (s_v_k**2) * sigma_el
+            zt = float(round((power_factor * max(1.0, temperature_k)) / max(0.1, kappa_th), 3))
 
         # 10. Thermal Expansion Coefficient (Grüneisen-Debye Equation of State with Quantum Heat Capacity)
         # Continuous numerical Debye heat capacity integral: C_V(T) = 9 R (T / theta_D)^3 * int_0^{theta_D/T} x^4 e^x / (e^x - 1)^2 dx

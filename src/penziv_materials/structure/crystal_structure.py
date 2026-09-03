@@ -176,7 +176,8 @@ class CrystalStructure:
         if not carrier_sites:
             carrier_sites = self.sites[:1]
 
-        anion_sites = [s for s in self.sites if s.species in ["S", "O", "Se", "Cl", "F", "Br", "I", "N", "P"]]
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        anion_sites = [s for s in self.sites if UniversalElementalProperties.get_element(s.species)[4] < 0]
         if not anion_sites:
             anion_sites = [s for s in self.sites if s not in carrier_sites]
 

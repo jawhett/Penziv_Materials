@@ -78,7 +78,7 @@ class ContMicroAgent:
 
         k_ic_pa_sqrt_m = np.sqrt(max(1e3, (2.0 * e_pa * g_c_total) / max(0.1, 1.0 - nu**2)))
         k_ic_mpa_sqrt_m = float(k_ic_pa_sqrt_m * 1.0e-6)
-        return float(np.clip(k_ic_mpa_sqrt_m, 1.5, 250.0))
+        return float(max(0.1, k_ic_mpa_sqrt_m))
 
     def compute_ultimate_tensile_strength_considere(
         self,
@@ -122,7 +122,7 @@ class ContMicroAgent:
         rate_nh = 4.2e4 * stress_ratio * ((self.b / d_m) ** 2) * np.exp(-q_nh_j_mol / rt)
 
         total_creep_rate = float(rate_disl + rate_coble + rate_nh)
-        return float(np.clip(total_creep_rate, 1e-15, 1e-2))
+        return float(max(0.0, total_creep_rate))
 
     def compute_high_temperature_creep_rate(
         self,
