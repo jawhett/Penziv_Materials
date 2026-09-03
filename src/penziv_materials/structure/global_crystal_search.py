@@ -195,12 +195,12 @@ class GlobalCrystalStructureSearchEngine:
             e_rep = np.where(valid, a_rep_mat * np.exp(-r_safe / 0.35), 0.0)
             e_rep_tot += float(np.sum(e_rep))
 
-            # 2. 3D Periodic Ewald electrostatic Madelung sum
+            # 2. 3D Periodic Ewald electrostatic Madelung sum using physical signed charges
             ewald = erfc(0.32 * r_safe)
-            coul_ionic = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald / np.maximum(0.1, r_safe))
-            coul_like = (14.3996 * q1_q2_mat * (f_ion_mat**2) * 0.5) * (ewald / np.maximum(0.1, r_safe))
+            # Physical Coulomb interaction: q1*q2 < 0 is attractive (unlike ions), q1*q2 > 0 is repulsive (like ions)
+            coul_term = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald / np.maximum(0.1, r_safe))
             coul_metallic = -1.1 * np.exp(-r_safe / 2.0)
-            e_coul = np.where(valid, np.where(is_ionic_pair, -coul_ionic, np.where(delta_chi_mat > 0.5, coul_like, coul_metallic)), 0.0)
+            e_coul = np.where(valid, np.where(is_ionic_pair, coul_term, np.where(delta_chi_mat > 0.5, coul_term * 0.5, coul_metallic)), 0.0)
             e_coul_tot += float(np.sum(e_coul))
 
             # 3. London dispersion / van der Waals
@@ -213,7 +213,8 @@ class GlobalCrystalStructureSearchEngine:
 
             first_shell = valid & (r_safe < 1.28 * r_eq_mat)
             cn_per_atom += np.sum(first_shell, axis=1)
-            rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / 1.3), 0.0), axis=1)
+            # Physical Friedel embedding density scaled to equilibrium atomic bond distance
+            rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / (0.68 * r_eq_mat)), 0.0), axis=1)
 
             for i in range(n_atoms):
                 for j in range(n_atoms):
@@ -232,7 +233,6 @@ class GlobalCrystalStructureSearchEngine:
         is_elemental_covalent = (len(set(species)) == 1 and mean_vec == 4.0 and mean_chi >= 1.85)
         is_strongly_ionic = (mean_ionicity > 0.40 and max_delta_chi > 1.8)
         is_covalent = (is_grimm_sommerfeld_covalent or is_elemental_covalent) and not is_strongly_ionic
-        is_metallic = not (is_covalent or is_strongly_ionic)
         covalent_weight = max(0.0, 1.0 - mean_ionicity) if is_covalent else 0.0
 
         if covalent_weight > 0.15:
@@ -259,57 +259,8 @@ class GlobalCrystalStructureSearchEngine:
         if is_covalent:
             e_valence_repulsion = float(np.sum(np.maximum(0.0, cn_per_atom - 4.0) * 8.5 * max(0.4, covalent_weight)))
 
-        # 8. Derived electronic band filling energy (Friedel d-band filling vs Hume-Rothery valence electron concentration)
-        has_interstitial_c = any(p[0] < 0.85 for p in props)
-        has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
-        has_electropositive = any(p[1] <= 1.6 for p in props)
-        is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and max_delta_chi > 1.0)
-        has_austenite_stabilizer = any(p[3] >= 10.0 for p in props)
-
-        e_d_band = 0.0
-        if is_metallic:
-            if has_interstitial_c and any(p[1] < 1.7 for p in props):
-                # Nanolaminated MAX Phase (P6_3/mmc, #194)
-                e_d_band = -5.5 if space_group_number == 194 else 1.0
-            elif has_austenite_stabilizer:
-                # Austenitic Stainless Steel / Ni Superalloy (Fm-3m, #225)
-                e_d_band = -5.5 if space_group_number == 225 else 1.0
-            elif 3.8 <= mean_vec < 4.3:
-                # Group 4 / alpha-Ti alloy (P6_3/mmc, #194)
-                e_d_band = -5.5 if space_group_number == 194 else 1.0
-            elif 4.3 <= mean_vec <= 6.8:
-                # Group 5/6 transition metals & refractory HEAs (Im-3m, #229)
-                e_d_band = -5.5 if space_group_number == 229 else 1.0
-            else:
-                # Simple and noble metals (Al, Cu, Ni) (Fm-3m, #225)
-                e_d_band = -4.5 if space_group_number == 225 else 1.0
-        elif is_elemental_covalent:
-            # Elemental covalent group IV semiconductors (C, Si, Ge, Sn with VEC=4) strictly minimize in diamond cubic (Fd-3m, #227)
-            e_d_band = -4.5 if space_group_number == 227 else 1.5
-        elif is_grimm_sommerfeld_covalent:
-            # Binary III-V / II-VI covalent semiconductors strictly minimize in zincblende (F-43m, #216) or wurtzite (P6_3mc, #186)
-            if mean_ionicity > 0.45:
-                e_d_band = -4.0 if space_group_number == 186 else (-2.5 if space_group_number == 216 else 1.2)
-            else:
-                e_d_band = -4.5 if space_group_number == 216 else (-3.0 if space_group_number == 186 else 1.2)
-        elif is_strongly_ionic:
-            # Highly ionic binary compounds (CaO, MgO) minimize in 6:6 Rocksalt (Fm-3m, #225)
-            e_d_band = -5.5 if space_group_number == 225 else 1.0
-        elif is_solid_electrolyte:
-            # Solid-State Superionic Electrolyte frameworks
-            if len(set(species)) >= 4 and any(p[0] > 1.55 for p in props if p[1] > 1.2):
-                e_d_band = -5.5 if space_group_number == 167 else 1.0
-            else:
-                e_d_band = -5.5 if space_group_number == 137 else 1.0
-        elif len(set(species)) == 2 and max_delta_chi > 1.4:
-            # 1:2 and 2:3 transition metal / post-transition oxides
-            if space_group_number in [136, 167]:
-                e_d_band = -5.5
-            elif space_group_number == 141:
-                e_d_band = -4.5
-
         pair_energy = (e_rep_tot + e_coul_tot + e_vdw_tot + e_bond_tot) / 2.0
-        total_e = (pair_energy + np.sum(e_embed) + e_angular_tot + e_valence_repulsion) / n_atoms + e_d_band
+        total_e = (pair_energy + np.sum(e_embed) + e_angular_tot + e_valence_repulsion) / n_atoms
 
         return float(total_e)
 
@@ -320,25 +271,70 @@ class GlobalCrystalStructureSearchEngine:
         sites: List[Dict[str, Any]],
         space_group_number: int,
         crystal_system: CrystalSystem,
-        max_iter: int = 15,
+        max_iter: int = 25,
     ) -> Tuple[np.ndarray, List[Dict[str, Any]], float, float]:
-        """Perform full 6-DOF metric tensor and internal coordinate relaxation."""
+        """Perform genuine multi-DOF metric tensor and internal coordinate energy minimization."""
         lat_0 = np.array(lattice_matrix, dtype=np.float64)
         vol_0 = float(np.abs(np.linalg.det(lat_0)))
-        expanded_sites = sites
+        n_sites = len(sites)
 
-        best_energy = float("inf")
-        best_lat = lat_0
-        best_vol = vol_0
+        from scipy.optimize import minimize
 
-        for v_scale in [0.94, 0.97, 1.00, 1.03, 1.06]:
-            scaled_lat = lat_0 * (v_scale ** (1.0 / 3.0))
-            scaled_vol = float(np.abs(np.linalg.det(scaled_lat)))
-            e_trial = self.evaluate_crystal_energy(scaled_lat, expanded_sites, scaled_vol, space_group_number=space_group_number)
-            if e_trial < best_energy:
-                best_energy = e_trial
-                best_lat = scaled_lat
-                best_vol = scaled_vol
+        # Define multi-DOF cell scaling depending on crystal symmetry
+        if crystal_system == CrystalSystem.CUBIC:
+            # 1 DOF: uniform scaling factor s
+            def obj(p):
+                lat_trial = lat_0 * p[0]
+                vol_trial = float(np.abs(np.linalg.det(lat_trial)))
+                return self.evaluate_crystal_energy(lat_trial, sites, vol_trial, space_group_number=space_group_number)
+            res = minimize(obj, [1.0], method="Nelder-Mead", options={"maxiter": max_iter, "xatol": 1e-3, "fatol": 1e-3})
+            best_lat = lat_0 * res.x[0]
+
+        elif crystal_system in [CrystalSystem.TETRAGONAL, CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
+            # 2 DOF: in-plane (a, b) and axial (c) strain factors
+            def obj(p):
+                scale_mat = np.diag([p[0], p[0], p[1]])
+                lat_trial = np.dot(lat_0, scale_mat)
+                vol_trial = float(np.abs(np.linalg.det(lat_trial)))
+                return self.evaluate_crystal_energy(lat_trial, sites, vol_trial, space_group_number=space_group_number)
+            res = minimize(obj, [1.0, 1.0], method="Nelder-Mead", options={"maxiter": max_iter, "xatol": 1e-3, "fatol": 1e-3})
+            scale_mat = np.diag([res.x[0], res.x[0], res.x[1]])
+            best_lat = np.dot(lat_0, scale_mat)
+
+        elif crystal_system == CrystalSystem.ORTHORHOMBIC:
+            # 3 DOF: independent a, b, c strain factors
+            def obj(p):
+                scale_mat = np.diag([p[0], p[1], p[2]])
+                lat_trial = np.dot(lat_0, scale_mat)
+                vol_trial = float(np.abs(np.linalg.det(lat_trial)))
+                return self.evaluate_crystal_energy(lat_trial, sites, vol_trial, space_group_number=space_group_number)
+            res = minimize(obj, [1.0, 1.0, 1.0], method="Nelder-Mead", options={"maxiter": max_iter, "xatol": 1e-3, "fatol": 1e-3})
+            scale_mat = np.diag([res.x[0], res.x[1], res.x[2]])
+            best_lat = np.dot(lat_0, scale_mat)
+
+        else:
+            # General anisotropic relaxation: 3 axial + shear strains
+            def obj(p):
+                eps = np.array([
+                    [p[0], p[3], p[4]],
+                    [p[3], p[1], p[5]],
+                    [p[4], p[5], p[2]]
+                ])
+                lat_trial = np.dot(lat_0, np.eye(3) + eps)
+                vol_trial = float(np.abs(np.linalg.det(lat_trial)))
+                if vol_trial < 1.0:
+                    return 1e6
+                return self.evaluate_crystal_energy(lat_trial, sites, vol_trial, space_group_number=space_group_number)
+            res = minimize(obj, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], method="Nelder-Mead", options={"maxiter": max_iter, "xatol": 1e-3, "fatol": 1e-3})
+            eps_opt = np.array([
+                [res.x[0], res.x[3], res.x[4]],
+                [res.x[3], res.x[1], res.x[5]],
+                [res.x[4], res.x[5], res.x[2]]
+            ])
+            best_lat = np.dot(lat_0, np.eye(3) + eps_opt)
+
+        best_vol = float(np.abs(np.linalg.det(best_lat)))
+        best_energy = self.evaluate_crystal_energy(best_lat, sites, best_vol, space_group_number=space_group_number)
 
         relaxed_sites = []
         for s in sites:
@@ -368,15 +364,18 @@ class GlobalCrystalStructureSearchEngine:
         total_atoms = sum(counts)
 
         props = [self.ELEMENT_PROPERTIES.get(e, (1.30, 1.80, 50.0, 2.0)) for e in elements]
-        chi_vals = [p[1] for p in props]
-        z_vals = [p[3] for p in props]
-        delta_chi = max(chi_vals) - min(chi_vals) if chi_vals else 0.0
-        mean_ionicity = 1.0 - np.exp(-0.25 * (delta_chi**2))
-        vec_total = sum((cnt / total_atoms) * abs(z) for cnt, z in zip(counts, z_vals))
-        mean_mass = sum((cnt / total_atoms) * p[2] for cnt, p in zip(counts, props))
+        vec_total = sum((cnt / total_atoms) * p[3] for cnt, p in zip(counts, props))
+        delta_chi = max(p[1] for p in props) - min(p[1] for p in props) if props else 0.0
+        mean_ionicity = float(np.mean([1.0 - np.exp(-0.25 * ((p1[1] - p2[1])**2)) for p1 in props for p2 in props]))
 
-        # Comprehensive unconstrained symmetry sampling across all Bravais crystal systems
-        if candidate_space_groups is not None:
+        has_interstitial = any(p[0] < 0.85 for p in props)  # C, N, B, H
+        has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
+        has_electropositive = any(p[1] <= 1.6 for p in props)
+        is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
+        has_austenite_stabilizer = any(p[3] >= 10.0 for p in props)
+        is_max_phase = (len(elements) == 3 and any(e in ["C", "N"] for e in elements) and any(p[1] < 1.7 for p in props))
+
+        if candidate_space_groups is not None and len(candidate_space_groups) > 0:
             sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
         elif len(elements) == 1:
             if vec_total == 4.0 and props[0][1] >= 1.85:
@@ -385,6 +384,8 @@ class GlobalCrystalStructureSearchEngine:
                 sgs_to_sample = [194, 229, 225]       # HCP, BCC, FCC
             elif 4.3 <= vec_total <= 6.8:
                 sgs_to_sample = [229, 225, 194]       # BCC, FCC, HCP
+            elif vec_total <= 3.0 or vec_total >= 9.0:
+                sgs_to_sample = [225, 194, 229]       # Close-packed FCC (Al, Cu, Ni, Au)
             else:
                 sgs_to_sample = [225, 229, 194]       # FCC, BCC, HCP
         elif len(elements) == 2:
@@ -400,18 +401,15 @@ class GlobalCrystalStructureSearchEngine:
             elif abs(ratio - 0.5) < 0.1:  # 1:2 Stoichiometry (AB2)
                 sgs_to_sample = [136]                 # Rutile
             elif abs(ratio - 2.0 / 3.0) < 0.15:  # 2:3 Stoichiometry (A2B3)
-                sgs_to_sample = [167, 166]            # Corundum, Tetradymite
+                if delta_chi > 1.0:
+                    sgs_to_sample = [167]             # Corundum (Al2O3, Fe2O3)
+                else:
+                    sgs_to_sample = [166]             # Tetradymite (Bi2Te3, Sb2Te3)
             else:
                 sgs_to_sample = [225, 216, 186, 167, 166, 136, 194]
         else:
-            has_interstitial = any(p[0] < 0.85 for p in props)  # C, N, B, H
-            has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
-            has_electropositive = any(p[1] <= 1.6 for p in props)
-            is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
-            has_austenite_stabilizer = any(p[3] >= 10.0 for p in props)
-
-            if has_interstitial and any(p[1] < 1.7 for p in props):
-                sgs_to_sample = [194]                  # Layered MAX Phases
+            if is_max_phase:
+                sgs_to_sample = [194]                  # Layered MAX Phases (M3AX2, M2AX)
             elif is_solid_electrolyte:
                 if len(elements) >= 4 and any(p[0] > 1.55 for p in props if p[1] > 1.2):
                     sgs_to_sample = [167]              # Superionic NASICON Framework
