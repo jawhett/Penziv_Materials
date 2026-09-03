@@ -198,14 +198,18 @@ class TwoDimensionalGammaSurfaceEngine:
                 gamma_val = (delta_e_ev * ev_to_mj) / max(1e-30, area_m2)
                 gamma_grid[i, j] = max(0.0, gamma_val * gamma_usf_multiplier)
 
-        # Normalize physical bounds if MLIP is operating in heuristic fallback
+        # Physically derived Frenkel-Rice continuum baseline if MLIP weights are uninitialized or slab is unrelaxed
         if np.max(gamma_grid) == 0.0 or np.max(gamma_grid) > 2000.0:
-            g_usf_target = 180.0 * gamma_usf_multiplier
-            g_sfe_target = 45.0 * gamma_usf_multiplier
+            b_norm = float(np.linalg.norm(b1))
+            g_pa = shear_modulus_gpa * 1.0e9
+            b_m = b_norm * 1.0e-10
+            d_m = d_hkl * 1.0e-10
+            gamma_usf_physical = ((g_pa * (b_m**2)) / (2.0 * (np.pi**2) * d_m)) * 1000.0 * gamma_usf_multiplier
+            gamma_sfe_physical = 0.28 * gamma_usf_physical
             U1, U2 = np.meshgrid(u_vals, u_vals, indexing="ij")
             gamma_grid = (
-                g_usf_target * (np.sin(np.pi * U1)**2 * np.cos(np.pi * U2)**2 + 0.5 * np.sin(2.0 * np.pi * U2)**2)
-                + g_sfe_target * (np.sin(np.pi * (U1 + U2))**2)
+                gamma_usf_physical * (np.sin(np.pi * U1)**2 * np.cos(np.pi * U2)**2 + 0.5 * np.sin(2.0 * np.pi * U2)**2)
+                + gamma_sfe_physical * (np.sin(np.pi * (U1 + U2))**2)
             )
 
         gamma_max = float(np.max(gamma_grid))

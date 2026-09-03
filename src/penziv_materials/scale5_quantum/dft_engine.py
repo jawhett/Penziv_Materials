@@ -106,7 +106,10 @@ class DFTEngine:
         d_m = interplanar_spacing_angstrom * 1.0e-10
 
         gamma_us_j_m2 = (g_pa * (b_m**2)) / (2.0 * (np.pi**2) * d_m)
-        gamma_sfe_j_m2 = 0.35 * gamma_us_j_m2
+        # Frenkel sinusoidal model of planar generalized stacking fault energy
+        gamma_u_j_m2 = gamma_us_j_m2 * (np.sin(np.pi * u_norm)**2)
+        gamma_u_mj_m2 = float(gamma_u_j_m2 * 1000.0)
+        return gamma_u_mj_m2
 
     def fit_birch_murnaghan_eos(
         self,
