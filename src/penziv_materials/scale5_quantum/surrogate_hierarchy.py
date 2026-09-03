@@ -151,24 +151,38 @@ class UniversalMLIPCalculator:
             except Exception as ex:
                 pass
 
-        # Robust surrogate fallback for MLIP evaluation
+        # Physically rigorous Equivariant MLIP evaluation
+        from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+
+        eq = EquivariantMLIPEngine(model_name=self.model_name)
+        atomic_numbers = [int(UniversalElementalProperties.get_element(s.species)[4]) for s in structure.sites]
+        cart_coords = np.array([structure.lattice.fractional_to_cartesian(s.fractional_coords) for s in structure.sites])
+        cell_mat = structure.lattice.matrix
+
+        total_e, forces, stress_gpa, unc = eq.predict_energy_forces_virial(
+            atomic_numbers=atomic_numbers,
+            cartesian_coords=cart_coords,
+            cell_matrix=cell_mat,
+        )
+
+        max_f = float(np.max(np.linalg.norm(forces, axis=1))) if len(forces) > 0 else 0.001
+        e_atom = float(total_e / num_atoms)
         base_res = HeuristicPrescreenFilter.evaluate(structure)
-        refined_e_atom = base_res.energy_per_atom_ev - 0.25
-        forces_arr = np.zeros((num_atoms, 3))
 
         return SurrogateResult(
             tier=SurrogateTier.TIER_1_MLIP,
             formula=formula,
-            energy_per_atom_ev=refined_e_atom,
-            total_energy_ev=refined_e_atom * num_atoms,
-            max_force_ev_ang=0.005,
-            forces_ev_ang=forces_arr.tolist(),
-            stress_tensor_gpa=np.zeros((3, 3)).tolist(),
+            energy_per_atom_ev=e_atom,
+            total_energy_ev=float(total_e),
+            max_force_ev_ang=max_f,
+            forces_ev_ang=forces.tolist(),
+            stress_tensor_gpa=stress_gpa.tolist(),
             band_gap_ev=base_res.band_gap_ev,
-            epistemic_uncertainty=0.008,
-            is_converged=True,
-            calculator_name=f"Simulated_{self.model_name}",
-            metadata={"backend": "Internal_MLIP_Emulation", "note": "Install mace-torch or chgnet for weights-backed execution"},
+            epistemic_uncertainty=float(unc),
+            is_converged=bool(max_f < 0.05),
+            calculator_name=f"EquivariantSO3_{self.model_name}",
+            metadata={"backend": "EquivariantMLIPEngine", "device": self.device},
         )
 
 
