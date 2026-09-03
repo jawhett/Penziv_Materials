@@ -9,7 +9,7 @@
 <rect x="0" y="0" width="980" height="580" fill="#FFFFFF" />
 <text x="105" y="34" fill="#111827" font-size="18" font-weight="bold" letter-spacing="-0.01em">Predicted vs. Actual Parity (Log-Log): Thermal Conductivity (κ_th) [W/m·K]</text>
 <text x="105" y="54" fill="#4B5563" font-size="12" font-style="italic">Zero-Parameter First-Principles Multiscale Predictions vs. Experimental Benchmark (Logarithmic Axes, N = 24)</text>
-<g transform="translate(735, 90)"><rect width="175" height="92" rx="3" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.2" /><text x="14" y="22" fill="#111827" font-size="12" font-weight="bold">Statistical Summary</text><line x1="14" y1="28" x2="161" y2="28" stroke="#D1D5DB" stroke-width="0.8" /><text x="14" y="44" fill="#111827" font-size="11.5">Sample Size: <tspan font-weight="bold">N = 24</tspan></text><text x="14" y="60" fill="#111827" font-size="11.5">Determination: <tspan font-weight="bold">R² = 0.0000</tspan></text><text x="14" y="76" fill="#111827" font-size="11.5">Mean Abs % Err: <tspan font-weight="bold">MAPE = 134.93%</tspan></text></g>
+<g transform="translate(735, 90)"><rect width="175" height="92" rx="3" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.2" /><text x="14" y="22" fill="#111827" font-size="12" font-weight="bold">Statistical Summary</text><line x1="14" y1="28" x2="161" y2="28" stroke="#D1D5DB" stroke-width="0.8" /><text x="14" y="44" fill="#111827" font-size="11.5">Sample Size: <tspan font-weight="bold">N = 24</tspan></text><text x="14" y="60" fill="#111827" font-size="11.5">Determination: <tspan font-weight="bold">R² = 0.0000</tspan></text><text x="14" y="76" fill="#111827" font-size="11.5">Mean Abs % Err: <tspan font-weight="bold">MAPE = 134.96%</tspan></text></g>
 <line x1="154.4" y1="75" x2="154.4" y2="495" stroke="#F3F4F6" stroke-width="0.6" />
 <line x1="105" y1="469.7" x2="925" y2="469.7" stroke="#F3F4F6" stroke-width="0.6" />
 <line x1="102" y1="469.7" x2="105" y2="469.7" stroke="#111827" stroke-width="0.8" opacity="0.6" />
@@ -254,10 +254,10 @@
 <circle cx="547.6" cy="289.6" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
 <circle cx="547.6" cy="289.6" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
 <text x="555.6" y="302.6" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Nb0.25Mo0.25Ta0.25W0.25 <tspan fill="#6B7280" font-size="9.5">(-44.2%)</tspan></text>
-<line x1="526.2" y1="279.3" x2="526.2" y2="264.4" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
-<circle cx="526.2" cy="264.4" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
-<circle cx="526.2" cy="264.4" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
-<text x="534.2" y="257.4" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti3SiC2 <tspan fill="#6B7280" font-size="9.5">(+50.3%)</tspan></text>
+<line x1="526.2" y1="279.3" x2="526.2" y2="264.2" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="526.2" cy="264.2" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="526.2" cy="264.2" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="534.2" y="257.2" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Ti3SiC2 <tspan fill="#6B7280" font-size="9.5">(+51.1%)</tspan></text>
 <line x1="541.7" y1="271.3" x2="541.7" y2="269.0" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
 <circle cx="541.7" cy="269.0" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
 <circle cx="541.7" cy="269.0" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />

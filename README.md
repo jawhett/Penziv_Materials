@@ -28,7 +28,7 @@ Computational materials discovery has historically been constrained by the trade
 5. Spectral acoustic Green's tensor homogenization and crystal plasticity FFT (CPFFT); and
 6. Melt-pool computational fluid dynamics with automated robotic synthesis protocol generation.
 
-We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 58.61\%$, bandgap identification error $\text{MAPE} = 12.29\%$, thermal conductivity $\text{MAPE} = 134.93\%$, and Young's modulus $\text{MAPE} = 64.64\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
+We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 58.40\%$, bandgap identification error $\text{MAPE} = 12.29\%$, thermal conductivity $\text{MAPE} = 134.96\%$, and Young's modulus $\text{MAPE} = 64.55\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
 
 ---
 
@@ -61,12 +61,12 @@ The predictive fidelity of Penziv Materials is benchmarked against authoritative
 
 | Physical Property | Ground Truth Reference Range | Mean Absolute % Error (MAPE) | Accuracy Characterization |
 | :--- | :---: | :---: | :---: |
-| **Crystallographic Density ($\rho$)** | $2.02 - 19.25\,\text{g/cm}^3$ | **`58.61%`** | High-Precision Geometry |
+| **Crystallographic Density ($\rho$)** | $2.02 - 19.25\,\text{g/cm}^3$ | **`58.40%`** | High-Precision Geometry |
 | **Electronic Bandgap ($E_g$)** | $0.00 - 8.80\,\text{eV}$ | **`12.29%`** | Exact Conductor / Insulator Split |
-| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`134.93%`** | Peierls-Wigner & Slack BTE |
-| **Young's Elastic Modulus ($E$)** | $30.0 - 415.0\,\text{GPa}$ | **`64.64%`** | Voigt-Reuss-Hill Homogenization |
-| **Bulk Modulus ($K$)** | $22.0 - 310.0\,\text{GPa}$ | **`48.43%`** | Cohen Equation of State |
-| **Shear Modulus ($G$)** | $12.0 - 180.0\,\text{GPa}$ | **`60.41%`** | Cauchy-Born Acoustic Tensor |
+| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`134.96%`** | Peierls-Wigner & Slack BTE |
+| **Young's Elastic Modulus ($E$)** | $30.0 - 415.0\,\text{GPa}$ | **`64.55%`** | Voigt-Reuss-Hill Homogenization |
+| **Bulk Modulus ($K$)** | $22.0 - 310.0\,\text{GPa}$ | **`48.33%`** | Cohen Equation of State |
+| **Shear Modulus ($G$)** | $12.0 - 180.0\,\text{GPa}$ | **`60.32%`** | Cauchy-Born Acoustic Tensor |
 | **Poisson's Ratio ($\nu$)** | $0.16 - 0.35$ | **`9.64%`** | Anisotropic Elastic Projection |
 | **Thermal Expansion (CTE)** | $2.6 - 30.0\,\text{ppm/K}$ | **`35.14%`** | Grüneisen High-Temperature State |
 | **Yield Strength ($\sigma_y$)** | $35.0 - 1050.0\,\text{MPa}$ | **`51.75%`** | Taylor Dislocation Hardening |
@@ -86,25 +86,25 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Crystallographic Density Parity](docs/assets/benchmark_parity_density.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 58.61\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 58.40\%$.*
 
 #### Figure 2: Parity Analysis of Young's Modulus (E) [GPa] (Log-Log)
 
 ![Young's Modulus (E) Parity](docs/assets/benchmark_parity_youngs_modulus.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 64.64\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 64.55\%$.*
 
 #### Figure 3: Parity Analysis of Bulk Modulus (K) [GPa] (Log-Log)
 
 ![Bulk Modulus (K) Parity](docs/assets/benchmark_parity_bulk_modulus.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 48.43\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 48.33\%$.*
 
 #### Figure 4: Parity Analysis of Shear Modulus (G) [GPa] (Log-Log)
 
 ![Shear Modulus (G) Parity](docs/assets/benchmark_parity_shear_modulus.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 60.41\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 60.32\%$.*
 
 #### Figure 5: Parity Analysis of Poisson's Ratio (ν) (Log-Log)
 
@@ -116,7 +116,7 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Thermal Conductivity (κ_th) Parity](docs/assets/benchmark_parity_thermal_conductivity.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 134.93\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 134.96\%$.*
 
 #### Figure 7: Parity Analysis of Electronic Bandgap (E_g) [eV] (Log-Log)
 
@@ -173,7 +173,7 @@ The complete table below presents the quantitative comparison between first-prin
 | `Ni0.53Cr0.19Fe0.18Nb0.05Mo0.03` | Superalloy 718 | $Fm-3m$ | 9.12 / 8.19 `(+11.4%)` | 0.00 / 0.00 | 230.9 / 211 `(+9.4%)` | 4.0 / 11.4 `(-64.9%)` | 1371 / 1050 | **PASS** | `Special Metals Inconel 718 Bulletin` |
 | `Ti0.90Al0.06V0.04` | Titanium Alloy | $P6_3/mmc$ | 5.00 / 4.43 `(+12.9%)` | 0.00 / 0.00 | 107.7 / 114 `(-5.5%)` | 11.7 / 6.7 `(+74.6%)` | 398 / 880 | **PASS** | `Donachie, Titanium: A Technical Guide` |
 | `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | 16.93 / 13.75 `(+23.1%)` | 0.00 / 0.00 | 258.8 / 280 `(-7.6%)` | 27.9 / 50.0 `(-44.2%)` | 1433 / 1050 | **PASS** | `Senkov et al., Intermetallics` |
-| `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | 8.19 / 4.53 `(+80.8%)` | 0.00 / 0.00 | 354.0 / 340 `(+4.1%)` | 55.6 / 37.0 `(+50.3%)` | 128 / 450 | **PASS** | `Barsoum et al., Prog. Solid State Chem.` |
+| `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | 8.23 / 4.53 `(+81.7%)` | 0.00 / 0.00 | 355.8 / 340 `(+4.6%)` | 55.9 / 37.0 `(+51.1%)` | 128 / 450 | **PASS** | `Barsoum et al., Prog. Solid State Chem.` |
 | `Ti2AlC` | Lightweight MAX | $P6_3/mmc$ | 6.34 / 4.11 `(+54.3%)` | 0.00 / 0.00 | 258.6 / 278 `(-7.0%)` | 49.0 / 46.0 `(+6.5%)` | 98 / 380 | **PASS** | `Barsoum, MAX Phases Handbook` |
 | `CaO` | Ceramic Oxide | $Fm-3m$ | 7.84 / 3.34 `(+134.7%)` | 7.85 / 7.10 | 355.6 / 185 `(+92.2%)` | 73.3 / 30.0 `(+144.3%)` | 218 / 320 | **PASS** | `Kingery et al., Intro to Ceramics` |
 | `MgO` | Refractory Oxide | $Fm-3m$ | 10.52 / 3.58 `(+193.9%)` | 7.56 / 7.80 | 771.8 / 250 `(+208.7%)` | 222.2 / 45.0 `(+393.8%)` | 390 / 350 | **PASS** | `Samsonov, The Oxide Handbook` |
@@ -185,7 +185,7 @@ The complete table below presents the quantitative comparison between first-prin
 | `GaAs` | Optoelectronic III-V | $F-43m$ | 10.62 / 5.32 `(+99.6%)` | 1.42 / 1.42 | 234.7 / 86 `(+174.5%)` | 105.4 / 55.0 `(+91.6%)` | 143 / 120 | **PASS** | `Madelung, Semiconductors Data` |
 | `CdTe` | Photovoltaic II-VI | $F-43m$ | 11.25 / 5.85 `(+92.3%)` | 1.49 / 1.50 | 122.8 / 52 `(+136.2%)` | 10.4 / 6.2 `(+67.7%)` | 83 / 65 | **PASS** | `Adachi, Physical Properties Handbook` |
 | `Bi2Te3` | Thermoelectric | $R-3m$ | 17.90 / 7.86 `(+127.7%)` | 0.14 / 0.15 | 161.4 / 40 `(+298.5%)` | 2.5 / 1.2 `(+108.3%)` | 98 / 55 | **PASS** | `Goldsmid, Thermoelectric Refrigeration` |
-| `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | 5.39 / 2.40 `(+124.6%)` | 3.53 / 3.60 | 54.9 / 45 `(+22.0%)` | 0.5 / 0.8 `(-37.5%)` | 30 / 80 | **PASS** | `Canepa et al., Nature Comm.` |
+| `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | 5.25 / 2.40 `(+118.8%)` | 3.53 / 3.60 | 53.7 / 45 `(+19.3%)` | 0.5 / 0.8 `(-37.5%)` | 30 / 80 | **PASS** | `Canepa et al., Nature Comm.` |
 | `Li10GeP2S12` | LGPS Superionic | $P4_2/nmc$ | 2.19 / 2.02 `(+8.4%)` | 5.10 / 3.55 | 36.2 / 30 `(+20.7%)` | 0.5 / 0.5 `(0.0%)` | 22 / 60 | **PASS** | `Kamaya et al., Nature Materials` |
 
 ---
