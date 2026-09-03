@@ -398,6 +398,7 @@ def predict_forward(material: str, temp_k: float, as_json: bool):
 @click.option("--max-creep", type=float, default=1.0e-12, help="Maximum allowable steady-state creep rate (1/s)")
 @click.option("--max-exergy", type=float, default=80.0, help="Maximum crustal extraction exergy bound (MJ/kg)")
 @click.option("--output-json", type=str, default=None, help="Optional output JSON path for discovery results")
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
 def discover_alloy(
     elements: str,
     samples: int,
@@ -406,6 +407,7 @@ def discover_alloy(
     max_creep: float,
     max_exergy: float,
     output_json: Optional[str],
+    as_json: bool,
 ):
     """Run Autonomous Inverse Design & Multi-Objective Pareto Discovery Search."""
     base_elements = [e.strip() for e in elements.split(",") if e.strip()]
@@ -418,7 +420,8 @@ def discover_alloy(
         target_temperature_k=temp_k,
     )
 
-    header = f"""[bold cyan]Autonomous Pareto Alloy Discovery Engine[/bold cyan]
+    if not as_json:
+        header = f"""[bold cyan]Autonomous Pareto Alloy Discovery Engine[/bold cyan]
 [dim]Multiscale Inverse Search across {len(base_elements)}-Element Composition Space: {', '.join(base_elements)}[/dim]
 
 [bold]Design Objectives & Target Bounds at {temp_k:.1f} K ({temp_k-273.15:.1f} deg C):[/bold]
@@ -426,25 +429,37 @@ def discover_alloy(
  * Max Creep Rate: [bold green]< {max_creep:.1e} 1/s[/bold green] (at 250 MPa)
  * Max Crustal Exergy: [bold green]< {max_exergy:.1f} MJ/kg[/bold green]
  * Number of Candidates Sampled: [bold]{samples}[/bold]"""
-    console.print(Panel(header, border_style="cyan"))
+        console.print(Panel(header, border_style="cyan"))
 
     engine = AlloyDiscoveryEngine()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]Screening multiscale pyramid & physics gates...", total=samples)
+    if not as_json:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[cyan]Screening multiscale pyramid & physics gates...", total=samples)
+            result = engine.discover_optimal_alloys(
+                base_elements=base_elements,
+                constraints=constraints,
+                n_samples=samples,
+                prefix_name="Penziv-Alloy",
+            )
+            progress.update(task, completed=samples)
+    else:
         result = engine.discover_optimal_alloys(
             base_elements=base_elements,
             constraints=constraints,
             n_samples=samples,
             prefix_name="Penziv-Alloy",
         )
-        progress.update(task, completed=samples)
+
+    if as_json:
+        click.echo(result.model_dump_json())
+        sys.exit(0)
 
     console.print(f"\n[bold]Discovery Summary:[/bold] Screened {result.total_screened} compositions | [green]{result.physically_stable_count} Physically Stable & Validated[/green] | [cyan]{len(result.pareto_optimal_candidates)} Pareto-Optimal Solutions[/cyan]\n")
 
