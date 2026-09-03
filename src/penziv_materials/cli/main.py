@@ -151,26 +151,40 @@ def evaluate_tea(formula: str, purity: str, sinter_temp: float, as_json: bool):
 @click.option("--carrier", type=click.Choice(["Mg", "Na", "Li", "Zn", "Ca"]), default="Mg", help="Mobile charge carrier cation")
 @click.option("--candidates", type=int, default=15, help="Number of generative candidates to explore")
 @click.option("--min-sigma", type=float, default=1.0, help="Minimum target ionic conductivity (mS/cm)")
-def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float, as_json: bool):
     """Discover novel multivalent/fast solid electrolytes via Quality-Diversity MAP-Elites."""
-    header = f"""[bold cyan]Autonomous Solid Electrolyte & Hybrid Architecture Discovery[/bold cyan]
+    if not as_json:
+        header = f"""[bold cyan]Autonomous Solid Electrolyte & Hybrid Architecture Discovery[/bold cyan]
 [dim]Target Mobile Cation:[/dim] [bold green]{carrier}^{'2+' if carrier in ['Mg', 'Zn', 'Ca'] else '+'}[/bold green] | [dim]Target Conductivity:[/dim] > {min_sigma:.1f} mS/cm
 
 [bold]Evaluating:[/bold] CI-NEB Barriers | Polarization Screening | FNV Defects | PNP Space-Charge | Precursor Cost ($/kg) | Refining HHI | Retrosynthesis"""
-    console.print(Panel(header, border_style="cyan"))
+        console.print(Panel(header, border_style="cyan"))
 
     orchestrator = SolidElectrolyteDiscoveryOrchestrator(target_carrier=carrier)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task(f"[cyan]Illuminating MAP-Elites behavioral niches for {carrier} conductors...", total=candidates)
+    if not as_json:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"[cyan]Illuminating MAP-Elites behavioral niches for {carrier} conductors...", total=candidates)
+            res = orchestrator.discover_solid_electrolyte_candidates(num_candidates=candidates, target_min_conductivity_ms_cm=min_sigma)
+            progress.update(task, completed=candidates)
+    else:
         res = orchestrator.discover_solid_electrolyte_candidates(num_candidates=candidates, target_min_conductivity_ms_cm=min_sigma)
-        progress.update(task, completed=candidates)
+
+    if as_json:
+        output = {
+            "all_candidates": res["all_candidates"],
+            "top_candidate": res["top_candidate"],
+            "map_elites_archive_stats": res["map_elites_archive_stats"]
+        }
+        click.echo(json.dumps(output, default=str))
+        sys.exit(0)
 
     stats = res["map_elites_archive_stats"]
     console.print(f"\n[bold]Quality-Diversity Archive:[/bold] Occupied [green]{stats['occupied_niches']}[/green] niches | QD-Score: [cyan]{stats['qd_score']:.2f}[/cyan] | Max Fitness: [magenta]{stats['max_fitness']:.2f}[/magenta]\n")
@@ -219,11 +233,17 @@ def discover_solid_electrolyte(carrier: str, candidates: int, min_sigma: float):
 @main.command()
 @click.option("--surface", type=click.Choice(["gyroid", "diamond"]), default="gyroid")
 @click.option("--resolution", type=int, default=32, help="Grid resolution per axis")
-def generate_tpms(surface: str, resolution: int):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def generate_tpms(surface: str, resolution: int, as_json: bool):
     """Generate 3D Triply Periodic Minimal Surface (TPMS) multi-phase hybrid geometry."""
-    console.print(f"\n[bold cyan]Generating 3D {surface.capitalize()} Multi-Phase Domain ({resolution}^3 voxels)...[/bold cyan]")
+    if not as_json:
+        console.print(f"\n[bold cyan]Generating 3D {surface.capitalize()} Multi-Phase Domain ({resolution}^3 voxels)...[/bold cyan]")
     gen = TPMSMultiPhaseGenerator(resolution=(resolution, resolution, resolution))
     res = gen.build_tri_phase_hybrid_architecture(surface_type=surface)
+
+    if as_json:
+        click.echo(json.dumps(res, default=str))
+        sys.exit(0)
 
     console.print(f"[bold green]✔ Generated Bicontinuous 3-Phase Domain:[/bold green]")
     console.print(f" • Solid Ceramic Skeleton Fraction: {res['volume_fraction_solid_ceramic']:.2%}")
