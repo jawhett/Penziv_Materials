@@ -481,7 +481,7 @@ class ThermomechanicalHistoryEngine:
         gamma_eff = gamma_surface_j_m2 * (1.0 + gamma_plastic_dissipation)
 
         k_ic_pa_sqrt_m = np.sqrt((2.0 * E_pa * gamma_eff) / max(0.1, 1.0 - self.nu**2))
-        k_ic = float(np.clip(k_ic_pa_sqrt_m * 1.0e-6, 18.0, 220.0))
+        k_ic = float(max(1.0, k_ic_pa_sqrt_m * 1.0e-6))
 
         delta_ctod_um = float((k_ic**2 * 1.0e6) / (1.5 * sigma_y * E_gpa * 1000.0) * 1.0e3)
         r_p_mm = float((1.0 / (6.0 * np.pi)) * ((k_ic / sigma_y) ** 2) * 1000.0)
@@ -493,18 +493,16 @@ class ThermomechanicalHistoryEngine:
         sigma_e = float(max(25.0, sigma_e_intrinsic * k_surf * pore_reduction * residual_reduction))
 
         sigma_f_prime = float(sigma_uts + 345.0)
-        b_basquin = float(-np.log10(max(1.1, (2.0 * sigma_f_prime) / max(10.0, sigma_e))) / 6.0)
-        b_basquin = float(np.clip(b_basquin, -0.16, -0.06))
+        b_basquin = float(-np.log10(max(1.1, (2.0 * sigma_f_prime) / max(10.0, sigma_e))) / np.log10(2.0e6))
 
         eps_f_prime = float(np.log(1.0 / max(0.1, 1.0 - (eps_f / 100.0) * 0.75)))
         c_coffin = float(-0.55 - (sigma_y / 4000.0) * 0.15)
 
-        nt_cycles = float(0.5 * ((eps_f_prime * (E_gpa * 1000.0)) / max(1.0, sigma_f_prime)) ** (1.0 / (b_basquin - c_coffin)))
-        nt_cycles = float(np.clip(nt_cycles, 50.0, 50000.0))
+        nt_cycles = float(max(1.0, 0.5 * ((eps_f_prime * (E_gpa * 1000.0)) / max(1.0, sigma_f_prime)) ** (1.0 / (b_basquin - c_coffin))))
 
         m_paris = float(2.8 + (120.0 / max(20.0, k_ic)) * 0.5)
         c_paris = float(1.2e-11 * (80.0 / max(10.0, E_gpa)) ** 2)
-        delta_k_th = float(np.clip(0.12 * k_ic, 2.0, 12.0))
+        delta_k_th = float(max(0.1, 0.12 * k_ic))
 
         isv_vector = InternalStateVector(
             dislocation_density_m2=rho_disl,

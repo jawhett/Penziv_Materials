@@ -55,7 +55,7 @@ class ProcMfgAgent:
         return {
             "thermal_mismatch_stress_mpa": float(thermal_stress_mpa),
             "cracking_susceptibility_index": float(chi_crack),
-            "synthesizability_score": float(np.clip(synthesizability_score, 0.10, 0.98)),
+            "synthesizability_score": float(synthesizability_score),
         }
 
     def compute_mineral_ore_reduction_exergy(

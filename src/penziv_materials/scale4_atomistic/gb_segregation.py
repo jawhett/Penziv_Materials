@@ -37,8 +37,7 @@ class GrainBoundarySegregationEngine:
 
         # Enthalpy of segregation is negative of strain release at open GB volume
         delta_h_seg_j_mol = -1.0 * float(e_strain_per_atom * AVOGADRO_NUMBER)
-        # Clamped to physical range [-120 kJ/mol, 0 kJ/mol]
-        return float(np.clip(delta_h_seg_j_mol, -120000.0, 0.0))
+        return float(min(0.0, delta_h_seg_j_mol))
 
     def solve_multicomponent_mclean_segregation(
         self,
@@ -93,7 +92,7 @@ class GrainBoundarySegregationEngine:
 
         total_gb_solute = 0.0
         for elem, num in terms.items():
-            c_gb = float(np.clip(num / denom, 0.0, 0.95))
+            c_gb = float(max(0.0, min(1.0, num / denom)))
             gb_concentrations[elem] = c_gb
             total_gb_solute += c_gb
 

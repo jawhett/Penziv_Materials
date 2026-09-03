@@ -32,7 +32,7 @@ class MultiModalSynthesizabilityEngine:
         is_reaction_limited = bool(substrate_temperature_c < 900.0)
 
         return {
-            "growth_rate_nm_min": float(np.clip(growth_rate_nm_min, 0.05, 500.0)),
+            "growth_rate_nm_min": float(max(0.0, growth_rate_nm_min)),
             "is_reaction_limited": is_reaction_limited,
             "regime": "SURFACE_REACTION_LIMITED" if is_reaction_limited else "MASS_TRANSPORT_LIMITED",
             "is_synthetically_feasible": bool(growth_rate_nm_min >= 0.10),
@@ -48,7 +48,7 @@ class MultiModalSynthesizabilityEngine:
     ) -> Dict[str, Any]:
         """SPS pressure-assisted densification via grain boundary diffusion and plastic yielding."""
         densification_rate = 1.2e-4 * (applied_pressure_mpa / 50.0) * (diffusion_coeff_m2_s / 1e-13)
-        final_density = np.clip(initial_relative_density + densification_rate * 600.0, 0.55, 0.995)
+        final_density = float(min(1.0, max(initial_relative_density, initial_relative_density + densification_rate * 600.0)))
 
         return {
             "final_relative_density": float(final_density),

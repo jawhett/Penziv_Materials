@@ -87,9 +87,9 @@ class DFTEngine:
             j_hund_ev = 0.12 * u_crpa_ev
 
         return {
-            "screened_coulomb_u_ev": float(np.clip(u_crpa_ev, 1.2, 10.5)),
-            "hund_exchange_j_ev": float(np.clip(j_hund_ev, 0.2, 1.8)),
-            "effective_hubbard_u_minus_j_ev": float(max(0.5, u_crpa_ev - j_hund_ev)),
+            "screened_coulomb_u_ev": float(max(0.1, u_crpa_ev)),
+            "hund_exchange_j_ev": float(max(0.01, j_hund_ev)),
+            "effective_hubbard_u_minus_j_ev": float(max(0.05, u_crpa_ev - j_hund_ev)),
         }
 
     def compute_generalized_stacking_fault_energy(

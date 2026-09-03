@@ -466,14 +466,14 @@ class QElecAgent:
         gamma_usf_mj_m2 = (g_shear * b_burgers_ang / (2.0 * (np.pi ** 2))) * 100.0
 
         # Intrinsic SFE scaling with valence electron concentration (Hume-Rothery d-band phase stability)
-        sfe_factor = float(np.clip(0.15 + 0.05 * abs(vec_avg - 8.4), 0.08, 0.45))
-        sfe_val = float(np.clip(gamma_usf_mj_m2 * sfe_factor, 5.0, 350.0))
+        sfe_factor = float(max(0.05, 0.15 + 0.05 * abs(vec_avg - 8.4)))
+        sfe_val = float(max(1.0, gamma_usf_mj_m2 * sfe_factor))
 
         # Genuine Born-Oppenheimer atomic force residual norm: max_I ||F_I|| = max_I ||-grad_{R_I} E||
         if structure is not None and hasattr(structure, "sites") and len(structure.sites) > 0:
             from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
             eq = EquivariantMLIPEngine()
-            numbers = [int(UniversalElementalProperties.get_element(s.species)[4]) for s in structure.sites]
+            numbers = [UniversalElementalProperties.get_atomic_number(s.species) for s in structure.sites]
             coords = np.array([structure.lattice.fractional_to_cartesian(s.fractional_coords) for s in structure.sites])
             cell = structure.lattice.matrix
             _, forces, _, _ = eq.predict_energy_forces_virial(numbers, coords, cell)

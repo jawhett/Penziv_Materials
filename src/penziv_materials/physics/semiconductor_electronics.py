@@ -157,15 +157,13 @@ class SemiconductorElectronicEngine:
         denominator = 3.0 * ((BOLTZMANN_J_K * self.T) ** 1.5) * (m_eff_kg**2.5) * (e_def_j**2)
 
         mu_si = numerator / max(1e-35, denominator)
-        mu_cm2_v_s = float(mu_si * 1.0e4)
-        mu_clamped = float(np.clip(mu_cm2_v_s, 5.0, 50000.0))
-
-        tau_fs = float((mu_si * m_eff_kg / E_CHARGE) * 1.0e15)
+        mu_cm2_v_s = float(max(1e-4, mu_si * 1.0e4))
+        tau_fs = float(max(1e-4, (mu_si * m_eff_kg / E_CHARGE) * 1.0e15))
 
         return {
             "effective_mass_m_star": float(m_eff_rel),
-            "electron_mobility_cm2_v_s": mu_clamped,
-            "relaxation_time_fs": float(np.clip(tau_fs, 1.0, 5000.0)),
+            "electron_mobility_cm2_v_s": mu_cm2_v_s,
+            "relaxation_time_fs": tau_fs,
         }
 
     def compute_dielectric_tensor_and_breakdown_field(
@@ -249,6 +247,6 @@ class SemiconductorElectronicEngine:
             "charge_state": int(charge_state_q),
             "fermi_energy_above_vbm_ev": float(fermi_energy_ev),
             "fnv_image_charge_correction_ev": float(e_charge_corr_ev),
-            "equilibrium_concentration_cm3": float(np.clip(c_defect_cm3, 1.0, 1.0e22)),
+            "equilibrium_concentration_cm3": float(max(0.0, c_defect_cm3)),
             "is_spontaneous_doping": bool(delta_h_f <= 0.0),
         }

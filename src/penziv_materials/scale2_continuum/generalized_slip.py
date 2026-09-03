@@ -97,4 +97,4 @@ class UniversalSlipGenerator:
         sfe_softening = max(0.2, 1.0 - 0.25 * (stacking_fault_energy_j_m2 / max(1e-3, g_pa * b_m)))
 
         tau_crss_gpa = (tau_ideal_pa * sfe_softening * 0.15) * 1.0e-9  # Peierls-Nabarro lattice friction factor
-        return float(np.clip(tau_crss_gpa, 0.005, 5.0))
+        return float(max(1e-4, tau_crss_gpa))

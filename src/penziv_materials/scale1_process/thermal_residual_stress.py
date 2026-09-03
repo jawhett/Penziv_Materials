@@ -81,7 +81,7 @@ class ThermalResidualStressEngine:
         mu_mpa = self.E / (2.0 * (1.0 + self.nu))
         b_m = 2.54e-10
         tau_back = float(0.35 * mu_mpa * b_m * np.sqrt(max(0.0, rho_wall - rho_interior)))
-        bauschinger_ratio = float(np.clip(1.0 - (tau_back / (0.5 * sigma_y)), 0.45, 0.98))
+        bauschinger_ratio = float(max(0.05, min(1.0, 1.0 - (tau_back / (0.5 * sigma_y)))))
 
         return ResidualStressState(
             surface_residual_stress_mpa=surf_stress,

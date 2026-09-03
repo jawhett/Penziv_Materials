@@ -192,7 +192,7 @@ class ThermalExtremeTransportEngine:
 
         kappa_total = prefactor * kappa_min
         return {
-            "cahill_pohl_kappa_min_w_m_k": float(np.clip(kappa_total, 0.05, 50.0)),
+            "cahill_pohl_kappa_min_w_m_k": float(max(1e-4, kappa_total)),
             "debye_cutoff_longitudinal_k": float(theta_i[0]),
             "debye_cutoff_transverse_k": float(theta_i[1]),
         }

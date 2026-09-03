@@ -57,7 +57,7 @@ class AmorphousTopologyEngine:
         vol_box = box_length_angstrom**3
         r_eff = min_interatomic_distance_angstrom * 0.5
         vol_spheres = placed * (4.0 / 3.0) * np.pi * (r_eff**3)
-        packing_fraction = float(np.clip(vol_spheres / max(1e-10, vol_box), 0.05, 0.74))
+        packing_fraction = float(max(0.0, vol_spheres / max(1e-10, vol_box)))
 
         return {
             "num_atoms_packed": placed,

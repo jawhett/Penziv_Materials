@@ -84,7 +84,7 @@ class MultiPhaseGrandPotentialEngine:
 
         ratio = theta / theta_m
         sigma_gb = sigma_max_j_m2 * ratio * (1.0 - np.log(ratio))
-        return float(np.clip(sigma_gb, 0.05, sigma_max_j_m2))
+        return float(max(0.0, min(sigma_max_j_m2, sigma_gb)))
 
     def compute_interfacial_energy_matrix(
         self,
