@@ -28,7 +28,7 @@ Computational materials discovery has historically been constrained by the trade
 5. Spectral acoustic Green's tensor homogenization and crystal plasticity FFT (CPFFT); and
 6. Melt-pool computational fluid dynamics with automated robotic synthesis protocol generation.
 
-We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 58.61\%$, bandgap identification error $\text{MAPE} = 12.29\%$, thermal conductivity $\text{MAPE} = 120.47\%$, and Young's modulus $\text{MAPE} = 64.64\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
+We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 58.61\%$, bandgap identification error $\text{MAPE} = 12.29\%$, thermal conductivity $\text{MAPE} = 134.93\%$, and Young's modulus $\text{MAPE} = 64.64\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
 
 ---
 
@@ -63,7 +63,7 @@ The predictive fidelity of Penziv Materials is benchmarked against authoritative
 | :--- | :---: | :---: | :---: |
 | **Crystallographic Density ($\rho$)** | $2.02 - 19.25\,\text{g/cm}^3$ | **`58.61%`** | High-Precision Geometry |
 | **Electronic Bandgap ($E_g$)** | $0.00 - 8.80\,\text{eV}$ | **`12.29%`** | Exact Conductor / Insulator Split |
-| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`120.47%`** | Peierls-Wigner & Slack BTE |
+| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`134.93%`** | Peierls-Wigner & Slack BTE |
 | **Young's Elastic Modulus ($E$)** | $30.0 - 415.0\,\text{GPa}$ | **`64.64%`** | Voigt-Reuss-Hill Homogenization |
 | **Bulk Modulus ($K$)** | $22.0 - 310.0\,\text{GPa}$ | **`48.43%`** | Cohen Equation of State |
 | **Shear Modulus ($G$)** | $12.0 - 180.0\,\text{GPa}$ | **`60.41%`** | Cauchy-Born Acoustic Tensor |
@@ -71,7 +71,7 @@ The predictive fidelity of Penziv Materials is benchmarked against authoritative
 | **Thermal Expansion (CTE)** | $2.6 - 30.0\,\text{ppm/K}$ | **`35.14%`** | Grüneisen High-Temperature State |
 | **Yield Strength ($\sigma_y$)** | $35.0 - 1050.0\,\text{MPa}$ | **`51.75%`** | Taylor Dislocation Hardening |
 | **Fracture Toughness ($K_{Ic}$)** | $0.70 - 100.0\,\text{MPa}\sqrt{\text{m}}$ | **`70.56%`** | Rice-Johnson Crack Model |
-| **Carrier Mobility ($\mu_c$)** | $0.05 - 8500.0\,\text{cm}^2/\text{V·s}$ | **`126.67%`** | Deformation Potential Scattering |
+| **Carrier Mobility ($\mu_c$)** | $0.05 - 8500.0\,\text{cm}^2/\text{V·s}$ | **`150.46%`** | Deformation Potential Scattering |
 | **Dielectric Permittivity ($\varepsilon_r$)** | $1.0 - 86.0$ | **`18.70%`** | Penn Gap & Clausius-Mossotti |
 
 </div>
@@ -116,7 +116,7 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Thermal Conductivity (κ_th) Parity](docs/assets/benchmark_parity_thermal_conductivity.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 120.47\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 134.93\%$.*
 
 #### Figure 7: Parity Analysis of Electronic Bandgap (E_g) [eV] (Log-Log)
 
@@ -146,7 +146,7 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Carrier Mobility (μ_c) Parity](docs/assets/benchmark_parity_carrier_mobility.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 126.67\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 150.46\%$.*
 
 #### Figure 12: Parity Analysis of Static Dielectric Permittivity (ε_r) (Log-Log)
 
@@ -164,17 +164,17 @@ The complete table below presents the quantitative comparison between first-prin
 | Composition | Material Class | Space Group | Density ($\text{g/cm}^3$)<br>Pred / Exp ($\Delta\%$) | $E_g$ (eV)<br>Pred / Exp | Young's $E$ (GPa)<br>Pred / Exp ($\Delta\%$) | $\kappa_{\text{th}}$ (W/m·K)<br>Pred / Exp ($\Delta\%$) | Yield $\sigma_y$ (MPa)<br>Pred / Exp | Born Stable | Reference Source |
 | :--- | :--- | :---: | :--- | :---: | :--- | :--- | :---: | :---: | :--- |
 | `Cu` | Pure Metal | $Fm-3m$ | 9.56 / 8.96 `(+6.7%)` | 0.00 / 0.00 | 163.1 / 128 `(+27.4%)` | 472.5 / 401.0 `(+17.8%)` | 107 / 70 | **PASS** | `CRC Handbook / Ashcroft & Mermin` |
-| `Al` | Light Metal | $Fm-3m$ | 3.21 / 2.70 `(+18.9%)` | 0.00 / 0.00 | 105.6 / 70 `(+50.9%)` | 304.6 / 237.0 `(+28.5%)` | 71 / 35 | **PASS** | `ASM Handbook Vol 2 / Kittel` |
-| `Ni` | Transition Metal | $Fm-3m$ | 9.27 / 8.90 `(+4.2%)` | 0.00 / 0.00 | 194.3 / 200 `(-2.8%)` | 79.3 / 90.7 `(-12.6%)` | 127 / 140 | **PASS** | `ASM Metals Handbook Vol 2` |
-| `Ti` | Refractory Metal | $Fm-3m$ | 5.02 / 4.51 `(+11.3%)` | 0.00 / 0.00 | 105.9 / 116 `(-8.7%)` | 52.0 / 21.9 `(+137.4%)` | 71 / 140 | **PASS** | `Boyer et al., Titanium Properties Handbook` |
-| `W` | Refractory Metal | $Fm-3m$ | 23.09 / 19.25 `(+19.9%)` | 0.00 / 0.00 | 305.2 / 411 `(-25.7%)` | 184.0 / 173.0 `(+6.4%)` | 200 / 750 | **PASS** | `Lassner & Schubert, Tungsten` |
-| `Fe` | Pure Metal | $Fm-3m$ | 9.85 / 7.87 `(+25.2%)` | 0.00 / 0.00 | 267.3 / 211 `(+26.7%)` | 92.6 / 80.4 `(+15.2%)` | 176 / 130 | **PASS** | `ASM Metals Handbook Vol 1` |
-| `Fe0.70Cr0.18Ni0.10Mo0.02` | 316L SS | $Fm-3m$ | 8.67 / 8.00 `(+8.4%)` | 0.00 / 0.00 | 258.0 / 205 `(+25.9%)` | 6.8 / 16.3 `(-58.3%)` | 715 / 290 | **PASS** | `ASM Metals Handbook Vol 1` |
-| `Ni0.53Cr0.19Fe0.18Nb0.05Mo0.03` | Superalloy 718 | $Fm-3m$ | 9.12 / 8.19 `(+11.4%)` | 0.00 / 0.00 | 230.9 / 211 `(+9.4%)` | 2.4 / 11.4 `(-78.9%)` | 1371 / 1050 | **PASS** | `Special Metals Inconel 718 Bulletin` |
-| `Ti0.90Al0.06V0.04` | Titanium Alloy | $P6_3/mmc$ | 5.00 / 4.43 `(+12.9%)` | 0.00 / 0.00 | 107.7 / 114 `(-5.5%)` | 4.7 / 6.7 `(-29.9%)` | 398 / 880 | **PASS** | `Donachie, Titanium: A Technical Guide` |
-| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | 16.93 / 13.75 `(+23.1%)` | 0.00 / 0.00 | 258.8 / 280 `(-7.6%)` | 28.3 / 50.0 `(-43.4%)` | 1433 / 1050 | **PASS** | `Senkov et al., Intermetallics` |
-| `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | 8.19 / 4.53 `(+80.8%)` | 0.00 / 0.00 | 354.0 / 340 `(+4.1%)` | 57.1 / 37.0 `(+54.3%)` | 128 / 450 | **PASS** | `Barsoum et al., Prog. Solid State Chem.` |
-| `Ti2AlC` | Lightweight MAX | $P6_3/mmc$ | 6.34 / 4.11 `(+54.3%)` | 0.00 / 0.00 | 258.6 / 278 `(-7.0%)` | 50.1 / 46.0 `(+8.9%)` | 98 / 380 | **PASS** | `Barsoum, MAX Phases Handbook` |
+| `Al` | Light Metal | $Fm-3m$ | 3.21 / 2.70 `(+18.9%)` | 0.00 / 0.00 | 105.6 / 70 `(+50.9%)` | 1108.8 / 237.0 `(+367.8%)` | 71 / 35 | **PASS** | `ASM Handbook Vol 2 / Kittel` |
+| `Ni` | Transition Metal | $Fm-3m$ | 9.27 / 8.90 `(+4.2%)` | 0.00 / 0.00 | 194.3 / 200 `(-2.8%)` | 76.9 / 90.7 `(-15.2%)` | 127 / 140 | **PASS** | `ASM Metals Handbook Vol 2` |
+| `Ti` | Refractory Metal | $Fm-3m$ | 5.02 / 4.51 `(+11.3%)` | 0.00 / 0.00 | 105.9 / 116 `(-8.7%)` | 50.3 / 21.9 `(+129.7%)` | 71 / 140 | **PASS** | `Boyer et al., Titanium Properties Handbook` |
+| `W` | Refractory Metal | $Fm-3m$ | 23.09 / 19.25 `(+19.9%)` | 0.00 / 0.00 | 305.2 / 411 `(-25.7%)` | 176.9 / 173.0 `(+2.3%)` | 200 / 750 | **PASS** | `Lassner & Schubert, Tungsten` |
+| `Fe` | Pure Metal | $Fm-3m$ | 9.85 / 7.87 `(+25.2%)` | 0.00 / 0.00 | 267.3 / 211 `(+26.7%)` | 90.0 / 80.4 `(+11.9%)` | 176 / 130 | **PASS** | `ASM Metals Handbook Vol 1` |
+| `Fe0.70Cr0.18Ni0.10Mo0.02` | 316L SS | $Fm-3m$ | 8.67 / 8.00 `(+8.4%)` | 0.00 / 0.00 | 258.0 / 205 `(+25.9%)` | 7.6 / 16.3 `(-53.4%)` | 715 / 290 | **PASS** | `ASM Metals Handbook Vol 1` |
+| `Ni0.53Cr0.19Fe0.18Nb0.05Mo0.03` | Superalloy 718 | $Fm-3m$ | 9.12 / 8.19 `(+11.4%)` | 0.00 / 0.00 | 230.9 / 211 `(+9.4%)` | 4.0 / 11.4 `(-64.9%)` | 1371 / 1050 | **PASS** | `Special Metals Inconel 718 Bulletin` |
+| `Ti0.90Al0.06V0.04` | Titanium Alloy | $P6_3/mmc$ | 5.00 / 4.43 `(+12.9%)` | 0.00 / 0.00 | 107.7 / 114 `(-5.5%)` | 11.7 / 6.7 `(+74.6%)` | 398 / 880 | **PASS** | `Donachie, Titanium: A Technical Guide` |
+| `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | 16.93 / 13.75 `(+23.1%)` | 0.00 / 0.00 | 258.8 / 280 `(-7.6%)` | 27.9 / 50.0 `(-44.2%)` | 1433 / 1050 | **PASS** | `Senkov et al., Intermetallics` |
+| `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | 8.19 / 4.53 `(+80.8%)` | 0.00 / 0.00 | 354.0 / 340 `(+4.1%)` | 55.6 / 37.0 `(+50.3%)` | 128 / 450 | **PASS** | `Barsoum et al., Prog. Solid State Chem.` |
+| `Ti2AlC` | Lightweight MAX | $P6_3/mmc$ | 6.34 / 4.11 `(+54.3%)` | 0.00 / 0.00 | 258.6 / 278 `(-7.0%)` | 49.0 / 46.0 `(+6.5%)` | 98 / 380 | **PASS** | `Barsoum, MAX Phases Handbook` |
 | `CaO` | Ceramic Oxide | $Fm-3m$ | 7.84 / 3.34 `(+134.7%)` | 7.85 / 7.10 | 355.6 / 185 `(+92.2%)` | 73.3 / 30.0 `(+144.3%)` | 218 / 320 | **PASS** | `Kingery et al., Intro to Ceramics` |
 | `MgO` | Refractory Oxide | $Fm-3m$ | 10.52 / 3.58 `(+193.9%)` | 7.56 / 7.80 | 771.8 / 250 `(+208.7%)` | 222.2 / 45.0 `(+393.8%)` | 390 / 350 | **PASS** | `Samsonov, The Oxide Handbook` |
 | `Al2O3` | Sapphire / Alumina | $R-3c$ | 6.80 / 3.98 `(+70.9%)` | 7.43 / 8.80 | 598.7 / 380 `(+57.6%)` | 95.5 / 35.0 `(+172.9%)` | 436 / 400 | **PASS** | `Auerkari, Mechanical Properties of Alumina` |
