@@ -50,7 +50,13 @@ class MesoKineticAgent:
         g_mpa = shear_modulus_gpa * 1000.0
         nu = 0.30
 
-        tau_apb_mpa = ((self.gamma_apb * 1.0e3) / (2.0 * b_nm)) * np.sqrt((3.0 * np.pi * f_p) / 8.0)
+        # Physical Gleiter-Hornbogen / Brown-Ham weak-pair coupling order hardening (tau_weak proportional to sqrt(r_p * f_p))
+        gamma_apb_j_m2 = self.gamma_apb
+        tau_weak_mpa = 0.72 * g_mpa * ((gamma_apb_j_m2 / max(1e-3, (g_mpa * 1e6) * self.b))**1.5) * np.sqrt(max(1e-6, f_p * r_p_nm / b_nm))
+        # Strong-pair coupling transition
+        tau_strong_mpa = 0.86 * np.sqrt(max(1e-6, g_mpa * (gamma_apb_j_m2 * 1e3 / b_nm) * f_p * (b_nm / max(1.0, r_p_nm))))
+        tau_apb_mpa = min(tau_weak_mpa, tau_strong_mpa)
+
         spacing_l_nm = max(5.0, r_p_nm * np.sqrt(np.pi / max(1e-4, f_p)))
         tau_orowan_mpa = ((g_mpa * b_nm) / (2.0 * np.pi * np.sqrt(1.0 - nu))) * (np.log(max(1.1, 2.0 * r_p_nm / 0.5)) / max(1.0, spacing_l_nm - 2.0 * r_p_nm))
 

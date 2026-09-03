@@ -164,7 +164,8 @@ class CALPHADGrandPotentialPhaseFieldEngine:
                 val = 0.5 * np.sum(eps_el * np.dot(c_mat[:3, :3], eps_el))
                 elastic_df_spatial[a] = val
 
-        # 3. Allen-Cahn multi-well time evolution
+        # 3. Variational multi-phase Allen-Cahn time evolution with Lagrange multiplier constraint
+        dF_dphi_all = np.zeros((num_p, nx, ny, nz), dtype=np.float64)
         for a in range(num_p):
             if anisotropic_kappa_tensors and a < len(anisotropic_kappa_tensors) and anisotropic_kappa_tensors[a] is not None:
                 from penziv_materials.scale3_mesoscale.phase_field import PhaseFieldEngine
@@ -182,11 +183,17 @@ class CALPHADGrandPotentialPhaseFieldEngine:
             other_sum = np.sum([phi_fields[b] for b in range(num_p) if b != a], axis=0)
             dw_dphi = 2.0 * phi_fields[a] * other_sum
 
-            # Variational driving force
-            dF_dphi = (omega[a] + elastic_df_spatial[a]) + dw_dphi - interface_width_gamma * lap_phi
-            new_phi[a] -= dt_s * mobility_L * dF_dphi
+            # Unconstrained variational functional derivative: dF/dphi_a
+            dF_dphi_all[a] = (omega[a] + elastic_df_spatial[a]) + dw_dphi - interface_width_gamma * lap_phi
 
-        # Constraint enforcement: sum(phi_a) = 1, phi_a in [0, 1]
+        # Variational Lagrange multiplier enforcing Gibbs simplex constraint: sum(dphi_a/dt) = 0 identically
+        lambda_constraint = np.mean(dF_dphi_all, axis=0, keepdims=True)
+        dF_dphi_projected = dF_dphi_all - lambda_constraint
+
+        for a in range(num_p):
+            new_phi[a] -= dt_s * mobility_L * dF_dphi_projected[a]
+
+        # Simplex projection enforcing phi_a in [0, 1]
         new_phi = np.clip(new_phi, 0.0, 1.0)
         norm_sum = np.sum(new_phi, axis=0, keepdims=True)
         new_phi = new_phi / np.maximum(1e-8, norm_sum)
