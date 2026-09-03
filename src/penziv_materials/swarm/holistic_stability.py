@@ -32,12 +32,14 @@ class HolisticStabilityRelaxationEngine:
             for p in phase_volume_fractions
         )
 
-        # Microstructural stress concentration adjustment
+        # Microstructural stress concentration adjustment via linear elastic shear compliance:
+        # U_dev = s_ij * s_ij / (4 * G_0) [MJ/m^3] with reference G_0 = 50.0 GPa
         stress_conc_energy = 0.0
         if stress_concentration_tensor_gpa is not None:
             sig = np.asarray(stress_concentration_tensor_gpa, dtype=np.float64)
             dev_stress = sig - (np.trace(sig) / 3.0) * np.eye(3)
-            stress_conc_energy = float(0.5 * np.sum(dev_stress**2) * 1.0e-3)
+            g0_gpa = 50.0
+            stress_conc_energy = float((np.sum(dev_stress**2) * 1000.0) / (4.0 * g0_gpa))
 
         # Fluid/Pore pressure relief
         w_fluid_support = fluid_volume_fraction * (self.alpha_biot * fluid_pressure_work_mj_m3)

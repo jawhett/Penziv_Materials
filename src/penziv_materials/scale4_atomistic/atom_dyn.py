@@ -58,10 +58,10 @@ class AtomDynAgent:
         b = 2.54e-10
         v_defect = strain_rate_s_inv / (max(1e10, dislocation_density_m2) * b)
         
-        # Characteristic diffusion velocity of solute cloud
+        # Characteristic diffusion velocity of solute cloud (m/s)
         k_b_t = BOLTZMANN_EV_K * max(100.0, temperature_k)
         d_solute = 1e-5 * np.exp(-1.4 / max(0.01, k_b_t))
-        v_drag_0 = max(1e-12, (d_solute / (b * 1e-10)) * (binding_energy_ev / max(0.01, k_b_t)))
+        v_drag_0 = max(1e-12, (d_solute / b) * (binding_energy_ev / max(0.01, k_b_t)))
         
         velocity_ratio = min(100.0, v_defect / v_drag_0)
         delta_e = (binding_energy_ev * solute_concentration) / (1.0 + (velocity_ratio**2))
