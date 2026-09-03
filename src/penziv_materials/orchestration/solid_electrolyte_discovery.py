@@ -13,6 +13,8 @@ from penziv_materials.generative.crystal_generator import GenerativeCrystalSynth
 from penziv_materials.swarm.map_elites import MAPElitesSwarmEngine
 from penziv_materials.swarm.holistic_stability import HolisticStabilityRelaxationEngine
 from penziv_materials.synthesis.retrosynthesis_planner import RetrosynthesisAssemblyPlanner
+from penziv_materials.scale5_quantum.orbital_tight_binding import OrbitalTightBindingEngine
+from penziv_materials.core.formula_parser import parse_chemical_formula
 from penziv_materials.economics.economic_tools import (
     get_composition_cost,
     evaluate_supply_chain_risk,
@@ -39,6 +41,7 @@ class SolidElectrolyteDiscoveryOrchestrator:
         self.map_elites = MAPElitesSwarmEngine()
         self.holistic_stability = HolisticStabilityRelaxationEngine()
         self.retrosynthesis = RetrosynthesisAssemblyPlanner()
+        self.orbital_tb = OrbitalTightBindingEngine()
 
     def discover_solid_electrolyte_candidates(
         self,
@@ -53,20 +56,27 @@ class SolidElectrolyteDiscoveryOrchestrator:
             cand_crystal = self.crystal_gen.generate_off_stoichiometric_superionic_candidate(
                 framework_archetype="Thio-LISICON" if self.target_carrier == "Mg" else "NASICON",
                 doping_element="Sc" if self.target_carrier == "Mg" else "Y",
-                doping_fraction=0.10 + 0.02 * i,
-                random_seed=i + 100,
+                doping_fraction=0.10 + (i % 5) * 0.05,
+                random_seed=42 + i,
             )
             formula = cand_crystal["candidate_formula"]
-            mass_fractions = _parse_formula_to_mass_fractions(formula)
+            crystal = cand_crystal["crystal_structure"]
 
-            # 2. Hard Pre-Compute EHS / Toxicity & Regulatory Gate
+            # 2. Techno-Economic & Supply Chain Multi-Criteria Screening
+            mass_fractions = _parse_formula_to_mass_fractions(formula)
             ehs_res = evaluate_toxicity_and_regulations(formula)
             if not ehs_res["is_regulatory_compliant"]:
                 continue
-
-            # 3. Supply Chain Risk & Commodity Spot Pricing
             cost_res = get_composition_cost(mass_fractions)
             risk_res = evaluate_supply_chain_risk(list(mass_fractions.keys()))
+
+            # 3. Dynamic Band Structure via Orbital Tight-Binding
+            comp_parsed = parse_chemical_formula(formula)
+            tb_rep = self.orbital_tb.compute_electronic_structure(
+                elements=list(comp_parsed.keys()),
+                stoichiometry=list(comp_parsed.values()),
+                bond_length_angstrom=2.40,
+            )
 
             # 4. CI-NEB Migration Barrier & Dynamic Bottleneck Geometry
             anion_polarizability = 3.88 if cand_crystal["anion_type"] == "S" else 2.0
@@ -74,8 +84,8 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 anion_polarizability_ang3=anion_polarizability
             )
             bottleneck_r = cand_crystal["bottleneck_radius_angstrom"]
-            base_barrier_ev = 0.24 + pol_penalty - 0.015 * bottleneck_r
-            barrier_ev = max(0.18, float(base_barrier_ev))
+            geom_barrier = cand_crystal["percolation_pathway"]["effective_geometric_activation_ev"]
+            barrier_ev = float(max(0.18, 0.22 * geom_barrier + pol_penalty))
 
             # 5. AIMD & Nernst-Einstein Conductivity
             kbt = 0.02585
@@ -88,16 +98,18 @@ class SolidElectrolyteDiscoveryOrchestrator:
             )
 
             # 6. Defect Thermodynamics & Electronic Leakage
+            cbm_offset = float(max(0.2, tb_rep.band_gap_ev / 4.0))
+            trap_depth = float(max(0.4, tb_rep.band_gap_ev / 3.0))
             leakage_res = self.defect_engine.evaluate_electronic_leakage_and_dendrite_risk(
-                conduction_band_min_vs_metal_redox_v=0.85,
-                trap_state_depth_ev=0.90,
+                conduction_band_min_vs_metal_redox_v=cbm_offset,
+                trap_state_depth_ev=trap_depth,
             )
 
             # 7. Grand Canonical Phase Stability Window
             stab_res = self.phase_stability_engine.evaluate_electrochemical_stability_window(
                 formula=formula,
                 reduction_potential_v=0.0,
-                oxidation_potential_v=3.6,
+                oxidation_potential_v=float(round(tb_rep.band_gap_ev, 2)),
             )
 
             # 8. TPMS Gyroid Multi-Phase Architecture
@@ -106,8 +118,15 @@ class SolidElectrolyteDiscoveryOrchestrator:
                 wall_thickness_ratio=0.22,
             )
 
-            # Dynamic elastic stiffness and compliance
-            e_vrh_gpa = 110.0 + 35.0 * (1.0 - (bottleneck_r / 3.0))
+            # Dynamic elastic stiffness and compliance from crystal lattice volume and bonding
+            v_cell_ang3 = crystal.lattice.volume_ang3
+            n_sites = len(crystal.sites)
+            v_atom_ang3 = v_cell_ang3 / max(1, n_sites)
+            e_coh_ev = 4.2 + 0.5 * (anion_polarizability / 3.88)
+            k_mod_gpa = float((e_coh_ev / v_atom_ang3) * 160.21766 * 0.70)
+            nu = 0.25
+            g_mod_gpa = float(k_mod_gpa * (3.0 * (1.0 - 2.0 * nu)) / (2.0 * (1.0 + nu)))
+            e_vrh_gpa = float(max(20.0, 2.0 * g_mod_gpa * (1.0 + nu)))
             matrix_compliance = float(1.0 / max(10.0, e_vrh_gpa))
             ceramic_elastic_energy = float(0.5 * e_vrh_gpa * (0.002**2) * 1.0e3)  # MJ/m^3
 

@@ -25,6 +25,7 @@ from penziv_materials.physics.matthiessen_transport import MatthiessenTransportE
 from penziv_materials.scale4_atomistic.gb_segregation import GrainBoundarySegregationEngine
 from penziv_materials.scale1_process.thermal_residual_stress import ThermalResidualStressEngine
 from penziv_materials.physics.wagner_oxidation import WagnerOxidationEngine
+from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
 
 
 class BenchmarkMaterialReport(BaseModel):
@@ -109,6 +110,7 @@ class FormulaPredictionBenchmarkSuite:
         elements = list(composition.keys())
         counts = list(composition.values())
         total_atoms = sum(counts)
+        fracs = [c / max(1e-6, total_atoms) for c in counts]
         n_elem = len(elements)
 
         # 2. Autonomous First-Principles Crystal Structure & Space Group Prediction
@@ -346,18 +348,22 @@ class FormulaPredictionBenchmarkSuite:
         # Conduction Carrier Density from Fermi-Dirac / Metallic Valence Electron Density
         v_atom_m3 = max(1e-30, (mean_mass * 1.66054e-27) / (density_theoretical * 1000.0))
         if is_metallic:
-            if any(e in ["Cu", "Ag", "Au"] for e in elements) and len(elements) == 1:
+            vec_avg = sum(fracs[i] * UniversalElementalProperties.get_vec(elements[i]) for i in range(len(elements)))
+            if has_interstitial_carbide:
+                # Strong covalent d-p hybridization localizes metal-carbon bonds; only unhybridized d-electrons conduct
+                nonmetal_frac = sum(fracs[i] for i in range(len(elements)) if elements[i] in ["C", "N", "B"])
+                z_c = float(max(0.18, (vec_avg - 4.0 * nonmetal_frac) * 0.10))
+            elif vec_avg > 10.0:
+                # Late noble metals (Cu, Ag, Au): s-band conduction with filled d10 core
                 z_c = 1.0
-            elif any(e in ["Al", "Ga", "In"] for e in elements) and len(elements) == 1:
-                z_c = 3.0
-            elif has_interstitial_carbide:
-                z_c = 0.18  # Only unbonded Ti-d electrons at E_F conduct; Ti-C & Ti-Al/Si bonds are localized
+            elif vec_avg <= 3.0:
+                # Simple metals (Na, Mg, Al): full valence conduction
+                z_c = float(vec_avg)
             elif any(e in ["W", "Mo", "Cr"] for e in elements) and len(elements) == 1:
                 z_c = 2.0
-            elif any(e in ["Ti", "Zr", "Hf"] for e in elements) and len(elements) == 1:
-                z_c = 0.35  # Small Fermi-surface electron pocket fraction in early transition metals
             else:
-                z_c = 1.0
+                dos_ef = band_report.density_of_states_at_fermi_level_states_ev
+                z_c = float(np.clip(0.35 + 0.25 * (dos_ef / 2.0), 0.35, 2.0))
             carrier_dens = float((z_c * density_theoretical * 1000.0 * 6.02214076e23) / (mean_mass * 1e-3))
         else:
             # Thermal equilibrium intrinsic carrier density: n_i = 2 * (m* k_B T / 2pi hbar^2)^1.5 * exp(-Eg / 2k_B T)
@@ -367,41 +373,37 @@ class FormulaPredictionBenchmarkSuite:
             carrier_dens = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
 
         # 8. Anharmonic Grüneisen Parameter & First-Principles Debye Temperature
-        is_tetrahedral_semi = bool(
-            any(e in ["Si", "Ge", "Ga", "In", "Al", "Cd", "Zn"] for e in elements)
-            and any(e in ["C", "N", "P", "As", "Sb", "Te", "Se"] for e in elements)
-            and not any(e in ["O", "F", "Cl"] for e in elements)
-        )
-        if is_tetrahedral_semi or (len(elements) == 1 and elements[0] == "Si"):
-            gamma_bare = float(0.60 + 0.35 * (mean_mass / 100.0))  # Non-polar and polar covalent TA mode softening
-        elif not is_metallic and any(e in ["O", "F"] for e in elements):
-            # Binary rocksalt oxides (MgO, CaO) have low intrinsic acoustic anharmonicity (gamma ~ 0.95)
-            gamma_bare = float(0.95 if (len(elements) == 2 and not "3" in formula and not "2" in formula) else 1.25)
-        elif not is_metallic:
-            gamma_bare = float(1.45)  # Heavy chalcogenides & solid electrolytes
+        # Derived from continuum Poisson's ratio: nu = (3K - 2G) / (2(3K + G))
+        poisson_ratio = float((3.0 * k_mod - 2.0 * g_mod) / (2.0 * (3.0 * k_mod + g_mod)))
+        if not is_metallic and any(UniversalElementalProperties.get_element(e)[2] > 3.0 for e in elements):
+            # Ionic oxides / halides: moderate acoustic anharmonicity
+            gamma_bare = float(np.clip(0.95 + 1.2 * (poisson_ratio - 0.25), 0.85, 1.45))
+        elif is_metallic:
+            gamma_bare = float(np.clip(1.35 + 1.5 * (poisson_ratio - 0.30), 1.20, 2.20))
         else:
-            gamma_bare = float(1.45)
+            # Covalent / polar semiconductors and chalcogenides
+            gamma_bare = float(np.clip(0.60 + 0.40 * (mean_mass / 100.0) + 1.2 * max(0.0, poisson_ratio - 0.20), 0.65, 1.85))
 
         # Dielectric polar coupling from Lyddane-Sachs-Teller ratio: omega_LO^2 / omega_TO^2 = eps_static / eps_inf
         eps_inf = max(1.0, float(n_refr ** 2))
         pol_factor = float((eps_r / eps_inf) ** 0.28) if eps_r > 1.0 else 1.0
         gamma_g = float(gamma_bare * pol_factor)
 
-        # Exact primitive basis count
-        if is_metallic and not has_interstitial_carbide:
+        # Exact primitive basis count from stoichiometric formula unit
+        int_counts = [int(round(c * 100)) for c in composition.values()]
+        from math import gcd
+        from functools import reduce
+        common_factor = reduce(gcd, int_counts) if int_counts else 100
+        stoich_basis = float(sum(c * 100 / common_factor for c in composition.values()))
+
+        if is_metallic and len(elements) <= 2 and not has_interstitial_carbide:
+            # Monatomic / binary close-packed metallic subcell
             n_basis = 1.0
-        elif has_interstitial_carbide:
-            n_basis = 4.0 if "2" in formula else 6.0
         elif is_solid_electrolyte:
-            n_basis = 20.0
-        elif "Bi" in elements and "Te" in elements:
-            n_basis = 5.0
-        elif any(e in ["Al"] for e in elements) and any(e in ["O"] for e in elements) and "3" in formula:
-            n_basis = 10.0
-        elif any(e in ["Ti"] for e in elements) and any(e in ["O"] for e in elements) and "2" in formula:
-            n_basis = 6.0
+            # Complex superionic polyanionic framework
+            n_basis = float(max(12.0, stoich_basis))
         else:
-            n_basis = 2.0  # Binary rocksalt/zincblende/wurtzite primitive subcells
+            n_basis = float(max(1.0, stoich_basis))
 
         hbar_si = 1.054571817e-34
         kb_si = 1.380649e-23

@@ -161,25 +161,51 @@ class OrbitalTightBindingEngine:
             e_gap = 0.0
         else:
             # Octet covalent/ionic semiconductor or insulator (Phillips-Harrison & Charge-Transfer gaps)
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+
+            chis = np.array([UniversalElementalProperties.get_element(e)[2] for e in elements])
+            mean_chi = np.sum(fracs * chis)
+            cation_mask = chis < mean_chi
+            anion_mask = chis >= mean_chi
+
+            if np.any(cation_mask) and np.any(anion_mask) and not np.all(cation_mask == anion_mask):
+                c_p = np.sum(fracs[cation_mask] * np.array(eps_p_list)[cation_mask]) / np.sum(fracs[cation_mask])
+                a_p = np.sum(fracs[anion_mask] * np.array(eps_p_list)[anion_mask]) / np.sum(fracs[anion_mask])
+                v_3 = 0.5 * abs(c_p - a_p)
+            else:
+                v_3 = 0.5 * abs(eps_p_list[0] - eps_p_list[1]) if n_elem >= 2 else 0.0
+
             v_hyb = np.sqrt(v_2**2 + v_3**2)
             has_tm_cation = any(0.1 < abs(eps_d_list[i]) < 12.0 for i in range(n_elem))
-            
-            if "Bi" in elements and "Te" in elements:
-                e_gap = 0.15
-                is_metal = False
-            elif "Mg" in elements and any(e in ["P", "S"] for e in elements) and n_elem >= 3:
-                e_gap = 3.60
-                is_metal = False
-            elif any(e == "Li" for e in elements) and any(e in ["P", "S"] for e in elements) and n_elem >= 3:
-                e_gap = 3.55
+
+            # Atomic spin-orbit splitting weighted sum
+            so_map = {
+                "H": 0.0, "Li": 0.0, "Be": 0.0, "B": 0.01, "C": 0.01, "N": 0.01, "O": 0.03, "F": 0.05,
+                "Na": 0.02, "Mg": 0.03, "Al": 0.04, "Si": 0.04, "P": 0.08, "S": 0.09, "Cl": 0.11,
+                "K": 0.04, "Ca": 0.05, "Sc": 0.06, "Ti": 0.07, "V": 0.08, "Cr": 0.09, "Mn": 0.10,
+                "Fe": 0.11, "Co": 0.12, "Ni": 0.13, "Cu": 0.14, "Zn": 0.15, "Ga": 0.17, "Ge": 0.29,
+                "As": 0.38, "Se": 0.42, "Br": 0.46, "Y": 0.14, "Zr": 0.16, "Nb": 0.18, "Mo": 0.20,
+                "Cd": 0.35, "In": 0.82, "Sn": 0.80, "Sb": 0.75, "Te": 0.86, "La": 0.25, "Ta": 0.35,
+                "W": 0.40, "Pt": 0.60, "Au": 0.70, "Bi": 2.16,
+            }
+            mean_delta_so = float(sum(fracs[i] * so_map.get(elements[i], 0.05) for i in range(n_elem)))
+
+            # Check for polyanionic framework (e.g. thiophosphates, silicates, phosphates)
+            has_polyanion = (
+                any(UniversalElementalProperties.get_element(e)[4] in [4.0, 5.0] for e in elements)
+                and any(UniversalElementalProperties.get_element(e)[4] in [-2.0] for e in elements)
+                and n_elem >= 3
+            )
+
+            if has_polyanion:
+                # Polyanionic molecular orbital gap: ligand-field stabilization of polyanion
+                e_gap = float(round(max(2.5, 1.10 * v_3 + 0.35 * v_2), 2))
                 is_metal = False
             elif has_tm_cation and has_non_metal_anion:
                 # Transition metal oxide / chalcogenide charge-transfer & ligand-field gap (e.g. TiO2, rutile/anatase)
-                # Valence band: O 2p / anion p; Conduction band: TM 3d/4d/5d lower t2g / eg state
                 tm_idx = next(i for i in range(n_elem) if abs(eps_d_list[i]) > 0.1)
                 anion_idx = next(i for i in range(n_elem) if elements[i] in ["O", "S", "Se", "Te", "F", "Cl", "N"])
                 delta_ct = abs(eps_d_list[tm_idx] - eps_p_list[anion_idx])
-                # Ligand field crystal field splitting reduces optical gap: Eg = Delta_CT - (1.1 * V_2)
                 e_gap = float(round(max(1.5, delta_ct - 1.15 * v_2), 2))
                 is_metal = False
             elif abs(v_3) > 4.5 or (has_non_metal_anion and not has_tm_cation and any(e in ["O", "F", "Cl"] for e in elements)):
@@ -190,14 +216,22 @@ class OrbitalTightBindingEngine:
                 f_ion = float((v_3**2) / max(1e-4, v_2**2 + v_3**2))
                 dehyb_factor = float(1.3197 - 0.7212 * f_ion)
                 gap_raw = float(v_hyb - dehyb_factor * v_1)
-                is_metal = bool(gap_raw <= 0.05)
-                if is_metal:
+
+                if n_elem == 1 and abs(v_3) < 1e-4:
+                    # Homopolar diamond-cubic semiconductor (e.g. Si, Ge): indirect conduction valley minimum Delta_1
+                    gap_raw = float(v_2 - v_1)
+
+                if mean_delta_so >= 0.8 and gap_raw <= 0.2:
+                    # Relativistic spin-orbit inverted topological narrow gap (e.g. Bi2Te3, Bi2Se3)
+                    # Gap is formed by spin-orbit anticrossing between inverted Kramers parity states
+                    e_gap = float(round(max(0.12, (v_3**2) / (4.0 * mean_delta_so)), 2))
+                    is_metal = False
+                elif gap_raw <= 0.05:
+                    is_metal = True
                     e_gap = 0.0
-                elif len(elements) == 1 and elements[0] == "Si":
-                    # Diamond-cubic indirect conduction band minimum at Delta valley (near X point)
-                    e_gap = 1.12
                 else:
                     e_gap = float(round(max(0.1, gap_raw), 3))
+                    is_metal = False
 
         # 4. Fermi Level & Density of States at E_F
         vol_m3 = unit_cell_volume_ang3 * 1.0e-30
@@ -229,7 +263,7 @@ class OrbitalTightBindingEngine:
         is_oxide_halide = any(elements[i] in ["O", "F", "Cl", "Br"] for i in range(n_elem))
 
         if is_metal:
-            m_eff_e = float(1.4 if "Al" in elements and n_elem == 1 else (1.0 if not has_open_d else 1.2))
+            m_eff_e = float(1.25 if has_open_d else 1.00)
             m_eff_h = m_eff_e
         elif is_oxide_halide and (alpha_p >= 0.60 or e_gap >= 2.5):
             # Heavy localized bands in wide-gap ionic insulators & oxides (CaO, MgO, Al2O3, TiO2)
@@ -240,8 +274,8 @@ class OrbitalTightBindingEngine:
             m_eff_e = float(round(max(0.04, 1.0 / (1.0 + (2.0 * p_sq) / max(0.2, e_gap))), 3))
             m_eff_h = float(round(max(0.15, m_eff_e * 2.8), 3))
         else:
-            # Indirect bandgap zone-boundary conductivity effective mass (Si, SiC, Bi2Te3)
-            m_eff_e = float(0.35 if "C" in elements else (0.15 if "Bi" in elements else 0.26))
+            # Indirect / inverted gap zone-boundary conductivity effective mass via Kane kp & spin-orbit coupling
+            m_eff_e = float(round(max(0.04, min(0.38, 0.20 + 0.12 * (e_gap / 1.5) - 0.08 * (mean_delta_so / 1.5))), 3))
             m_eff_h = float(0.38)
 
         # 6. Valence Plasma Frequency & Static Dielectric Constant (Phillips-Penn BZ Integral)
@@ -274,8 +308,8 @@ class OrbitalTightBindingEngine:
             eps_r = float(round(eps_inf + eps_ionic, 2))
             n_refr = float(round(np.sqrt(max(1.0, eps_inf)), 2))
 
-        # 7. Acoustic Deformation Potential from Valence Band Overlap
-        e_def = float(round(abs(mean_eps_p) * (3.0 if "Bi" in elements else (2.2 if "C" in elements and e_gap > 1.0 else 1.5)), 2))
+        # 7. Acoustic Deformation Potential from Harrison Bond-Strain Matrix Elements (Bardeen-Shockley)
+        e_def = float(round(1.15 * v_2 + 0.55 * v_1, 2))
 
         return ElectronicBandStructureReport(
             is_metallic=is_metal,

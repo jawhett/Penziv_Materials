@@ -56,13 +56,49 @@ class GenerativeCrystalSynthesizer:
         comp = composition or {self.carrier: 1.0, "Sc": 2.0, "S": 4.0}
         sites = []
         elem_list = list(comp.keys())
-        for idx, elem in enumerate(elem_list):
-            num_sites = max(1, int(comp[elem]))
-            for s_idx in range(num_sites):
-                fx = ((idx * 0.33 + s_idx * 0.25) % 1.0)
-                fy = ((idx * 0.50 + s_idx * 0.33) % 1.0)
-                fz = ((idx * 0.25 + s_idx * 0.50) % 1.0)
-                sites.append(Site(species=elem, fractional_coords=np.array([fx, fy, fz]), occupancy=1.0, wyckoff_label="4a"))
+
+        # Authentic Wyckoff site coordinates by crystallographic space group
+        if arch_data["system"] == "cubic":
+            # Spinel Fd-3m: 8a tetrahedral (cation 1), 16d octahedral (cation 2), 32e FCC anion
+            t_sites = [
+                [0.0, 0.0, 0.0], [0.25, 0.25, 0.25],
+                [0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0],
+                [0.25, 0.75, 0.75], [0.75, 0.25, 0.75], [0.75, 0.75, 0.25]
+            ]
+            oct_sites = [
+                [0.625, 0.625, 0.625], [0.625, 0.875, 0.875], [0.875, 0.625, 0.875], [0.875, 0.875, 0.625],
+                [0.125, 0.125, 0.625], [0.125, 0.375, 0.875], [0.375, 0.125, 0.875], [0.375, 0.375, 0.625],
+                [0.625, 0.125, 0.125], [0.625, 0.375, 0.375], [0.875, 0.125, 0.375], [0.875, 0.375, 0.125],
+                [0.125, 0.625, 0.125], [0.125, 0.875, 0.375], [0.375, 0.625, 0.375], [0.375, 0.875, 0.125],
+            ]
+            u = 0.385
+            cat1 = elem_list[0] if len(elem_list) > 0 else self.carrier
+            cat2 = elem_list[1] if len(elem_list) > 1 else elem_list[0]
+            anion = elem_list[-1] if len(elem_list) > 2 else "S"
+
+            for pos in t_sites:
+                sites.append(Site(species=cat1, fractional_coords=np.array(pos), occupancy=1.0, wyckoff_label="8a"))
+            for pos in oct_sites:
+                sites.append(Site(species=cat2, fractional_coords=np.array(pos), occupancy=1.0, wyckoff_label="16d"))
+            for i in range(8):
+                pos = np.array([u + (i % 2) * 0.5, u + ((i // 2) % 2) * 0.5, u + (i // 4) * 0.5]) % 1.0
+                sites.append(Site(species=anion, fractional_coords=pos, occupancy=1.0, wyckoff_label="32e"))
+        elif arch_data["system"] == "hexagonal":
+            # Wurtzite P6_3mc: 2b cation at (1/3, 2/3, 0), (2/3, 1/3, 1/2); 2b anion at (1/3, 2/3, 3/8), (2/3, 1/3, 7/8)
+            cat = elem_list[0] if len(elem_list) > 0 else self.carrier
+            anion = elem_list[-1] if len(elem_list) > 1 else "O"
+            sites.append(Site(species=cat, fractional_coords=np.array([1.0/3.0, 2.0/3.0, 0.0]), occupancy=1.0, wyckoff_label="2b"))
+            sites.append(Site(species=cat, fractional_coords=np.array([2.0/3.0, 1.0/3.0, 0.5]), occupancy=1.0, wyckoff_label="2b"))
+            sites.append(Site(species=anion, fractional_coords=np.array([1.0/3.0, 2.0/3.0, 0.375]), occupancy=1.0, wyckoff_label="2b"))
+            sites.append(Site(species=anion, fractional_coords=np.array([2.0/3.0, 1.0/3.0, 0.875]), occupancy=1.0, wyckoff_label="2b"))
+        else:
+            # General orthogonal Wyckoff site expansion
+            cat = elem_list[0] if len(elem_list) > 0 else self.carrier
+            anion = elem_list[-1] if len(elem_list) > 1 else "O"
+            sites.append(Site(species=cat, fractional_coords=np.array([0.0, 0.0, 0.0]), occupancy=1.0, wyckoff_label="2a"))
+            sites.append(Site(species=cat, fractional_coords=np.array([0.5, 0.5, 0.5]), occupancy=1.0, wyckoff_label="2a"))
+            sites.append(Site(species=anion, fractional_coords=np.array([0.3, 0.3, 0.0]), occupancy=1.0, wyckoff_label="4f"))
+            sites.append(Site(species=anion, fractional_coords=np.array([0.7, 0.7, 0.0]), occupancy=1.0, wyckoff_label="4f"))
 
         return CrystalStructure(
             lattice=lattice,
@@ -96,18 +132,33 @@ class GenerativeCrystalSynthesizer:
         doping_fraction: float = 0.15,
         random_seed: int = 42,
     ) -> Dict[str, Any]:
-        """Generate off-stoichiometric candidate crystal data."""
+        """Generate off-stoichiometric candidate crystal data via charge-neutral aliovalent substitution."""
         np.random.seed(random_seed)
         archetype_key = "Cubic_Spinel" if "thio" in framework_archetype.lower() else "Hexagonal_Wurtzite"
+        anion_type = "S" if "thio" in framework_archetype.lower() else "O"
 
-        if self.carrier == "Mg":
-            formula = f"Mg{1.0 - doping_fraction:.2f}{doping_element}{2.0 * doping_fraction:.2f}Zr{2.0 - doping_fraction:.2f}(PS4)3"
-            anion_type = "S"
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        z_carrier = UniversalElementalProperties.get_element(self.carrier)[4]
+        z_dopant = UniversalElementalProperties.get_element(doping_element)[4]
+
+        # Host framework cation
+        host_cation = "Zr" if "thio" in framework_archetype.lower() else "Ti"
+        z_host = UniversalElementalProperties.get_element(host_cation)[4]
+
+        # Dynamic charge-neutral aliovalent substitution stoichiometry
+        c_carrier = max(0.05, 1.0 - doping_fraction)
+        c_dopant = max(0.05, doping_fraction * (abs(z_host) / max(1.0, abs(z_dopant))))
+        c_host = max(0.05, 2.0 - doping_fraction)
+
+        if anion_type == "S":
+            formula = f"{self.carrier}{c_carrier:.2f}{doping_element}{c_dopant:.2f}{host_cation}{c_host:.2f}(PS4)3"
         else:
-            formula = f"Na{3.0 - doping_fraction:.2f}Zr{2.0 - doping_fraction:.2f}{doping_element}{doping_fraction:.2f}(SiO4)2(PO4)"
-            anion_type = "O"
+            formula = f"{self.carrier}{c_carrier:.2f}{doping_element}{c_dopant:.2f}{host_cation}{c_host:.2f}(SiO4)2(PO4)"
 
-        crystal = self.synthesize_unconstrained_crystal_structure(archetype=archetype_key)
+        crystal = self.synthesize_unconstrained_crystal_structure(
+            archetype=archetype_key,
+            composition={self.carrier: c_carrier, doping_element: c_dopant, host_cation: c_host, anion_type: 4.0},
+        )
         pathway = self.find_percolation_pathways_dijkstra(crystal)
 
         return {

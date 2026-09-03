@@ -142,7 +142,7 @@ class MatthiessenTransportEngine:
             e_hop_j = 0.10 * hw_opt_j * max(1.2, alpha_frohlich)
             a_jump = 3.0e-10
             mu_polaron = ((E_CHARGE * (a_jump**2) * w_lo) / (6.0 * k_b_t)) * np.exp(-min(40.0, e_hop_j / max(1e-25, k_b_t)))
-            mobility_cm2_v_s = float(np.clip(mu_polaron * 1.0e4, 0.08, 1.2))
+            mobility_cm2_v_s = float(mu_polaron * 1.0e4)
         else:
             # Delocalized Bloch wave momentum relaxation
             mobility_m2_v_s = (E_CHARGE * tau_total) / m_eff
@@ -221,8 +221,10 @@ class MatthiessenTransportEngine:
             # Liquid-like ion hopping in superionics limits phonon transport to the Ioffe-Regel minimum
             kappa_lattice = float(kappa_min)
         elif is_metal:
-            # Strong electron-phonon scattering in degenerate metals damps lattice phonons (kappa_lat ~ 4 - 25 W/mK in pure metals)
-            kappa_lattice = float(np.clip(kappa_lat_slack * 0.12, 4.0, 25.0))
+            # Klemens electron-phonon scattering relaxation: phonons scatter off degenerate Fermi surface
+            # Matthiessen reciprocal summation: 1 / kappa_lat = 1 / kappa_slack + 1 / kappa_ph_e
+            kappa_ph_e = float(20.0 * (v_s / 4000.0) * (theta_d / 300.0) * (300.0 / max(1.0, self.T)))
+            kappa_lattice = float(max(kappa_min, 1.0 / ((1.0 / max(1.0, kappa_lat_slack)) + (1.0 / max(1.0, kappa_ph_e)))))
         elif solute_fraction > 0.01 and not is_ordered_compound:
             gamma_solute = 1.0 + 35.0 * (solute_fraction * (1.0 - solute_fraction))
             kappa_lattice = float(max(kappa_min, kappa_lat_slack / gamma_solute))
