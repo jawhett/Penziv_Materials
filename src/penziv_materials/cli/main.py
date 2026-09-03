@@ -101,9 +101,11 @@ def status():
 @click.argument("formula", type=str)
 @click.option("--purity", type=click.Choice(["technical_grade", "battery_grade_99_9", "semiconductor_grade_99_999"]), default="battery_grade_99_9")
 @click.option("--sinter-temp", type=float, default=850.0, help="Sintering temperature in Celsius")
-def evaluate_tea(formula: str, purity: str, sinter_temp: float):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def evaluate_tea(formula: str, purity: str, sinter_temp: float, as_json: bool):
     """Run instant Techno-Economic (TEA), Supply Chain HHI, and Toxicity EHS audit for a chemical formula."""
-    console.print(f"\n[bold cyan]Evaluating Techno-Economics, Supply Chain & EHS for: {formula}...[/bold cyan]\n")
+    if not as_json:
+        console.print(f"\n[bold cyan]Evaluating Techno-Economics, Supply Chain & EHS for: {formula}...[/bold cyan]\n")
 
     mass_fractions = _parse_formula_to_mass_fractions(formula)
     cost_res = get_composition_cost(mass_fractions)
@@ -112,6 +114,20 @@ def evaluate_tea(formula: str, purity: str, sinter_temp: float):
     tea_res = compute_techno_economic_lcos(
         material_params={"raw_material_cost_usd_kg": cost_res["raw_material_cost_usd_kg"], "sintering_temp_c": sinter_temp},
     )
+
+    if as_json:
+        output = {
+            "precursor_cost": cost_res['raw_material_cost_usd_kg'],
+            "LCOS": tea_res['electrolyte_cost_contribution_usd_kwh'],
+            "sintering_energy": tea_res['synthesis_energy_cost_usd_kg'],
+            "refining_HHI": risk_res['weighted_hhi_refining'],
+            "critical_minerals": risk_res['critical_minerals_detected'],
+            "EPA_hazard_score": ehs_res['epa_comptox_hazard_score'],
+            "carbon_footprint": ehs_res['embodied_carbon_kg_co2_kg'],
+            "compliance_boolean": ehs_res['is_regulatory_compliant']
+        }
+        click.echo(json.dumps(output))
+        sys.exit(0)
 
     table = Table(title=f"Techno-Economic & EHS Audit: {formula}", border_style="cyan")
     table.add_column("Category", style="bold cyan")
@@ -238,14 +254,37 @@ def solve_pnp(overpotential: float, points: int):
 @click.option("--c12", type=float, default=160.0, help="C12 elastic constant (GPa)")
 @click.option("--c44", type=float, default=110.0, help="C44 elastic constant (GPa)")
 @click.option("--system", type=click.Choice(["cubic", "hexagonal"]), default="cubic")
-def validate_born(c11: float, c12: float, c44: float, system: str):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def validate_born(c11: float, c12: float, c44: float, system: str, as_json: bool):
     """Validate Born Mechanical Stability criteria for a given elastic tensor."""
-    console.print(f"\n[bold cyan]Evaluating Born Stability for {system.capitalize()} System...[/bold cyan]")
+    if not as_json:
+        console.print(f"\n[bold cyan]Evaluating Born Stability for {system.capitalize()} System...[/bold cyan]")
 
     if system == "cubic":
         stable, details = BornStabilityValidator.validate_cubic(c11, c12, c44)
 
+        if as_json:
+            output = {
+                "stability_status": stable,
+                "elastic_constants": {"c11": c11, "c12": c12, "c44": c44},
+                "eigenvalues": [details["lambda_min"]],
+                "pass_fail_conditions": details["conditions_met"]
+            }
+            click.echo(json.dumps(output))
+            sys.exit(0)
+
         table = Table(title="Born Mechanical Stability Evaluation (Cubic)", border_style="cyan")
+    else:
+        # Fallback if hexagonal or other system
+        if as_json:
+            output = {
+                "stability_status": False,
+                "elastic_constants": {"c11": c11, "c12": c12, "c44": c44},
+                "eigenvalues": [],
+                "pass_fail_conditions": {}
+            }
+            click.echo(json.dumps(output))
+            sys.exit(0)
         table.add_column("Stability Condition", style="bold")
         table.add_column("Analytical Formula", style="dim")
         table.add_column("Computed Value (GPa)", justify="right")
@@ -267,9 +306,11 @@ def validate_born(c11: float, c12: float, c44: float, system: str):
 @main.command()
 @click.option("--material", type=str, default="Penziv-Superalloy-718X", help="Candidate material name")
 @click.option("--temp-k", type=float, default=1123.15, help="Target operating temperature in Kelvin (default: 850°C)")
-def predict_forward(material: str, temp_k: float):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def predict_forward(material: str, temp_k: float, as_json: bool):
     """Run full forward multiscale prediction across all 5 physical scales."""
-    console.print(f"\n[bold cyan]Executing Multiscale Discovery Loop for: {material} at {temp_k} K ({temp_k-273.15:.1f} deg C)...[/bold cyan]\n")
+    if not as_json:
+        console.print(f"\n[bold cyan]Executing Multiscale Discovery Loop for: {material} at {temp_k} K ({temp_k-273.15:.1f} deg C)...[/bold cyan]\n")
 
     composition = {"Ni": 0.53, "Cr": 0.18, "Fe": 0.14, "Nb": 0.05, "Mo": 0.03, "Ti": 0.01, "Al": 0.06}
 
@@ -279,6 +320,13 @@ def predict_forward(material: str, temp_k: float):
         composition=composition,
         target_temperature_k=temp_k,
     )
+
+    if as_json:
+        if hasattr(candidate, "model_dump_json"):
+            click.echo(candidate.model_dump_json())
+        else:
+            click.echo(json.dumps(candidate.dict()))
+        sys.exit(0)
 
     prop_table = Table(title=f"Multiscale Property Predictions: {material}", border_style="cyan")
     prop_table.add_column("Physical Scale", style="bold cyan")

@@ -482,7 +482,10 @@ class FormulaPredictionBenchmarkSuite:
         else:
             xs = np.linspace(1e-4, min(30.0, x_d), 60)
             integrand = (xs**4) * np.exp(xs) / np.maximum(1e-12, (np.exp(xs) - 1.0)**2)
-            trapz_fn = getattr(np, "trapezoid", np.trapz)
+            if hasattr(np, "trapezoid"):
+                trapz_fn = np.trapezoid
+            else:
+                trapz_fn = np.trapz
             debye_int = float(trapz_fn(integrand, xs))
             c_v_molar = float(9.0 * 8.314462618 * ((1.0 / x_d)**3) * debye_int)
 
