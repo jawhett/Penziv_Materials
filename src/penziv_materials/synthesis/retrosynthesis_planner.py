@@ -45,8 +45,9 @@ class RetrosynthesisAssemblyPlanner:
         "Si3N4": (-744.8, 113.0, 2173.15),
         "AlN": (-318.0, 20.2, 2473.15),
         "TiN": (-338.0, 30.3, 3203.15),
-        "LiCl": (-408.6, 59.3, 878.15),
         "NaCl": (-411.2, 72.1, 1074.15),
+        "TiC": (-184.0, 24.2, 3430.0),
+        "MgSc2S4": (-1645.0, 198.0, 1900.0),
         # Pure elements standard states
         "Li": (0.0, 29.1, 453.69),
         "Na": (0.0, 51.3, 370.87),
@@ -170,55 +171,67 @@ class RetrosynthesisAssemblyPlanner:
                 if set(parse_chemical_formula(p).keys()).issubset(set(elements)) and p not in ["O2", "N2"]
             ]
 
+        from scipy.optimize import nnls
+        b_vec = np.array([target_comp[e] for e in elements], dtype=np.float64)
+
+        # Build stoichiometric matrix A: A[i, j] = count of element i in precursor j
+        A_mat = np.zeros((len(elements), len(candidate_pool)), dtype=np.float64)
+        for j, prec in enumerate(candidate_pool):
+            prec_comp = parse_chemical_formula(prec)
+            for i, e in enumerate(elements):
+                A_mat[i, j] = prec_comp.get(e, 0.0)
+
+        # Exact stoichiometric linear solve: A x = b, x >= 0
+        x_coeffs, _ = nnls(A_mat, b_vec)
+
         intermediate_steps: List[Dict[str, Any]] = []
-        remaining_comp = dict(target_comp)
+        used_precursors: Dict[str, float] = {}
         step_idx = 1
 
-        def precursor_stability(p_name: str) -> float:
-            h, s, _ = self.EXTENDED_THERMO_DATABASE.get(p_name, (0.0, 30.0, 1000.0))
-            dg = h - temperature_k * s * 1.0e-3
-            n_atoms = sum(parse_chemical_formula(p_name).values())
-            return dg / max(1, n_atoms)
+        for j, prec in enumerate(candidate_pool):
+            coeff = float(x_coeffs[j])
+            if coeff > 1e-4:
+                h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(prec, (-200.0, 50.0, 1200.0))
+                dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * coeff
+                intermediate_steps.append({
+                    "step": step_idx,
+                    "reaction": f"Synthesize/Dispense {coeff:.3f}x {prec} building block",
+                    "delta_g_kj": float(dg_step),
+                })
+                used_precursors[prec] = coeff
+                step_idx += 1
 
-        sorted_precursors = sorted(candidate_pool, key=precursor_stability)
+        # Check for unreacted elemental residual if precursor basis is incomplete
+        res_diff = b_vec - np.dot(A_mat, x_coeffs)
+        for i, e in enumerate(elements):
+            if res_diff[i] > 1e-3:
+                h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(e, (0.0, 30.0, 1000.0))
+                dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * float(res_diff[i])
+                intermediate_steps.append({
+                    "step": step_idx,
+                    "reaction": f"Synthesize/Dispense {float(res_diff[i]):.3f}x {e} elemental precursor",
+                    "delta_g_kj": float(dg_step),
+                })
+                used_precursors[e] = used_precursors.get(e, 0.0) + float(res_diff[i])
+                step_idx += 1
 
-        used_precursors: Dict[str, float] = {}
-
-        for prec in sorted_precursors:
-            p_comp = parse_chemical_formula(prec)
-            if all(remaining_comp.get(k, 0) >= v for k, v in p_comp.items()):
-                max_units = min(remaining_comp[k] // v for k, v in p_comp.items() if v > 0)
-                if max_units > 0:
-                    h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(prec, (-200.0, 50.0, 1200.0))
-                    dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * max_units
-                    intermediate_steps.append({
-                        "step": step_idx,
-                        "reaction": f"Synthesize/Dispense {max_units}x {prec} building block",
-                        "delta_g_kj": float(dg_step),
-                    })
-                    used_precursors[prec] = float(max_units)
-                    for k, v in p_comp.items():
-                        remaining_comp[k] -= v * max_units
-                    step_idx += 1
-
-        leftover_elements = [f"{v} {k}" for k, v in remaining_comp.items() if v > 0]
-        leftover_str = " + ".join(leftover_elements) if leftover_elements else "Intermediate precursors"
-
+        # Evaluate net reaction Gibbs free energy Delta G_rxn = G(target) - sum(x_j * G(precursor_j))
         h_target, s_target, _ = self.EXTENDED_THERMO_DATABASE.get(target_compound, (-350.0, 60.0, 1500.0))
         g_target = h_target - temperature_k * s_target * 1.0e-3
         g_consumed = sum(
-            used_precursors[p] * (self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[0] - temperature_k * self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[1] * 1.0e-3)
-            for p in used_precursors
+            coeff * (self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[0] - temperature_k * self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[1] * 1.0e-3)
+            for p, coeff in used_precursors.items()
         )
         net_consolidation_dg = float(g_target - g_consumed)
+        reactants_str = " + ".join(f"{c:.2f} {p}" for p, c in used_precursors.items())
 
         intermediate_steps.append({
             "step": step_idx,
-            "reaction": f"Solid-state reactive consolidation: {leftover_str} -> {target_compound}",
+            "reaction": f"Solid-state reactive consolidation: {reactants_str} -> {target_compound}",
             "delta_g_kj": float(net_consolidation_dg),
         })
 
-        cumulative_dg = sum(s["delta_g_kj"] for s in intermediate_steps)
+        cumulative_dg = float(net_consolidation_dg)
 
         return {
             "target_compound": target_compound,

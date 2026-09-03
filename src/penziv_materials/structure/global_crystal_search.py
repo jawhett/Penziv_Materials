@@ -274,6 +274,38 @@ class GlobalCrystalStructureSearchEngine:
                     if first_shell[i, j]:
                         neighbor_cart_vectors[i].append(r_cart[i, j])
 
+        # Complete 3D periodic Ewald summation: Reciprocal space Fourier sum & central self-energy correction
+        vol_cell = float(abs(np.linalg.det(lattice_matrix)))
+        if vol_cell > 1.0 and np.any(np.abs(z_val) > 0.1) and np.any(f_ion_mat > 0.1):
+            try:
+                recip_lat = 2.0 * np.pi * np.linalg.inv(lattice_matrix).T
+                eta_ewald = 0.32
+                cart_coords = np.dot(coords, lattice_matrix)
+                # Self-energy correction: E_self = 14.3996 * (eta / sqrt(pi)) * sum(q_i^2)
+                e_self = float(14.3996 * (eta_ewald / np.sqrt(np.pi)) * np.sum((z_val * np.mean(f_ion_mat))**2))
+
+                # Reciprocal space Fourier sum over reciprocal lattice vectors G != 0
+                e_recip = 0.0
+                for h_idx in range(-2, 3):
+                    for k_idx in range(-2, 3):
+                        for l_idx in range(-2, 3):
+                            if h_idx == 0 and k_idx == 0 and l_idx == 0:
+                                continue
+                            G_vec = h_idx * recip_lat[0] + k_idx * recip_lat[1] + l_idx * recip_lat[2]
+                            G_sq = float(np.dot(G_vec, G_vec))
+                            if G_sq > 25.0:
+                                continue
+                            phases = np.dot(cart_coords, G_vec)
+                            sf_re = float(np.sum(z_val * np.cos(phases)))
+                            sf_im = float(np.sum(z_val * np.sin(phases)))
+                            sf_sq = sf_re**2 + sf_im**2
+                            e_recip += (np.exp(-G_sq / (4.0 * eta_ewald**2)) / G_sq) * sf_sq
+
+                e_recip *= float(14.3996 * (2.0 * np.pi / vol_cell) * (np.mean(f_ion_mat)**2))
+                e_coul_tot += (2.0 * e_recip - 2.0 * e_self)
+            except Exception:
+                pass
+
         # 5. Three-body Stillinger-Weber / Keating directional angular strain for covalent bonds
         e_angular_tot = 0.0
         mean_ionicity = float(np.mean(f_ion_mat))
@@ -300,8 +332,18 @@ class GlobalCrystalStructureSearchEngine:
                             v_k = n_vecs[k_idx]
                             r_k = np.linalg.norm(v_k)
                             cos_theta = np.dot(v_j, v_k) / max(1e-6, r_j * r_k)
-                            # Penalize deviations from ideal tetrahedral angle (cos theta = -1/3)
-                            ang_penalty = 1.30 * covalent_weight * ((cos_theta + 1.0 / 3.0) ** 2)
+                            # Coordination-adaptive angular equilibrium: linear, trigonal planar, tetrahedral, or octahedral
+                            if n_cnt <= 2:
+                                ang_penalty = 1.30 * covalent_weight * ((cos_theta + 1.0) ** 2)
+                            elif n_cnt == 3:
+                                ang_penalty = 1.30 * covalent_weight * ((cos_theta + 0.5) ** 2)
+                            elif n_cnt == 4:
+                                ang_penalty = 1.30 * covalent_weight * ((cos_theta + 1.0 / 3.0) ** 2)
+                            elif n_cnt >= 6:
+                                # Octahedral: 90 deg (cos=0) and 180 deg (cos=-1)
+                                ang_penalty = 1.30 * covalent_weight * min(cos_theta**2, (cos_theta + 1.0) ** 2)
+                            else:
+                                ang_penalty = 1.30 * covalent_weight * min(cos_theta**2, (cos_theta + 0.5)**2, (cos_theta + 1.0/3.0)**2)
                             e_angular_tot += ang_penalty
 
         # 6. Friedel second-moment embedding energy for metallic electron density

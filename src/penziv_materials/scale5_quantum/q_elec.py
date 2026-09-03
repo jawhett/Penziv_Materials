@@ -369,26 +369,29 @@ class QElecAgent:
             c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 120.0
             c_matrix[3, 3] = c_matrix[4, 4] = c_matrix[5, 5] = 75.0
 
-        # Linear + quadratic anharmonic phonon mode softening
-        t_ratio = temperature_k / max(1.0, melting_point_k)
-        anharmonic_softening = 0.35 * t_ratio + 0.08 * (t_ratio**2)
+        # Quasi-harmonic Anderson-Grüneisen volumetric thermal dilatation softening:
+        # C_ij(T) = C_ij(0) * [ 1 - gamma_G * beta * T - delta_anharmonic * (T/T_m) - beta_strain * ||eps|| - eta_disloc * rho * b^2 ]
+        alpha_l = float(thermal_expansion_coeff) if thermal_expansion_coeff is not None else 1.2e-5
+        beta_vol = 3.0 * max(0.0, alpha_l)
+        gamma_gruneisen = 1.85  # Acoustic Grüneisen parameter for cubic metals/alloys
+        dilatation_softening = gamma_gruneisen * beta_vol * temperature_k
 
-        # Internal strain-field softening: beta * ||eps_int||
+        # Intrinsic phonon-phonon anharmonicity: delta_anharm * (T / T_m)
+        t_ratio = temperature_k / max(1.0, melting_point_k)
+        anharmonic_phonon_softening = 0.15 * t_ratio
+
+        # Internal strain-field softening: beta_strain * ||eps_int||
         strain_softening = 0.0
         if internal_strain_tensor is not None:
             eps_norm = float(np.linalg.norm(np.asarray(internal_strain_tensor, dtype=np.float64)))
-            strain_softening = 0.25 * min(1.0, eps_norm)
+            strain_softening = 0.15 * min(1.0, eps_norm)
 
-        # Dislocation defect density modulus degradation
-        defect_softening = min(0.15, 1.0e-16 * max(0.0, dislocation_density_m2))
+        # Dislocation core defect modulus degradation (Mott-Friedel / Granato-Lücke)
+        b_burgers = 2.5e-10
+        defect_softening = min(0.12, 0.10 * max(0.0, dislocation_density_m2) * (b_burgers**2))
 
-        # Grüneisen thermal expansion dilatation softening
-        cte_softening = 0.0
-        if thermal_expansion_coeff is not None:
-            cte_softening = 3.0 * 1.45 * max(0.0, thermal_expansion_coeff) * max(0.0, temperature_k - 298.15)
-
-        total_softening_delta = anharmonic_softening + strain_softening + defect_softening + cte_softening
-        softening_factor = max(0.01, 1.0 - total_softening_delta)
+        total_softening_delta = dilatation_softening + anharmonic_phonon_softening + strain_softening + defect_softening
+        softening_factor = max(0.05, 1.0 - total_softening_delta)
         return c_matrix * softening_factor
 
     def evaluate_path_dependent_elastic_softening(
@@ -465,9 +468,15 @@ class QElecAgent:
         b_burgers_ang = max(1.5, 2.0 * mean_rcov)
         gamma_usf_mj_m2 = (g_shear * b_burgers_ang / (2.0 * (np.pi ** 2))) * 100.0
 
-        # Intrinsic SFE scaling with valence electron concentration (Hume-Rothery d-band phase stability)
-        sfe_factor = float(max(0.05, 0.15 + 0.05 * abs(vec_avg - 8.4)))
-        sfe_val = float(max(1.0, gamma_usf_mj_m2 * sfe_factor))
+        # Olson-Cohen / ANNNI thermodynamic model:
+        # gamma_SFE = 2 * rho_111 * Delta G^(FCC->HCP) + 2 * sigma^(FCC/HCP)
+        b_burgers_m = b_burgers_ang * 1.0e-10
+        n_avogadro = 6.02214076e23
+        rho_111 = 1.0 / (np.sqrt(3.0) * (b_burgers_m**2) * n_avogadro)  # mol / m^2
+        # Delta G^(FCC->HCP) lattice stability from d-band filling:
+        delta_g_fcc_hcp_j_mol = max(100.0, 450.0 + 350.0 * (vec_avg - 7.0)**2)
+        sigma_int_coherent_j_m2 = 0.010  # 10 mJ/m^2 coherent FCC/HCP interfacial energy
+        sfe_val = float(max(1.0, (2.0 * rho_111 * delta_g_fcc_hcp_j_mol + 2.0 * sigma_int_coherent_j_m2) * 1000.0))
 
         # Genuine Born-Oppenheimer atomic force residual norm: max_I ||F_I|| = max_I ||-grad_{R_I} E||
         if structure is not None and hasattr(structure, "sites") and len(structure.sites) > 0:

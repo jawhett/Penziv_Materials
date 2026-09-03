@@ -104,9 +104,25 @@ class AutonomousCrystalStructurePredictor:
         )
         dynamic_apf = float(round(v_atoms_total / max(1e-4, unit_cell_vol), 4))
 
-        # Bragg-Williams order-disorder transition temperature: T_c = |Delta E_ord| / (k_B * ln(N))
+        # Bragg-Williams order-disorder transition temperature: T_c = Delta E_ord / (k_B * Delta S_config)
         is_orderable_superlattice = bool(len(elements) >= 2 and z_fu >= 2 and dynamic_apf >= 0.65)
-        tc_k = float(round((abs(e_atom) * 0.08 * 11604.5) / np.log(len(elements)), 1)) if is_orderable_superlattice else None
+        if is_orderable_superlattice:
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            mean_tm = sum(
+                (cnt / total_atoms) * UniversalElementalProperties.get_element(elem)[5]
+                for elem, cnt in composition.items()
+            )
+            k_b_ev = 8.617333262e-5
+            fracs_arr = np.array([cnt / total_atoms for cnt in counts])
+            delta_s_config_kb = -float(np.sum(fracs_arr * np.log(np.maximum(1e-6, fracs_arr))))
+
+            # Ordering energy (Delta H_ord is typically 15 - 80 meV/atom in orderable alloys like CuAu, FeCo, Ni3Al)
+            delta_e_ord_ev = 0.045 * delta_chi + 0.02 * (1.0 - r_ratio)
+            tc_calc = delta_e_ord_ev / max(1e-4, k_b_ev * delta_s_config_kb)
+            # Thermodynamic constraint: alloy cannot order above its melting temperature
+            tc_k = float(round(min(mean_tm * 0.90, max(200.0, tc_calc)), 1))
+        else:
+            tc_k = None
 
         return PredictedCrystallographicState(
             chemical_formula=chemical_formula,

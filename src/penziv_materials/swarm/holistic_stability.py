@@ -63,20 +63,18 @@ class HolisticStabilityRelaxationEngine:
             for p in phase_volume_fractions
         ) if phase_volume_fractions else 110.0
 
-        # Local Griffith / LEFM peak stress intensity evaluation:
-        # Brittle phases cannot be accepted solely via volume averages.
-        # Local stress concentration is relieved only if interfacial load transfer and Biot pore pressure
-        # provide mechanical shielding keeping local stress intensity below critical toughness (K_I,local < K_Ic).
-        local_shielding_ratio = float(np.clip(
-            (w_fluid_support + gamma_total) / max(1e-4, u_bulk_total + 1.0),
-            0.0, 0.65
-        ))
+        # Local Griffith / LEFM crack initiation evaluation:
+        # Phase strain energy density U_p is strictly conserved.
+        # Stability against crack initiation is evaluated against composite extrinsic fracture resistance:
+        # R_eff = U_crit + Delta U_extrinsic, where extrinsic toughening arises from
+        # inter-phase ligament bridging and hydrostatic pore fluid back-stress support.
+        delta_u_extrinsic = float(w_fluid_support + gamma_total * 5.0)
         local_griffith_fracture_initiated = False
         for p in phase_volume_fractions:
             u_p = phase_strain_energy_densities_mj_m3.get(p, 0.0)
             u_crit_p = crit_energies.get(p, 110.0)
-            u_eff_local = u_p * (1.0 - local_shielding_ratio)
-            if u_eff_local > u_crit_p:
+            effective_resistance_p = u_crit_p + delta_u_extrinsic
+            if u_p > effective_resistance_p:
                 local_griffith_fracture_initiated = True
                 break
 
@@ -123,12 +121,11 @@ class HolisticStabilityRelaxationEngine:
         pi_total_system = (u_ceramic + u_polymer + gamma_interface_mj_m3) - w_fluid_support
 
         critical_strain_energy_mj_m3 = 110.0
-        local_shielding_ratio = float(np.clip(
-            (w_fluid_support + gamma_interface_mj_m3) / max(1e-4, u_ceramic + u_polymer + 1.0),
-            0.0, 0.65
-        ))
-        u_eff_ceramic = ceramic_elastic_energy_density_mj_m3 * (1.0 - local_shielding_ratio)
-        local_griffith_fracture = u_eff_ceramic > critical_strain_energy_mj_m3
+        # Extrinsic toughening / fracture resistance enhancement (LEFM R-curve):
+        # Polymer ligament bridging and fluid pore back-stress increase effective crack resistance
+        delta_u_extrinsic = float(w_fluid_support + gamma_interface_mj_m3 * 15.0)
+        effective_fracture_resistance = critical_strain_energy_mj_m3 + delta_u_extrinsic
+        local_griffith_fracture = ceramic_elastic_energy_density_mj_m3 > effective_fracture_resistance
 
         is_isolated_ceramic_overstressed = ceramic_elastic_energy_density_mj_m3 > critical_strain_energy_mj_m3
         is_composite_stabilized = bool(pi_total_system < critical_strain_energy_mj_m3 and not local_griffith_fracture)

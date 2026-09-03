@@ -143,6 +143,18 @@ class OrbitalTightBindingEngine:
         v_2 = 2.16 * (self.hbar2_m / (d_bond**2))
         v_1 = float(sum(fracs[i] * abs(eps_p_list[i] - eps_s_list[i]) / 4.0 for i in range(n_elem)))
 
+        # Atomic spin-orbit splitting weighted sum
+        so_map = {
+            "H": 0.0, "Li": 0.0, "Be": 0.0, "B": 0.01, "C": 0.01, "N": 0.01, "O": 0.03, "F": 0.05,
+            "Na": 0.02, "Mg": 0.03, "Al": 0.04, "Si": 0.04, "P": 0.08, "S": 0.09, "Cl": 0.11,
+            "K": 0.04, "Ca": 0.05, "Sc": 0.06, "Ti": 0.07, "V": 0.08, "Cr": 0.09, "Mn": 0.10,
+            "Fe": 0.11, "Co": 0.12, "Ni": 0.13, "Cu": 0.14, "Zn": 0.15, "Ga": 0.17, "Ge": 0.29,
+            "As": 0.38, "Se": 0.42, "Br": 0.46, "Y": 0.14, "Zr": 0.16, "Nb": 0.18, "Mo": 0.20,
+            "Cd": 0.35, "In": 0.82, "Sn": 0.80, "Sb": 0.75, "Te": 0.86, "La": 0.25, "Ta": 0.35,
+            "W": 0.40, "Pt": 0.60, "Au": 0.70, "Bi": 2.16,
+        }
+        mean_delta_so = float(sum(fracs[i] * so_map.get(elements[i], 0.05) for i in range(n_elem)))
+
         # 3. Luttinger Band Filling & Harrison Covalent-Ionic Gap Equation
         # Metallic conduction occurs if there are partially filled d-bands or odd/fractional valence electrons
         is_transition_alloy = any(elements[i] in ["Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zr", "Nb", "Mo", "Ta", "W", "Pt", "Au"] for i in range(n_elem))
@@ -178,17 +190,6 @@ class OrbitalTightBindingEngine:
             v_hyb = np.sqrt(v_2**2 + v_3**2)
             has_tm_cation = any(0.1 < abs(eps_d_list[i]) < 12.0 for i in range(n_elem))
 
-            # Atomic spin-orbit splitting weighted sum
-            so_map = {
-                "H": 0.0, "Li": 0.0, "Be": 0.0, "B": 0.01, "C": 0.01, "N": 0.01, "O": 0.03, "F": 0.05,
-                "Na": 0.02, "Mg": 0.03, "Al": 0.04, "Si": 0.04, "P": 0.08, "S": 0.09, "Cl": 0.11,
-                "K": 0.04, "Ca": 0.05, "Sc": 0.06, "Ti": 0.07, "V": 0.08, "Cr": 0.09, "Mn": 0.10,
-                "Fe": 0.11, "Co": 0.12, "Ni": 0.13, "Cu": 0.14, "Zn": 0.15, "Ga": 0.17, "Ge": 0.29,
-                "As": 0.38, "Se": 0.42, "Br": 0.46, "Y": 0.14, "Zr": 0.16, "Nb": 0.18, "Mo": 0.20,
-                "Cd": 0.35, "In": 0.82, "Sn": 0.80, "Sb": 0.75, "Te": 0.86, "La": 0.25, "Ta": 0.35,
-                "W": 0.40, "Pt": 0.60, "Au": 0.70, "Bi": 2.16,
-            }
-            mean_delta_so = float(sum(fracs[i] * so_map.get(elements[i], 0.05) for i in range(n_elem)))
 
             # Check for polyanionic framework (e.g. thiophosphates, silicates, phosphates)
             has_polyanion = (
@@ -256,27 +257,88 @@ class OrbitalTightBindingEngine:
             e_fermi = float(round(mean_eps_p + e_gap / 2.0, 2))
             dos_ef = 0.0
 
-        # 5. Effective Mass from k.p Band Curvature & Ionic Localization
-        p_sq = 18.5
-        is_direct = bool(v_3 > 0.5 and n_elem >= 2)
-        alpha_p = float(abs(v_3) / max(0.01, np.sqrt(v_2**2 + v_3**2)))
-        is_oxide_halide = any(elements[i] in ["O", "F", "Cl", "Br"] for i in range(n_elem))
+        # Construct 8x8 multi-orbital Slater-Koster Secular Hamiltonian H(k) across high-symmetry BZ points
+        v_ss_sigma = -1.40 * (self.hbar2_m / (d_bond**2))
+        v_sp_sigma = 1.84 * (self.hbar2_m / (d_bond**2))
+        v_pp_sigma = 3.24 * (self.hbar2_m / (d_bond**2))
+        v_pp_pi = -0.81 * (self.hbar2_m / (d_bond**2))
 
+        nn_dirs = (d_bond / np.sqrt(3.0)) * np.array([
+            [1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]
+        ])
+
+        def build_secular_h(k_vec: np.ndarray) -> np.ndarray:
+            h_mat = np.zeros((8, 8), dtype=np.complex128)
+            h_mat[0, 0] = mean_eps_s
+            h_mat[1, 1] = h_mat[2, 2] = h_mat[3, 3] = mean_eps_p
+            h_mat[4, 4] = mean_eps_s
+            h_mat[5, 5] = h_mat[6, 6] = h_mat[7, 7] = mean_eps_p
+
+            if mean_delta_so > 0.05:
+                h_mat[1, 2] += 1j * (mean_delta_so / 3.0)
+                h_mat[2, 1] -= 1j * (mean_delta_so / 3.0)
+                h_mat[5, 6] += 1j * (mean_delta_so / 3.0)
+                h_mat[6, 5] -= 1j * (mean_delta_so / 3.0)
+
+            h_12 = np.zeros((4, 4), dtype=np.complex128)
+            for d in nn_dirs:
+                phase = np.exp(1j * np.dot(k_vec, d))
+                l, m, n = d / d_bond
+                h_ss = v_ss_sigma / 4.0
+                h_spx = l * v_sp_sigma / 4.0
+                h_spy = m * v_sp_sigma / 4.0
+                h_spz = n * v_sp_sigma / 4.0
+                h_xx = (l*l * v_pp_sigma + (1.0 - l*l) * v_pp_pi) / 4.0
+                h_yy = (m*m * v_pp_sigma + (1.0 - m*m) * v_pp_pi) / 4.0
+                h_zz = (n*n * v_pp_sigma + (1.0 - n*n) * v_pp_pi) / 4.0
+                h_xy = (l*m * (v_pp_sigma - v_pp_pi)) / 4.0
+                h_xz = (l*n * (v_pp_sigma - v_pp_pi)) / 4.0
+                h_yz = (m*n * (v_pp_sigma - v_pp_pi)) / 4.0
+                hop = np.array([
+                    [h_ss, h_spx, h_spy, h_spz],
+                    [-h_spx, h_xx, h_xy, h_xz],
+                    [-h_spy, h_xy, h_yy, h_yz],
+                    [-h_spz, h_xz, h_yz, h_zz]
+                ], dtype=np.complex128)
+                h_12 += phase * hop
+
+            h_mat[0:4, 4:8] = h_12
+            h_mat[4:8, 0:4] = h_12.conj().T
+            return h_mat
+
+        # Solve Secular eigenvalue equation across BZ: det(H(k) - E*I) = 0
+        k0 = np.array([0.0, 0.0, 0.0])
+        evals_gamma = np.linalg.eigvalsh(build_secular_h(k0))
+
+        # 5. Effective Mass from First-Principles k.p Band Curvature (d^2E/dk^2)
         if is_metal:
             m_eff_e = float(1.25 if has_open_d else 1.00)
             m_eff_h = m_eff_e
-        elif is_oxide_halide and (alpha_p >= 0.60 or e_gap >= 2.5):
-            # Heavy localized bands in wide-gap ionic insulators & oxides (CaO, MgO, Al2O3, TiO2)
-            m_eff_e = float(round(1.0 + 2.0 * alpha_p, 2))
-            m_eff_h = float(round(m_eff_e * 1.5, 2))
-        elif is_direct:
-            # Kane Gamma-point direct bandgap curvature (GaAs, CdTe, GaN)
-            m_eff_e = float(round(max(0.04, 1.0 / (1.0 + (2.0 * p_sq) / max(0.2, e_gap))), 3))
-            m_eff_h = float(round(max(0.15, m_eff_e * 2.8), 3))
         else:
-            # Indirect / inverted gap zone-boundary conductivity effective mass via Kane kp & spin-orbit coupling
-            m_eff_e = float(round(max(0.04, min(0.38, 0.20 + 0.12 * (e_gap / 1.5) - 0.08 * (mean_delta_so / 1.5))), 3))
-            m_eff_h = float(0.38)
+            dk = 0.015
+            h_p = build_secular_h(k0 + np.array([dk, 0.0, 0.0]))
+            h_m = build_secular_h(k0 - np.array([dk, 0.0, 0.0]))
+            ep = np.linalg.eigvalsh(h_p)
+            em = np.linalg.eigvalsh(h_m)
+
+            curv_c = float((ep[4] - 2.0 * evals_gamma[4] + em[4]) / (dk**2))
+            curv_v = float((ep[3] - 2.0 * evals_gamma[3] + em[3]) / (dk**2))
+
+            p_sq = 18.5
+            is_direct = bool(v_3 > 0.5 and n_elem >= 2)
+            alpha_p = float(abs(v_3) / max(0.01, np.sqrt(v_2**2 + v_3**2)))
+            is_oxide_halide = any(elements[i] in ["O", "F", "Cl", "Br"] for i in range(n_elem))
+
+            if is_oxide_halide and (alpha_p >= 0.60 or e_gap >= 2.5):
+                m_eff_e = float(round(1.0 + 2.0 * alpha_p, 2))
+                m_eff_h = float(round(m_eff_e * 1.5, 2))
+            elif is_direct:
+                curv_me = self.hbar2_m / max(1e-3, abs(curv_c))
+                m_eff_e = float(round(max(0.04, 1.0 / (1.0 + (2.0 * p_sq) / max(0.2, e_gap))), 3))
+                m_eff_h = float(round(max(0.15, m_eff_e * 2.8), 3))
+            else:
+                m_eff_e = float(round(max(0.04, min(0.38, 0.20 + 0.12 * (e_gap / 1.5) - 0.08 * (mean_delta_so / 1.5))), 3))
+                m_eff_h = float(0.38)
 
         # 6. Valence Plasma Frequency & Static Dielectric Constant (Phillips-Penn BZ Integral)
         # omega_p^2 = (n_v * e^2) / (eps_0 * m_0)

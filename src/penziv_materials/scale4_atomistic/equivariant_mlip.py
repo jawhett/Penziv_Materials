@@ -174,9 +174,31 @@ class EquivariantMLIPEngine:
 
         total_energy = -4.50 * n_atoms + embed_energy + v_repulsive + e_angular
 
-        coord_distortions = np.abs(rho_i - 12.0)
-        ensemble_sigmas = 0.005 + 0.003 * coord_distortions
-        max_force_sigma = float(np.max(ensemble_sigmas))
+        # Epistemic uncertainty evaluated via parameter committee / ensemble variance
+        committee_forces = [forces]
+        pert_params = [(-0.015, 0.03), (0.015, -0.03), (0.01, 0.02)]
+        for d_beta, d_embed in pert_params:
+            b_pert = 1.45 + d_beta
+            a_pert = 3.25 + d_embed
+            phi_p = np.exp(-b_pert * (r_ij - r_0_matrix)) * f_cut
+            rho_p = np.sum(phi_p * mask, axis=-1)
+            d_embed_p = -a_pert / (2.0 * np.sqrt(np.maximum(1e-6, rho_p)))
+            f_pert = np.zeros_like(forces)
+            for i in range(n_atoms):
+                for j in np.where(mask[i])[0]:
+                    if i == j:
+                        continue
+                    r_val = dist_matrix[i, j]
+                    r_hat = diff_matrix[i, j] / r_val
+                    d_phi_p = -b_pert * phi_p[i, j]
+                    dE_dr_p = (d_embed_p[i] + d_embed_p[j]) * d_phi_p + 1.30 * phi_p[i, j] * d_phi_p
+                    f_pert[i] += -dE_dr_p * r_hat
+            committee_forces.append(f_pert)
+
+        committee_stack = np.stack(committee_forces, axis=0)
+        force_variances = np.var(committee_stack, axis=0)
+        atom_sigmas = np.sqrt(np.sum(force_variances, axis=-1))
+        max_force_sigma = float(np.max(atom_sigmas))
 
         virial_stress_gpa = (virial_tensor_ev / max(1.0, volume_ang3)) * 160.21766208
         return float(total_energy), forces, virial_stress_gpa, max_force_sigma
