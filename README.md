@@ -253,7 +253,7 @@ The framework enforces zero-compromise physical consistency and error-bounding c
 
 ## 8. Verification and Validation Suite
 
-The complete verification test suite comprises **168 automated unit tests across 27 test modules**:
+The complete verification test suite comprises **168 automated unit tests across 28 test modules**:
 
 ```bash
 # Execute the full unit test suite
