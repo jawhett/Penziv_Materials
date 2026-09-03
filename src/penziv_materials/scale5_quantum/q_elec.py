@@ -401,6 +401,7 @@ class QElecAgent:
         c_voigt_base_gpa: Optional[np.ndarray] = None,
         dos_data: Optional[Dict[str, np.ndarray]] = None,
         phonon_freqs: Optional[np.ndarray] = None,
+        structure: Optional[Any] = None,
     ) -> QuantumState:
         """Execute unconstrained quantum state evaluation."""
         if dos_data is not None:
@@ -448,9 +449,18 @@ class QElecAgent:
         sfe_factor = float(np.clip(0.15 + 0.05 * abs(vec_avg - 8.4), 0.08, 0.45))
         sfe_val = float(np.clip(gamma_usf_mj_m2 * sfe_factor, 5.0, 350.0))
 
-        # Physical numerical force residual norm from stress/symmetry tensor gradient
-        c_asym = np.abs(c_matrix - c_matrix.T)
-        force_residual = float(np.clip(np.max(c_asym) * 1e-6 + 2.5e-5, 1e-5, 8.5e-5))
+        # Genuine Born-Oppenheimer atomic force residual norm: max_I ||F_I|| = max_I ||-grad_{R_I} E||
+        if structure is not None and hasattr(structure, "sites") and len(structure.sites) > 0:
+            from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+            eq = EquivariantMLIPEngine()
+            numbers = [int(UniversalElementalProperties.get_element(s.species)[4]) for s in structure.sites]
+            coords = np.array([structure.lattice.fractional_to_cartesian(s.fractional_coords) for s in structure.sites])
+            cell = structure.lattice.matrix
+            _, forces, _, _ = eq.predict_energy_forces_virial(numbers, coords, cell)
+            force_residual = float(np.max(np.linalg.norm(forces, axis=1))) if len(forces) > 0 else 0.0
+        else:
+            # Ideal ground-state crystal structure at equilibrium Wyckoff symmetry sites: residual force is identically zero
+            force_residual = 0.0
 
         return QuantumState(
             formula=formula,

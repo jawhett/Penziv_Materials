@@ -256,15 +256,33 @@ class AmorphousTopologyEngine:
         simplices = tri.simplices
         pts = coords[simplices]
 
-        a = np.linalg.norm(pts[:, 1] - pts[:, 0], axis=1)
-        b = np.linalg.norm(pts[:, 2] - pts[:, 0], axis=1)
-        c = np.linalg.norm(pts[:, 3] - pts[:, 0], axis=1)
-        void_radii = (a * b * c) / np.maximum(1e-6, (a + b + c) ** 1.5)
+        # 1. Geometrically exact tetrahedral insphere void radius: r_in = 3 * V / A_surface
+        d1 = pts[:, 1] - pts[:, 0]
+        d2 = pts[:, 2] - pts[:, 0]
+        d3 = pts[:, 3] - pts[:, 0]
 
-        # Compute Steinhardt Q_6 parameter
+        cross_23 = np.cross(d2, d3)
+        vol_tetra = np.abs(np.sum(d1 * cross_23, axis=-1)) / 6.0
+
+        a0 = 0.5 * np.linalg.norm(np.cross(pts[:, 2] - pts[:, 1], pts[:, 3] - pts[:, 1]), axis=-1)
+        a1 = 0.5 * np.linalg.norm(cross_23, axis=-1)
+        a2 = 0.5 * np.linalg.norm(np.cross(d1, d3), axis=-1)
+        a3 = 0.5 * np.linalg.norm(np.cross(d1, d2), axis=-1)
+        surf_area = a0 + a1 + a2 + a3
+
+        void_radii = 3.0 * vol_tetra / np.maximum(1e-6, surf_area)
+
+        # 2. Rotationally invariant Steinhardt bond-orientational order parameter Q_6
         diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
         diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
         dists = np.linalg.norm(diff, axis=-1)
+
+        try:
+            from scipy.special import sph_harm_y
+            has_sph_harm_y = True
+        except ImportError:
+            from scipy.special import sph_harm
+            has_sph_harm_y = False
 
         q6_accum = []
         for i in range(n_atoms):
@@ -273,10 +291,21 @@ class AmorphousTopologyEngine:
                 continue
             r_vecs = diff[i, nb_idx]
             r_norm = dists[i, nb_idx]
-            costheta = r_vecs[:, 2] / r_norm
-            # l=6 Legendre component
-            y60 = 0.5 * np.sqrt(13.0 / np.pi) * (0.0625 * (231.0 * costheta**6 - 315.0 * costheta**4 + 105.0 * costheta**2 - 5.0))
-            q6_accum.append(float(np.abs(np.mean(y60))))
+            theta = np.arccos(np.clip(r_vecs[:, 2] / r_norm, -1.0, 1.0))
+            phi = np.arctan2(r_vecs[:, 1], r_vecs[:, 0]) % (2.0 * np.pi)
+
+            # Sum over all (2l + 1) = 13 spherical harmonic components
+            q_lm_sq_sum = 0.0
+            for m in range(-6, 7):
+                if has_sph_harm_y:
+                    y_lm = sph_harm_y(6, m, theta, phi)
+                else:
+                    y_lm = sph_harm(m, 6, phi, theta)
+                q_bar = np.mean(y_lm)
+                q_lm_sq_sum += float(np.abs(q_bar)**2)
+
+            q6_i = np.sqrt((4.0 * np.pi / 13.0) * q_lm_sq_sum)
+            q6_accum.append(float(q6_i))
 
         q6_val = float(np.mean(q6_accum)) if q6_accum else 0.0
 

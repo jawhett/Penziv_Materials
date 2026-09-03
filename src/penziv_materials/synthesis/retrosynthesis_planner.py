@@ -86,19 +86,35 @@ class RetrosynthesisAssemblyPlanner:
             if not precursors:
                 precursors = list(target_comp.keys())
 
-        precursor_masses: Dict[str, float] = {}
-        assigned_elements = set()
+        from scipy.optimize import nnls
 
-        for p in precursors:
-            p_comp = parse_chemical_formula(p)
-            common_elements = set(p_comp.keys()).intersection(set(target_comp.keys()) - assigned_elements)
-            if common_elements:
-                primary_elem = list(common_elements)[0]
-                p_mw = sum(count * STANDARD_ATOMIC_WEIGHTS.get(elem, 30.0) for elem, count in p_comp.items())
-                elem_mass_in_p = p_comp[primary_elem] * STANDARD_ATOMIC_WEIGHTS.get(primary_elem, 30.0)
-                mass_needed = target_batch_mass_g * mass_fracs.get(primary_elem, 0.2) * (p_mw / max(1e-4, elem_mass_in_p))
-                precursor_masses[p] = float(np.round(mass_needed, 4))
-                assigned_elements.update(p_comp.keys())
+        # Rigorous linear mass balance conservation: A x = b
+        target_mw = sum(count * STANDARD_ATOMIC_WEIGHTS.get(elem, 30.0) for elem, count in target_comp.items())
+        n_target_moles = target_batch_mass_g / max(1e-4, target_mw)
+
+        precursor_list = list(precursors)
+        prec_comps = [parse_chemical_formula(p) for p in precursor_list]
+        prec_mws = [sum(count * STANDARD_ATOMIC_WEIGHTS.get(elem, 30.0) for elem, count in comp.items()) for comp in prec_comps]
+
+        # Target elements to balance (balance metal cations and distinct non-volatiles)
+        target_elems = list(target_comp.keys())
+        non_o_elems = [e for e in target_elems if e not in ["O", "N"]]
+        elements_to_balance = non_o_elems if len(non_o_elems) > 0 else target_elems
+
+        b = np.array([n_target_moles * target_comp.get(e, 0.0) for e in elements_to_balance], dtype=np.float64)
+        A = np.zeros((len(elements_to_balance), len(precursor_list)), dtype=np.float64)
+
+        for j, comp in enumerate(prec_comps):
+            for i, e in enumerate(elements_to_balance):
+                A[i, j] = comp.get(e, 0.0)
+
+        precursor_masses: Dict[str, float] = {}
+        if A.shape[1] > 0 and np.any(A > 0):
+            x, _ = nnls(A, b)
+            for j, p in enumerate(precursor_list):
+                if x[j] > 1e-6:
+                    mass_g = float(x[j] * prec_mws[j])
+                    precursor_masses[p] = float(np.round(mass_g, 4))
 
         if not precursor_masses:
             precursor_masses = {f"{elem}_pure": float(round(target_batch_mass_g * frac, 4)) for elem, frac in mass_fracs.items()}

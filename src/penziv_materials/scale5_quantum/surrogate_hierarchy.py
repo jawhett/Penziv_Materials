@@ -273,8 +273,8 @@ class TieredSurrogateOrchestrator:
             stress_tensor_gpa=np.zeros((3, 3)).tolist(),
             band_gap_ev=res1.band_gap_ev,
             epistemic_uncertainty=0.0001,
-            is_converged=True,
-            calculator_name=f"AbInitio_{self.tier2.code}_DeckGenerated",
+            is_converged=False,
+            calculator_name=f"AbInitio_{self.tier2.code}_DeckGenerated_PendingSCF",
             metadata={
                 "input_card_length": len(input_deck),
                 "escalation_reason": "Targeted Tier 2 DFT or OOD MLIP uncertainty",

@@ -63,12 +63,33 @@ class HolisticStabilityRelaxationEngine:
             for p in phase_volume_fractions
         ) if phase_volume_fractions else 110.0
 
-        is_composite_stabilized = bool(pi_total_system < crit_effective)
+        # Local Griffith / LEFM peak stress intensity evaluation:
+        # Brittle phases cannot be accepted solely via volume averages.
+        # Local stress concentration is relieved only if interfacial load transfer and Biot pore pressure
+        # provide mechanical shielding keeping local stress intensity below critical toughness (K_I,local < K_Ic).
+        local_shielding_ratio = float(np.clip(
+            (w_fluid_support + gamma_total) / max(1e-4, u_bulk_total + 1.0),
+            0.0, 0.65
+        ))
+        local_griffith_fracture_initiated = False
+        for p in phase_volume_fractions:
+            u_p = phase_strain_energy_densities_mj_m3.get(p, 0.0)
+            u_crit_p = crit_energies.get(p, 110.0)
+            u_eff_local = u_p * (1.0 - local_shielding_ratio)
+            if u_eff_local > u_crit_p:
+                local_griffith_fracture_initiated = True
+                break
+
+        is_composite_stabilized = bool(pi_total_system < crit_effective and not local_griffith_fracture_initiated)
 
         gate_decision = (
             "ACCEPTED_VIA_HOLISTIC_RELAXATION"
             if (any_phase_overstressed and is_composite_stabilized)
-            else ("ACCEPTED_STANDARD" if not any_phase_overstressed else "REJECTED_GLOBAL_INSTABILITY")
+            else (
+                "ACCEPTED_STANDARD"
+                if not any_phase_overstressed and not local_griffith_fracture_initiated
+                else ("REJECTED_LOCAL_GRIFFITH_FRACTURE" if local_griffith_fracture_initiated else "REJECTED_GLOBAL_INSTABILITY")
+            )
         )
 
         return {
@@ -102,13 +123,24 @@ class HolisticStabilityRelaxationEngine:
         pi_total_system = (u_ceramic + u_polymer + gamma_interface_mj_m3) - w_fluid_support
 
         critical_strain_energy_mj_m3 = 110.0
+        local_shielding_ratio = float(np.clip(
+            (w_fluid_support + gamma_interface_mj_m3) / max(1e-4, u_ceramic + u_polymer + 1.0),
+            0.0, 0.65
+        ))
+        u_eff_ceramic = ceramic_elastic_energy_density_mj_m3 * (1.0 - local_shielding_ratio)
+        local_griffith_fracture = u_eff_ceramic > critical_strain_energy_mj_m3
+
         is_isolated_ceramic_overstressed = ceramic_elastic_energy_density_mj_m3 > critical_strain_energy_mj_m3
-        is_composite_stabilized = bool(pi_total_system < critical_strain_energy_mj_m3)
+        is_composite_stabilized = bool(pi_total_system < critical_strain_energy_mj_m3 and not local_griffith_fracture)
 
         gate_decision = (
             "ACCEPTED_VIA_HOLISTIC_RELAXATION"
             if (is_isolated_ceramic_overstressed and is_composite_stabilized)
-            else ("ACCEPTED_STANDARD" if not is_isolated_ceramic_overstressed else "REJECTED_GLOBAL_INSTABILITY")
+            else (
+                "ACCEPTED_STANDARD"
+                if not is_isolated_ceramic_overstressed and not local_griffith_fracture
+                else ("REJECTED_LOCAL_GRIFFITH_FRACTURE" if local_griffith_fracture else "REJECTED_GLOBAL_INSTABILITY")
+            )
         )
 
         return {

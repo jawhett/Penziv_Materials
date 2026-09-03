@@ -127,6 +127,54 @@ class GlobalCrystalStructureSearchEngine:
                 return cs, sym
         return CrystalSystem.CUBIC, "Fm-3m"
 
+    @classmethod
+    def assign_formal_oxidation_states(cls, species: List[str]) -> np.ndarray:
+        """Assign signed physical formal oxidation states: anions get negative octet charges, cations get positive valences."""
+        unique = list(set(species))
+        if len(unique) <= 1:
+            return np.zeros(len(species), dtype=np.float64)
+
+        chis = np.array([cls.ELEMENT_PROPERTIES.get(s, (1.30, 1.80, 50.0, 2.0))[1] for s in species])
+        mean_chi = float(np.mean(chis))
+        max_chi = float(np.max(chis))
+        min_chi = float(np.min(chis))
+
+        if max_chi - min_chi < 0.35:
+            # Metallic solid solution: small electronegativity polarization
+            return (chis - mean_chi) * 0.25
+
+        nominal_map = {
+            "F": -1.0, "Cl": -1.0, "Br": -1.0, "I": -1.0,
+            "O": -2.0, "S": -2.0, "Se": -2.0, "Te": -2.0,
+            "N": -3.0, "P": -3.0, "As": -3.0, "Sb": -3.0,
+            "C": -4.0, "B": -3.0,
+            "Li": 1.0, "Na": 1.0, "K": 1.0, "Rb": 1.0, "Cs": 1.0,
+            "Be": 2.0, "Mg": 2.0, "Ca": 2.0, "Sr": 2.0, "Ba": 2.0,
+            "Sc": 3.0, "Y": 3.0, "La": 3.0, "Al": 3.0, "Ga": 3.0, "In": 3.0,
+            "Ti": 4.0, "Zr": 4.0, "Hf": 4.0,
+            "V": 4.0, "Cr": 3.0, "Mn": 2.0, "Fe": 3.0, "Co": 2.0, "Ni": 2.0, "Cu": 2.0, "Zn": 2.0,
+            "Nb": 5.0, "Mo": 4.0, "Ta": 5.0, "W": 4.0, "Bi": 3.0, "Si": 4.0,
+        }
+
+        anion_mask = chis > mean_chi
+        cation_mask = ~anion_mask
+
+        charges = np.zeros(len(species), dtype=np.float64)
+        for i, s in enumerate(species):
+            if anion_mask[i]:
+                nom = nominal_map.get(s, -2.0)
+                charges[i] = nom if nom < 0 else -1.0
+            else:
+                nom = nominal_map.get(s, 2.0)
+                charges[i] = nom if nom > 0 else 1.0
+
+        q_neg = float(np.sum(charges[anion_mask]))
+        q_pos = float(np.sum(charges[cation_mask]))
+        if abs(q_pos) > 1e-4 and abs(q_neg) > 1e-4:
+            charges[cation_mask] *= (-q_neg / q_pos)
+
+        return charges
+
     def evaluate_crystal_energy(
         self,
         lattice_matrix: np.ndarray,
@@ -157,15 +205,18 @@ class GlobalCrystalStructureSearchEngine:
         m_mass = np.array([p[2] for p in props], dtype=np.float64)
         z_val = np.array([p[3] for p in props], dtype=np.float64)
 
+        # Physical signed formal oxidation charges (unlike ions attract, like ions repel)
+        q_signed = self.assign_formal_oxidation_states(species)
+
         # Derived interatomic matrices
         delta_chi_mat = np.abs(chi[:, None] - chi[None, :])
         f_ion_mat = 1.0 - np.exp(-0.25 * (delta_chi_mat**2))  # Pauling ionicity fraction
         r_eq_mat = (r_cov[:, None] + r_cov[None, :]) - 0.09 * delta_chi_mat  # Schomaker-Stevenson quantum bond length
-        q1_q2_mat = (z_val[:, None] * z_val[None, :])
+        q1_q2_mat = (q_signed[:, None] * q_signed[None, :])
 
         from scipy.special import erfc
-        is_ionic_pair = (delta_chi_mat > 1.8)
-        a_rep_mat = 350.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
+        is_ionic_pair = (delta_chi_mat > 1.2) | (q1_q2_mat < 0.0)
+        a_rep_mat = 120.0 * np.sqrt(z_val[:, None] * z_val[None, :]) + 200.0 * np.sqrt(np.abs(q1_q2_mat) + 0.5)
         covalent_strength = 4.0 * (1.0 + 0.5 * (1.0 - f_ion_mat))
         r1_r2_mat = (r_cov[:, None] * r_cov[None, :])
 
@@ -188,11 +239,13 @@ class GlobalCrystalStructureSearchEngine:
             if is_center:
                 np.fill_diagonal(r, 999.0)
 
-            valid = (r > 0.4) & (r < 7.5)
-            r_safe = np.where(valid, r, 999.0)
+            valid = (r < 7.5)
+            r_safe = np.maximum(0.05, r)
 
-            # 1. Short-range Born-Mayer quantum Pauli repulsion
-            e_rep = np.where(valid, a_rep_mat * np.exp(-r_safe / 0.35), 0.0)
+            # 1. Short-range Born-Mayer quantum Pauli repulsion and nuclear core overlap
+            e_born = a_rep_mat * np.exp(-r_safe / 0.35)
+            e_overlap = np.where(r < 0.65 * r_eq_mat, 500.0 * ((0.65 * r_eq_mat / r_safe)**6), 0.0)
+            e_rep = np.where(valid, e_born + e_overlap, 0.0)
             e_rep_tot += float(np.sum(e_rep))
 
             # 2. 3D Periodic Ewald electrostatic Madelung sum using physical signed charges
@@ -334,11 +387,37 @@ class GlobalCrystalStructureSearchEngine:
             best_lat = np.dot(lat_0, np.eye(3) + eps_opt)
 
         best_vol = float(np.abs(np.linalg.det(best_lat)))
-        best_energy = self.evaluate_crystal_energy(best_lat, sites, best_vol, space_group_number=space_group_number)
+        n_atoms = len(sites)
+        relaxed_frac = np.array([np.asarray(s.get("fractional_coords", s.get("coordinates")), dtype=np.float64) for s in sites], dtype=np.float64)
+
+        # Joint internal coordinate relaxation via numerical Cartesian force gradients
+        if n_atoms > 1:
+            inv_best_lat = np.linalg.inv(best_lat)
+            for _ in range(3):
+                cart_coords = np.dot(relaxed_frac, best_lat)
+                forces = np.zeros_like(cart_coords)
+                delta = 0.01
+                sites_curr = [{"species": sites[k].get("species", sites[k].get("element", "Si")), "fractional_coords": relaxed_frac[k]} for k in range(n_atoms)]
+                e_base = self.evaluate_crystal_energy(best_lat, sites_curr, best_vol, space_group_number)
+                for a_idx in range(n_atoms):
+                    for d in range(3):
+                        shift = np.zeros(3)
+                        shift[d] = delta
+                        cart_shifted = cart_coords.copy()
+                        cart_shifted[a_idx] += shift
+                        frac_shifted = np.dot(cart_shifted, inv_best_lat)
+                        sites_shifted = [{"species": sites[k].get("species", sites[k].get("element", "Si")), "fractional_coords": frac_shifted[k]} for k in range(n_atoms)]
+                        e_plus = self.evaluate_crystal_energy(best_lat, sites_shifted, best_vol, space_group_number)
+                        forces[a_idx, d] = -(e_plus - e_base) / delta
+                max_f = float(np.max(np.abs(forces)))
+                if max_f < 0.005:
+                    break
+                cart_coords += 0.02 * np.clip(forces, -0.3, 0.3)
+                relaxed_frac = np.dot(cart_coords, inv_best_lat) % 1.0
 
         relaxed_sites = []
-        for s in sites:
-            f_c = np.asarray(s.get("fractional_coords", s.get("coordinates")), dtype=np.float64)
+        for i, s in enumerate(sites):
+            f_c = relaxed_frac[i]
             c_c = np.dot(f_c, best_lat)
             relaxed_sites.append({
                 "species": s.get("species", s.get("element", "Si")),
@@ -346,6 +425,7 @@ class GlobalCrystalStructureSearchEngine:
                 "cartesian_coords": c_c.tolist(),
             })
 
+        best_energy = self.evaluate_crystal_energy(best_lat, relaxed_sites, best_vol, space_group_number=space_group_number)
         return best_lat, relaxed_sites, best_energy, best_vol
 
 

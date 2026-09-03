@@ -27,17 +27,17 @@ class TestNovelHandshakeAndSynthesis(unittest.TestCase):
 
     def test_scale_4_3_stacking_fault_positivity_and_trip_twip(self):
         # Stable dislocation slip
-        rec_stable = HandshakeGatekeeper.validate_stacking_fault_positivity(45.0)
+        rec_stable = HandshakeGatekeeper.validate_stacking_fault_positivity(55.0)
         self.assertEqual(rec_stable.status, ValidationStatus.PASSED)
 
-        # TRIP/TWIP driver regime (-30 to 0)
-        rec_trip = HandshakeGatekeeper.validate_stacking_fault_positivity(-15.0)
+        # TRIP/TWIP driver regime (low positive SFE: 0 to 45 mJ/m2)
+        rec_trip = HandshakeGatekeeper.validate_stacking_fault_positivity(15.0)
         self.assertEqual(rec_trip.status, ValidationStatus.PASSED)
         self.assertIn("TRIP/TWIP", rec_trip.details)
 
-        # Unphysical regime (< -30)
-        rec_unphysical = HandshakeGatekeeper.validate_stacking_fault_positivity(-55.0)
-        self.assertEqual(rec_unphysical.status, ValidationStatus.FAILED)
+        # Spontaneous barrierless shear instability (negative SFE <= 0)
+        rec_unstable = HandshakeGatekeeper.validate_stacking_fault_positivity(-15.0)
+        self.assertEqual(rec_unstable.status, ValidationStatus.FAILED)
 
     def test_scale_4_3_lognormal_rate_variance(self):
         rec_pass = HandshakeGatekeeper.validate_lognormal_rate_variance(0.12)

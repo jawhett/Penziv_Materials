@@ -59,21 +59,21 @@ class HandshakeGatekeeper:
     @classmethod
     def validate_stacking_fault_positivity(cls, min_gamma: float) -> ValidationReceipt:
         """Scale 4 <-> 3: Planar Fault Energy Gate supporting stable slip, TWIP, and TRIP martensitic transformation."""
-        if min_gamma > 0.0:
+        if min_gamma > 45.0:
             status = ValidationStatus.PASSED
-            desc = f"Stable positive planar fault energy: {min_gamma:.2f} mJ/m²."
-        elif min_gamma > -30.0:
+            desc = f"Stable positive planar fault energy: {min_gamma:.2f} mJ/m² (dislocation glide regime)."
+        elif min_gamma > 0.0:
             status = ValidationStatus.PASSED
-            desc = f"TRIP/TWIP metastable planar fault regime: {min_gamma:.2f} mJ/m² (martensitic transformation driver)."
+            desc = f"TRIP/TWIP low positive planar fault regime: {min_gamma:.2f} mJ/m² (martensitic transformation and mechanical twinning driver)."
         else:
             status = ValidationStatus.FAILED
-            desc = f"Unphysical unstable planar fault: {min_gamma:.2f} mJ/m²."
+            desc = f"Thermodynamically unstable planar fault: {min_gamma:.2f} mJ/m² (barrierless spontaneous shear transformation of parent phase)."
 
         return ValidationReceipt(
             gate_name="Scale 4-3: Planar Fault Energy Gate",
             status=status,
             metric_value=min_gamma,
-            threshold=-30.0,
+            threshold=0.0,
             details=desc,
             timestamp=cls.now_iso(),
         )
