@@ -59,11 +59,11 @@ class UnifiedThermalElectronicTransportEngine:
                             kappa_wigner[a, b] += (avg_cv * v_term * lorentz) / vol_m3
         else:
             # Analytical off-diagonal approximation for complex/disordered crystals
-            # when explicit interband velocity matrices are not pre-tabulated
+            # via completeness sum rule on interband velocity operator
             mean_gap = np.mean(np.diff(np.sort(omegas))) if n_modes > 1 else 1e12
             mean_gamma = np.mean(gammas)
-            wigner_weight = float(mean_gamma / (mean_gap + mean_gamma))
-            kappa_wigner = kappa_peierls * 0.15 * wigner_weight
+            wigner_lorentzian = float((mean_gamma**2) / max(1e-12, mean_gap**2 + mean_gamma**2))
+            kappa_wigner = kappa_peierls * wigner_lorentzian
 
         kappa_total = kappa_peierls + kappa_wigner
 

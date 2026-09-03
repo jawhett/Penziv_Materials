@@ -95,7 +95,7 @@ def compute_element_mass_fractions(formula: str) -> Dict[str, float]:
     """Calculate elemental mass fractions (weight fractions) from chemical formula with nested polyanions."""
     mol_counts = parse_chemical_formula(formula)
     if not mol_counts:
-        return {"Mg": 0.5, "S": 0.5}
+        return {}
 
     element_masses = {}
     for elem, count in mol_counts.items():
@@ -104,7 +104,7 @@ def compute_element_mass_fractions(formula: str) -> Dict[str, float]:
 
     total_molecular_weight = sum(element_masses.values())
     if total_molecular_weight <= 0.0:
-        return {"Mg": 0.5, "S": 0.5}
+        return {}
 
     mass_fractions = {elem: mass / total_molecular_weight for elem, mass in element_masses.items()}
     return mass_fractions

@@ -29,7 +29,9 @@ class SolidElectrolyteDiscoveryOrchestrator:
 
     def __init__(self, target_carrier: str = "Mg"):
         self.target_carrier = target_carrier
-        self.charge_z = 2 if target_carrier == "Mg" else 1
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        nom_val = abs(UniversalElementalProperties.get_element(target_carrier)[4])
+        self.charge_z = int(round(nom_val)) if nom_val > 0 else 1
 
         self.transport_engine = SolidStateIonTransportEngine(mobile_ion_charge_z=self.charge_z)
         self.defect_engine = ChargedDefectThermoEngine()
@@ -54,8 +56,8 @@ class SolidElectrolyteDiscoveryOrchestrator:
         for i in range(num_candidates):
             # 1. Generative off-stoichiometric candidate crystal proposal
             cand_crystal = self.crystal_gen.generate_off_stoichiometric_superionic_candidate(
-                framework_archetype="Thio-LISICON" if self.target_carrier == "Mg" else "NASICON",
-                doping_element="Sc" if self.target_carrier == "Mg" else "Y",
+                framework_archetype="Thio-LISICON" if self.charge_z >= 2 else "NASICON",
+                doping_element="Sc" if self.charge_z >= 2 else "Y",
                 doping_fraction=0.10 + (i % 5) * 0.05,
                 random_seed=42 + i,
             )
@@ -79,7 +81,10 @@ class SolidElectrolyteDiscoveryOrchestrator:
             )
 
             # 4. CI-NEB Migration Barrier & Dynamic Bottleneck Geometry
-            anion_polarizability = 3.88 if cand_crystal["anion_type"] == "S" else 2.0
+            from penziv_materials.structure.crystal_structure import CrystalStructure
+            anion_elem = cand_crystal.get("anion_type", "S")
+            anion_r = CrystalStructure.SHANNON_IONIC_RADII_ANGSTROM.get(anion_elem, 1.84)
+            anion_polarizability = float(round(0.62 * (anion_r ** 3), 2))
             pol_penalty = self.transport_engine.compute_multivalent_polarization_penalty(
                 anion_polarizability_ang3=anion_polarizability
             )

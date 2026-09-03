@@ -98,9 +98,17 @@ class OnlineActiveRetrainingWorkflow:
                 fractional_coords=fractional_coords,
             )
 
-            # 2. Ingest ground truth (simulated or real)
-            gt_e = simulated_dft_ground_truth_energy if simulated_dft_ground_truth_energy is not None else -15.40
-            gt_f = np.zeros((len(atomic_species), 3)).tolist()
+            # 2. Ingest ground truth from simulation or high-fidelity equivariant potential
+            if simulated_dft_ground_truth_energy is not None:
+                gt_e = simulated_dft_ground_truth_energy
+                gt_f = np.zeros((len(atomic_species), 3)).tolist()
+            else:
+                from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+                eq = EquivariantMLIPEngine()
+                tot_e, f_arr, _, _ = eq.predict_energy_forces_virial(atom_numbers, cart_coords, lattice_matrix)
+                gt_e = float(tot_e)
+                gt_f = f_arr.tolist()
+
             ingest_res = self.hpc_dispatcher.ingest_completed_dft_ground_truth(
                 job_id=job.job_id,
                 total_energy_ev=gt_e,

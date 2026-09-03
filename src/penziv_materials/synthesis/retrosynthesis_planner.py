@@ -342,7 +342,7 @@ class RetrosynthesisAssemblyPlanner:
             recommended_route = "CO_SINTERED_HYBRID_DIRECT_COMPOSITING"
 
         return {
-            "is_synthetically_feasible": True,
+            "is_synthetically_feasible": bool(rel_density_pct >= 85.0),
             "primary_recommended_process": recommended_route,
             "target_compound": target_compound,
             "ceramic_sintering_temperature_c": float(ceramic_sintering_temp_c),
