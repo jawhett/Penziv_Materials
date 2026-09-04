@@ -1,7 +1,7 @@
 import json
 import pytest
 from click.testing import CliRunner
-from penziv_materials.cli.main import evaluate_tea, validate_born, predict_forward, discover_solid_electrolyte, generate_tpms, discover_alloy
+from penziv_materials.cli.main import evaluate_tea, validate_born, predict_forward, discover_solid_electrolyte, generate_tpms, discover_alloy, evaluate_history
 
 def test_evaluate_tea_json():
     runner = CliRunner()
@@ -90,3 +90,20 @@ def test_discover_alloy_json():
     assert "physically_stable_count" in data
     assert "pareto_optimal_candidates" in data
     assert "top_candidate" in data
+
+def test_evaluate_history_json():
+    runner = CliRunner()
+    result = runner.invoke(evaluate_history, ['Cu', '--route', 'annealed_recrystallized', '--json'])
+    assert result.exit_code == 0
+    try:
+        data = json.loads(result.output)
+    except json.JSONDecodeError:
+        pytest.fail(f"Output is not valid JSON: {result.output}")
+
+    assert "formula" in data
+    assert data["formula"] == "Cu"
+    assert "base_properties" in data
+    assert "routes" in data
+    assert "annealed_recrystallized" in data["routes"]
+    assert "yield_strength_mpa" in data["routes"]["annealed_recrystallized"]
+

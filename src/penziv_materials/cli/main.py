@@ -671,7 +671,8 @@ def benchmark_advanced():
 @main.command()
 @click.argument("formula", default="Fe0.70Cr0.18Ni0.10Mo0.02")
 @click.option("--route", default="all", help="Processing route (annealed_recrystallized, cold_worked_50pct, solution_treated_peak_aged_t6, additive_lpbf_as_printed, additive_lpbf_hip_aged, or all)")
-def evaluate_history(formula: str, route: str):
+@click.option("--json", "as_json", is_flag=True, help="Output results as structured JSON")
+def evaluate_history(formula: str, route: str, as_json: bool):
     """Predict physical variations in Yield, Plasticity, Fracture Toughness, and Fatigue under Thermomechanical History."""
     from penziv_materials.benchmarks.formula_prediction_benchmark import FormulaPredictionBenchmarkSuite
     from penziv_materials.scale1_process.thermomechanical_history import (
@@ -680,11 +681,11 @@ def evaluate_history(formula: str, route: str):
         ProcessingRoute,
     )
 
-    console.print(f"\n[bold cyan]Predicting Thermomechanical History Variations for:[/] [bold white]{formula}[/bold white]\n")
+    if not as_json:
+        console.print(f"\n[bold cyan]Predicting Thermomechanical History Variations for:[/] [bold white]{formula}[/bold white]\n")
 
     runner = FormulaPredictionBenchmarkSuite()
     base_pred = runner.predict_material_from_formula(formula, temperature_k=300.0)
-
 
     engine = ThermomechanicalHistoryEngine(
         shear_modulus_gpa=base_pred.shear_modulus_gpa,
@@ -693,22 +694,24 @@ def evaluate_history(formula: str, route: str):
 
     routes_to_evaluate = [r for r in ProcessingRoute] if route.lower() == "all" else [ProcessingRoute(route.lower())]
 
-    table = Table(
-        title=f"Thermomechanical Processing & Fatigue Matrix — {formula}",
-        box=box.ROUNDED,
-        header_style="bold cyan",
-    )
-    table.add_column("Processing Route", style="cyan", justify="left")
-    table.add_column("Grain / ρ_disl", style="dim", justify="center")
-    table.add_column("σ_y (MPa)", style="bold green", justify="right")
-    table.add_column("σ_UTS (MPa)", style="green", justify="right")
-    table.add_column("Elongation ε_f", style="magenta", justify="right")
-    table.add_column("K_Ic (MPa√m)", style="yellow", justify="right")
-    table.add_column("Endurance σ_e", style="bold cyan", justify="right")
-    table.add_column("Basquin b", style="white", justify="right")
-    table.add_column("Coffin c", style="white", justify="right")
-    table.add_column("Trans. N_t", style="dim", justify="right")
+    if not as_json:
+        table = Table(
+            title=f"Thermomechanical Processing & Fatigue Matrix — {formula}",
+            box=box.ROUNDED,
+            header_style="bold cyan",
+        )
+        table.add_column("Processing Route", style="cyan", justify="left")
+        table.add_column("Grain / ρ_disl", style="dim", justify="center")
+        table.add_column("σ_y (MPa)", style="bold green", justify="right")
+        table.add_column("σ_UTS (MPa)", style="green", justify="right")
+        table.add_column("Elongation ε_f", style="magenta", justify="right")
+        table.add_column("K_Ic (MPa√m)", style="yellow", justify="right")
+        table.add_column("Endurance σ_e", style="bold cyan", justify="right")
+        table.add_column("Basquin b", style="white", justify="right")
+        table.add_column("Coffin c", style="white", justify="right")
+        table.add_column("Trans. N_t", style="dim", justify="right")
 
+    history_results = {}
     for r in routes_to_evaluate:
         params = ThermomechanicalHistoryParameters(route=r)
         resp = engine.predict_properties_from_history(
@@ -716,19 +719,36 @@ def evaluate_history(formula: str, route: str):
             base_youngs_modulus_gpa=base_pred.youngs_modulus_gpa,
             history=params,
         )
-        rho_exp = int(np.log10(max(1.0, resp.dislocation_density_m2)))
-        table.add_row(
-            r.value.replace("_", " ").title(),
-            f"{resp.effective_grain_size_um:.0f}μm | 10^{rho_exp}",
-            f"{resp.yield_strength_mpa:.0f}",
-            f"{resp.ultimate_tensile_strength_mpa:.0f}",
-            f"{resp.total_elongation_to_failure_percent:.1f}%",
-            f"{resp.fracture_toughness_k_ic_mpa_sqrt_m:.1f}",
-            f"{resp.fatigue_endurance_limit_sigma_e_mpa:.0f} MPa",
-            f"{resp.basquin_exponent_b:.3f}",
-            f"{resp.coffin_manson_exponent_c:.3f}",
-            f"{resp.transition_fatigue_life_cycles_nt:.0f}",
-        )
+        if as_json:
+            history_results[r.value] = resp.model_dump()
+        else:
+            rho_exp = int(np.log10(max(1.0, resp.dislocation_density_m2)))
+            table.add_row(
+                r.value.replace("_", " ").title(),
+                f"{resp.effective_grain_size_um:.0f}μm | 10^{rho_exp}",
+                f"{resp.yield_strength_mpa:.0f}",
+                f"{resp.ultimate_tensile_strength_mpa:.0f}",
+                f"{resp.total_elongation_to_failure_percent:.1f}%",
+                f"{resp.fracture_toughness_k_ic_mpa_sqrt_m:.1f}",
+                f"{resp.fatigue_endurance_limit_sigma_e_mpa:.0f} MPa",
+                f"{resp.basquin_exponent_b:.3f}",
+                f"{resp.coffin_manson_exponent_c:.3f}",
+                f"{resp.transition_fatigue_life_cycles_nt:.0f}",
+            )
+
+    if as_json:
+        payload = {
+            "formula": formula,
+            "base_properties": {
+                "youngs_modulus_gpa": base_pred.youngs_modulus_gpa,
+                "shear_modulus_gpa": base_pred.shear_modulus_gpa,
+                "poissons_ratio": base_pred.poissons_ratio,
+                "yield_strength_mpa": base_pred.yield_strength_mpa,
+            },
+            "routes": history_results,
+        }
+        click.echo(json.dumps(payload, indent=2))
+        sys.exit(0)
 
     console.print(table)
     console.print(f"\n[bold green]Thermomechanical Analysis Complete:[/] Demonstrated severe inverse strength-toughness tradeoff, work-hardening saturation, and residual stress fatigue knockdown across all routes.\n")
