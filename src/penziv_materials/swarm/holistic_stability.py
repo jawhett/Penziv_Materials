@@ -64,17 +64,19 @@ class HolisticStabilityRelaxationEngine:
         ) if phase_volume_fractions else 110.0
 
         # Local Griffith / LEFM crack initiation evaluation:
-        # Phase strain energy density U_p is strictly conserved.
-        # Stability against crack initiation is evaluated against composite extrinsic fracture resistance:
-        # R_eff = U_crit + Delta U_extrinsic, where extrinsic toughening arises from
-        # inter-phase ligament bridging and hydrostatic pore fluid back-stress support.
-        delta_u_extrinsic = float(w_fluid_support + gamma_total * 5.0)
+        # Extrinsic fracture resistance R_eff is governed strictly by solid-phase bridging:
+        # R_eff = U_crit + Delta U_solid_bridging (polymer ligament bridging and interface debonding).
+        # External hydrostatic fluid support acts via Terzaghi effective stress (sigma' = sigma - alpha * p * I)
+        # as compressive channel-wall confinement reducing net tensile burst driving energy.
+        delta_u_solid_bridging = float(gamma_total * 8.0 + eigenstrain_energy_mj_m3 * 0.5)
         local_griffith_fracture_initiated = False
         for p in phase_volume_fractions:
             u_p = phase_strain_energy_densities_mj_m3.get(p, 0.0)
             u_crit_p = crit_energies.get(p, 110.0)
-            effective_resistance_p = u_crit_p + delta_u_extrinsic
-            if u_p > effective_resistance_p:
+            effective_resistance_p = u_crit_p + delta_u_solid_bridging
+            # Net tensile driving energy under external compressive fluid confinement
+            u_driving_p = max(0.0, u_p - w_fluid_support)
+            if u_driving_p > effective_resistance_p:
                 local_griffith_fracture_initiated = True
                 break
 
@@ -122,10 +124,12 @@ class HolisticStabilityRelaxationEngine:
 
         critical_strain_energy_mj_m3 = 110.0
         # Extrinsic toughening / fracture resistance enhancement (LEFM R-curve):
-        # Polymer ligament bridging and fluid pore back-stress increase effective crack resistance
-        delta_u_extrinsic = float(w_fluid_support + gamma_interface_mj_m3 * 15.0)
-        effective_fracture_resistance = critical_strain_energy_mj_m3 + delta_u_extrinsic
-        local_griffith_fracture = ceramic_elastic_energy_density_mj_m3 > effective_fracture_resistance
+        # Solid-phase polymer ligament bridging and interfacial debonding increase effective crack resistance
+        delta_u_bridging = float(u_polymer * 2.0 + gamma_interface_mj_m3 * 15.0)
+        effective_fracture_resistance = critical_strain_energy_mj_m3 + delta_u_bridging
+        # External hydrostatic fluid support acts via Terzaghi effective stress as compressive channel confinement
+        u_driving_ceramic = max(0.0, ceramic_elastic_energy_density_mj_m3 - w_fluid_support)
+        local_griffith_fracture = u_driving_ceramic > effective_fracture_resistance
 
         is_isolated_ceramic_overstressed = ceramic_elastic_energy_density_mj_m3 > critical_strain_energy_mj_m3
         is_composite_stabilized = bool(pi_total_system < critical_strain_energy_mj_m3 and not local_griffith_fracture)

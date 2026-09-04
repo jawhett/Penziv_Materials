@@ -107,7 +107,7 @@ class AutonomousCrystalStructurePredictor:
         # Bragg-Williams order-disorder transition temperature: T_c = Delta E_ord / (k_B * Delta S_config)
         is_orderable_superlattice = bool(len(elements) >= 2 and z_fu >= 2 and dynamic_apf >= 0.65)
         if is_orderable_superlattice:
-            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties, QElecAgent
             mean_tm = sum(
                 (cnt / total_atoms) * UniversalElementalProperties.get_element(elem)[5]
                 for elem, cnt in composition.items()
@@ -116,11 +116,18 @@ class AutonomousCrystalStructurePredictor:
             fracs_arr = np.array([cnt / total_atoms for cnt in counts])
             delta_s_config_kb = -float(np.sum(fracs_arr * np.log(np.maximum(1e-6, fracs_arr))))
 
-            # Ordering energy (Delta H_ord is typically 15 - 80 meV/atom in orderable alloys like CuAu, FeCo, Ni3Al)
-            delta_e_ord_ev = 0.045 * delta_chi + 0.02 * (1.0 - r_ratio)
-            tc_calc = delta_e_ord_ev / max(1e-4, k_b_ev * delta_s_config_kb)
-            # Thermodynamic constraint: alloy cannot order above its melting temperature
-            tc_k = float(round(min(mean_tm * 0.90, max(200.0, tc_calc)), 1))
+            # Bragg-Williams regular solution interchange energy:
+            # Ordering enthalpy Delta E_ord is the negative Miedema mixing enthalpy
+            q_agent = QElecAgent()
+            delta_h_mix = q_agent.compute_miedema_formation_energy(composition)
+            if delta_h_mix < -1e-4:
+                delta_e_ord_ev = abs(delta_h_mix)
+                tc_calc = delta_e_ord_ev / max(1e-4, k_b_ev * delta_s_config_kb)
+                # Thermodynamic constraint: alloy cannot order above its melting temperature
+                tc_k = float(round(min(mean_tm * 0.90, max(150.0, tc_calc)), 1))
+            else:
+                # Non-negative mixing enthalpy causes phase separation/miscibility gap, not superlattice ordering
+                tc_k = None
         else:
             tc_k = None
 

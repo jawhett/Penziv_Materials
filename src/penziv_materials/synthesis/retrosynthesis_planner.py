@@ -48,6 +48,7 @@ class RetrosynthesisAssemblyPlanner:
         "NaCl": (-411.2, 72.1, 1074.15),
         "TiC": (-184.0, 24.2, 3430.0),
         "MgSc2S4": (-1645.0, 198.0, 1900.0),
+        "Li7La3Zr2O12": (-9150.0, 380.0, 1773.15),
         # Pure elements standard states
         "Li": (0.0, 29.1, 453.69),
         "Na": (0.0, 51.3, 370.87),
@@ -191,12 +192,10 @@ class RetrosynthesisAssemblyPlanner:
         for j, prec in enumerate(candidate_pool):
             coeff = float(x_coeffs[j])
             if coeff > 1e-4:
-                h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(prec, (-200.0, 50.0, 1200.0))
-                dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * coeff
                 intermediate_steps.append({
                     "step": step_idx,
-                    "reaction": f"Synthesize/Dispense {coeff:.3f}x {prec} building block",
-                    "delta_g_kj": float(dg_step),
+                    "reaction": f"Dispense {coeff:.3f} mol of precursor {prec}",
+                    "delta_g_kj": 0.0,
                 })
                 used_precursors[prec] = coeff
                 step_idx += 1
@@ -205,12 +204,10 @@ class RetrosynthesisAssemblyPlanner:
         res_diff = b_vec - np.dot(A_mat, x_coeffs)
         for i, e in enumerate(elements):
             if res_diff[i] > 1e-3:
-                h_f, s_f, _ = self.EXTENDED_THERMO_DATABASE.get(e, (0.0, 30.0, 1000.0))
-                dg_step = (h_f - (temperature_k * s_f * 1.0e-3)) * float(res_diff[i])
                 intermediate_steps.append({
                     "step": step_idx,
-                    "reaction": f"Synthesize/Dispense {float(res_diff[i]):.3f}x {e} elemental precursor",
-                    "delta_g_kj": float(dg_step),
+                    "reaction": f"Dispense {float(res_diff[i]):.3f} mol of elemental {e}",
+                    "delta_g_kj": 0.0,
                 })
                 used_precursors[e] = used_precursors.get(e, 0.0) + float(res_diff[i])
                 step_idx += 1
@@ -305,8 +302,23 @@ class RetrosynthesisAssemblyPlanner:
         target_comp = parse_chemical_formula(target_compound)
         elements = list(target_comp.keys())
 
-        t_melts = [self.EXTENDED_THERMO_DATABASE.get(e, (0.0, 30.0, 1800.0))[2] for e in elements]
-        t_melt_target_k = float(np.mean(t_melts)) if t_melts else 1800.0
+        # Determine ceramic/compound melting point from thermodynamic database or refractory sublattices,
+        # explicitly excluding gaseous elements (O2, N2, F2, Cl2 with T_m < 100 K) which cannot describe ceramic lattice cohesion
+        if target_compound in self.EXTENDED_THERMO_DATABASE:
+            t_melt_target_k = float(self.EXTENDED_THERMO_DATABASE[target_compound][2])
+        else:
+            gaseous_nonmetals = {"O", "N", "F", "Cl", "H"}
+            metal_cations = {elem: cnt for elem, cnt in target_comp.items() if elem not in gaseous_nonmetals}
+            if any(elem in gaseous_nonmetals for elem in target_comp) and metal_cations:
+                # Ceramic oxide/nitride/halide: melting temperature is governed by ionic lattice energy of refractory cations
+                cation_tm = sum(
+                    (cnt / sum(metal_cations.values())) * self.EXTENDED_THERMO_DATABASE.get(elem, (0, 0, 1800.0))[2]
+                    for elem, cnt in metal_cations.items()
+                )
+                t_melt_target_k = float(max(1500.0, cation_tm * 1.15))
+            else:
+                total_atoms = sum(target_comp.values())
+                t_melt_target_k = float(sum((cnt / total_atoms) * self.EXTENDED_THERMO_DATABASE.get(elem, (0, 0, 1800.0))[2] for elem, cnt in target_comp.items())) if elements else 1800.0
 
         homologous_sinter_temp_c = 0.68 * t_melt_target_k - 273.15
         rec_sinter_temp_c = max(450.0, min(1450.0, homologous_sinter_temp_c))

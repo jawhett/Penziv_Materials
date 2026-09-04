@@ -287,10 +287,10 @@ class TieredSurrogateOrchestrator:
             formula=structure.formula,
             energy_per_atom_ev=res1.energy_per_atom_ev,
             total_energy_ev=res1.energy_per_atom_ev * len(structure.sites),
-            max_force_ev_ang=0.0001,
+            max_force_ev_ang=res1.max_force_ev_ang,
             stress_tensor_gpa=np.zeros((3, 3)).tolist(),
             band_gap_ev=res1.band_gap_ev,
-            epistemic_uncertainty=0.0001,
+            epistemic_uncertainty=res1.epistemic_uncertainty,
             is_converged=False,
             calculator_name=f"AbInitio_{self.tier2.code}_DeckGenerated_PendingSCF",
             metadata={

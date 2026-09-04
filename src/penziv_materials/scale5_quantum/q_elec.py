@@ -167,7 +167,17 @@ class QElecAgent:
         # Miedema coefficients
         P = 14.1   # kJ / (V^2 * cm^2)
         Q = 9.4    # kJ / (d.u.^(2/3) * cm^2)
-        R_star = 1.0 # P-d hybrid hybridization offset
+        # Transition metal and p-block element sets for Miedema R* d-p hybridization
+        transition_metals = {
+            "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+            "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd",
+            "La", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg"
+        }
+        p_block_elements = {
+            "B", "C", "N", "O", "F", "Al", "Si", "P", "S", "Cl",
+            "Ga", "Ge", "As", "Se", "Br", "In", "Sn", "Sb", "Te", "I",
+            "Tl", "Pb", "Bi"
+        }
 
         delta_h_kj = 0.0
         v_molar = []
@@ -190,7 +200,13 @@ class QElecAgent:
                 delta_phi = phi_vals[i] - phi_vals[j]
                 delta_nws = (nws_vals[i] ** (1.0 / 3.0)) - (nws_vals[j] ** (1.0 / 3.0))
                 factor = (v_23[i] * v_23[j]) / max(1e-5, mean_v_23)
-                interaction = -P * (delta_phi**2) + Q * (delta_nws**2) - R_star
+                # Miedema R* applies conditionally ONLY to d-p orbital hybridization
+                is_tm_p = (
+                    (elems[i] in transition_metals and elems[j] in p_block_elements)
+                    or (elems[j] in transition_metals and elems[i] in p_block_elements)
+                )
+                r_star_pair = 1.0 if is_tm_p else 0.0
+                interaction = -P * (delta_phi**2) + Q * (delta_nws**2) - r_star_pair
                 delta_h_kj += fracs[i] * fracs[j] * factor * interaction
 
         # Convert kJ/mol to eV/atom (1 eV = 96.485 kJ/mol)
@@ -369,30 +385,36 @@ class QElecAgent:
             c_matrix[0, 1] = c_matrix[0, 2] = c_matrix[1, 0] = c_matrix[1, 2] = c_matrix[2, 0] = c_matrix[2, 1] = 120.0
             c_matrix[3, 3] = c_matrix[4, 4] = c_matrix[5, 5] = 75.0
 
-        # Quasi-harmonic Anderson-Grüneisen volumetric thermal dilatation softening:
-        # C_ij(T) = C_ij(0) * [ 1 - gamma_G * beta * T - delta_anharmonic * (T/T_m) - beta_strain * ||eps|| - eta_disloc * rho * b^2 ]
+        # Anisotropic mode Grüneisen parameters for cubic single crystals:
+        # Longitudinal acoustic (LA along [100]): gamma_L ~ 1.85
+        # Transverse shear (TA along [100]): gamma_S ~ 1.25
+        # Off-diagonal dilatational coupling: gamma_12 ~ 2.10
         alpha_l = float(thermal_expansion_coeff) if thermal_expansion_coeff is not None else 1.2e-5
         beta_vol = 3.0 * max(0.0, alpha_l)
-        gamma_gruneisen = 1.85  # Acoustic Grüneisen parameter for cubic metals/alloys
-        dilatation_softening = gamma_gruneisen * beta_vol * temperature_k
+        gamma_l = 1.85
+        gamma_s = 1.25
+        gamma_12 = 2.10
 
-        # Intrinsic phonon-phonon anharmonicity: delta_anharm * (T / T_m)
         t_ratio = temperature_k / max(1.0, melting_point_k)
-        anharmonic_phonon_softening = 0.15 * t_ratio
-
-        # Internal strain-field softening: beta_strain * ||eps_int||
-        strain_softening = 0.0
-        if internal_strain_tensor is not None:
-            eps_norm = float(np.linalg.norm(np.asarray(internal_strain_tensor, dtype=np.float64)))
-            strain_softening = 0.15 * min(1.0, eps_norm)
-
-        # Dislocation core defect modulus degradation (Mott-Friedel / Granato-Lücke)
+        eps_norm = float(np.linalg.norm(np.asarray(internal_strain_tensor, dtype=np.float64))) if internal_strain_tensor is not None else 0.0
+        strain_soft = 0.15 * min(1.0, eps_norm)
         b_burgers = 2.5e-10
-        defect_softening = min(0.12, 0.10 * max(0.0, dislocation_density_m2) * (b_burgers**2))
 
-        total_softening_delta = dilatation_softening + anharmonic_phonon_softening + strain_softening + defect_softening
-        softening_factor = max(0.05, 1.0 - total_softening_delta)
-        return c_matrix * softening_factor
+        # Dislocation core defect modulus degradation (Granato-Lücke) acts predominantly on shear modes
+        defect_shear = min(0.12, 0.10 * max(0.0, dislocation_density_m2) * (b_burgers**2))
+        defect_normal = min(0.03, 0.02 * max(0.0, dislocation_density_m2) * (b_burgers**2))
+
+        soft_l = max(0.05, 1.0 - (gamma_l * beta_vol * temperature_k + 0.15 * t_ratio + strain_soft + defect_normal))
+        soft_s = max(0.05, 1.0 - (gamma_s * beta_vol * temperature_k + 0.18 * t_ratio + strain_soft + defect_shear))
+        soft_12 = max(0.05, 1.0 - (gamma_12 * beta_vol * temperature_k + 0.12 * t_ratio + strain_soft + defect_normal))
+
+        soft_matrix = np.full((6, 6), soft_12, dtype=np.float64)
+        for idx in range(3):
+            soft_matrix[idx, idx] = soft_l
+        for idx in range(3, 6):
+            soft_matrix[idx, idx] = soft_s
+
+        return c_matrix * soft_matrix
 
     def evaluate_path_dependent_elastic_softening(
         self,
@@ -458,23 +480,33 @@ class QElecAgent:
         v_molar_m3 = 1.2e-5  # representative molar volume
         alpha_cte = float((gamma_gruneisen * c_v_molar) / (3.0 * (k_bulk * 1.0e9) * v_molar_m3))
 
-        # Physically derived Frenkel/Peierls-Nabarro stacking fault energy:
-        # gamma_usf = (G * b) / (2 * pi^2), where G is shear modulus (GPa) and b is Burgers vector (Angstrom)
+        # Physically derived Frenkel-Rice unstable stacking fault energy:
+        # gamma_usf = (G * b^2) / (2 * pi^2 * d_111), with G in Pa (G_shear * 1e9), b in m (b_ang * 1e-10), d_111 in m (sqrt(2/3) * b)
         elems = list(composition.keys())
         counts = np.array([composition[e] for e in elems], dtype=np.float64)
         fracs = counts / max(1e-6, np.sum(counts))
-        vec_avg = sum(fracs[i] * UniversalElementalProperties.get_vec(elems[i]) for i in range(len(elems)))
         mean_rcov = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[1] for i in range(len(elems)))
         b_burgers_ang = max(1.5, 2.0 * mean_rcov)
-        gamma_usf_mj_m2 = (g_shear * b_burgers_ang / (2.0 * (np.pi ** 2))) * 100.0
+        b_burgers_m = b_burgers_ang * 1.0e-10
+        d_111_m = np.sqrt(2.0 / 3.0) * b_burgers_m
+        g_shear_pa = max(1.0, g_shear) * 1.0e9
+        gamma_usf_j_m2 = (g_shear_pa * (b_burgers_m**2)) / (2.0 * (np.pi ** 2) * d_111_m)
+        gamma_usf_mj_m2 = float(gamma_usf_j_m2 * 1000.0)
 
         # Olson-Cohen / ANNNI thermodynamic model:
         # gamma_SFE = 2 * rho_111 * Delta G^(FCC->HCP) + 2 * sigma^(FCC/HCP)
-        b_burgers_m = b_burgers_ang * 1.0e-10
         n_avogadro = 6.02214076e23
         rho_111 = 1.0 / (np.sqrt(3.0) * (b_burgers_m**2) * n_avogadro)  # mol / m^2
-        # Delta G^(FCC->HCP) lattice stability from d-band filling:
-        delta_g_fcc_hcp_j_mol = max(100.0, 450.0 + 350.0 * (vec_avg - 7.0)**2)
+
+        # Unary CALPHAD / SGTE lattice stability parameters Delta G^(FCC->HCP) = G_HCP - G_FCC (J/mol)
+        sgte_delta_g_fcc_hcp: Dict[str, float] = {
+            "Fe": -1140.0, "Ni": 1046.0, "Cr": 4000.0, "Co": -450.0, "Mn": 3500.0,
+            "Cu": 1200.0, "Al": 5400.0, "Ti": -2000.0, "Zr": -3000.0, "V": 3000.0,
+            "Nb": 4000.0, "Mo": 5000.0, "W": 6000.0, "Sc": -2500.0, "Y": -3000.0,
+            "Mg": -1500.0, "Zn": -2000.0, "Si": 10000.0, "C": 15000.0, "Ag": 300.0,
+            "Au": 1500.0, "Pt": 2000.0, "Pd": 1000.0, "Ta": 4500.0, "Ru": -1800.0,
+        }
+        delta_g_fcc_hcp_j_mol = max(50.0, float(sum(fracs[i] * sgte_delta_g_fcc_hcp.get(elems[i], 1200.0) for i in range(len(elems)))))
         sigma_int_coherent_j_m2 = 0.010  # 10 mJ/m^2 coherent FCC/HCP interfacial energy
         sfe_val = float(max(1.0, (2.0 * rho_111 * delta_g_fcc_hcp_j_mol + 2.0 * sigma_int_coherent_j_m2) * 1000.0))
 

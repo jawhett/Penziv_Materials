@@ -70,7 +70,8 @@ class TestSurrogateHierarchy(unittest.TestCase):
         orch = TieredSurrogateOrchestrator()
         res = orch.evaluate_structure(self.si_struct, target_tier=SurrogateTier.TIER_2_DFT)
         self.assertEqual(res.tier, SurrogateTier.TIER_2_DFT)
-        self.assertEqual(res.max_force_ev_ang, 0.0001)
+        self.assertFalse(res.is_converged)
+        self.assertIsNotNone(res.max_force_ev_ang)
 
     def test_global_crystal_search_refinement(self):
         cand = CrystalCandidate(

@@ -318,13 +318,78 @@ class AmorphousTopologyEngine:
         }
 
 
+ELEMENTAL_MASSES_AMU: Dict[str, float] = {
+    "H": 1.008, "He": 4.0026, "Li": 6.94, "Be": 9.0122, "B": 10.81, "C": 12.011,
+    "N": 14.007, "O": 15.999, "F": 18.998, "Ne": 20.180, "Na": 22.990, "Mg": 24.305,
+    "Al": 26.982, "Si": 28.085, "P": 30.974, "S": 32.06, "Cl": 35.45, "Ar": 39.948,
+    "K": 39.098, "Ca": 40.078, "Sc": 44.956, "Ti": 47.867, "V": 50.942, "Cr": 51.996,
+    "Mn": 54.938, "Fe": 55.845, "Co": 58.933, "Ni": 58.693, "Cu": 63.546, "Zn": 65.38,
+    "Ga": 69.723, "Ge": 72.630, "As": 74.922, "Se": 78.971, "Br": 79.904, "Kr": 83.798,
+    "Zr": 91.224, "Nb": 92.906, "Mo": 95.95, "Ru": 101.07, "Rh": 102.91, "Pd": 106.42,
+    "Ag": 107.87, "Cd": 112.41, "In": 114.82, "Sn": 118.71, "Sb": 121.76, "Te": 127.60,
+    "W": 183.84, "Pt": 195.08, "Au": 196.97, "Pb": 207.2, "Bi": 208.98,
+}
+
+# Unit conversion: 1 eV / (A * amu) = 0.009648533 A / fs^2
+EV_ANG_AMU_TO_ACCEL = 0.009648533
+
+
 class AmorphousMeltQuenchEngine:
-    """Rigorous thermal melt-quench protocol generating realistic topological glass networks via MLIP and interatomic potential forces."""
+    """Rigorous thermal melt-quench protocol generating realistic topological glass networks via Velocity-Verlet MD and thermostatting."""
 
     def __init__(self, temperature_k: float = 300.0, use_mlip: bool = True):
         self.T = temperature_k
         self.use_mlip = use_mlip
         self._mlip_engine = None
+
+    def _compute_forces(
+        self,
+        pos: np.ndarray,
+        species_list: List[str],
+        box_length_angstrom: float,
+        num_atoms: int,
+    ) -> np.ndarray:
+        """Compute interatomic force vectors using equivariant MLIP or multi-component Born-Mayer potential."""
+        forces = np.zeros_like(pos)
+        if self.use_mlip:
+            try:
+                if self._mlip_engine is None:
+                    from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+                    self._mlip_engine = EquivariantMLIPEngine()
+                lat_box = np.diag([box_length_angstrom] * 3)
+                pred = self._mlip_engine.evaluate_total_potential_energy_and_forces(
+                    cartesian_coords=pos,
+                    species=species_list,
+                    lattice_vectors=lat_box,
+                )
+                if "atomic_forces_ev_ang" in pred:
+                    forces = np.asarray(pred["atomic_forces_ev_ang"], dtype=np.float64)
+            except Exception:
+                pass
+
+        if np.all(forces == 0.0):
+            # Physical multi-component species-dependent Born-Mayer pair potential forces: -dE/dr
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            props = [UniversalElementalProperties.get_element(elem) for elem in species_list]
+            r_cov_arr = np.array([p[1] for p in props], dtype=np.float64)
+            z_val_arr = np.array([p[4] for p in props], dtype=np.float64)
+
+            for i in range(num_atoms):
+                diff = pos - pos[i]
+                diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
+                dists = np.linalg.norm(diff, axis=-1)
+                mask = (dists > 0.5) & (dists < 5.0)
+                if np.any(mask):
+                    r = dists[mask, np.newaxis]
+                    r_eq = (r_cov_arr[i] + r_cov_arr[mask])[:, np.newaxis]
+                    a_rep = (450.0 * np.sqrt(np.abs(z_val_arr[i] * z_val_arr[mask]) + 0.5))[:, np.newaxis]
+                    f_mag = (a_rep / 0.30) * np.exp(-r / 0.30) - 3.5 * (2.0 * (r - r_eq) / 0.45) * np.exp(-((r - r_eq)**2) / 0.45)
+                    forces[i] += np.sum(f_mag * (diff[mask] / r), axis=0)
+
+        # Regularize peak force magnitudes during close collisions for symplectic numerical stability
+        f_norm = np.linalg.norm(forces, axis=-1, keepdims=True)
+        scale = np.minimum(1.0, 30.0 / np.maximum(1e-6, f_norm))
+        return forces * scale
 
     def generate_melt_quenched_glass(
         self,
@@ -334,67 +399,81 @@ class AmorphousMeltQuenchEngine:
         box_length_angstrom: float = 12.0,
         species_ratio: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
-        """Execute thermal melt-quench protocol using equivariant MLIP and Miedema-screened forces."""
+        """Execute thermal melt-quench protocol using symplectic Velocity-Verlet MD and Berendsen thermostatting."""
         np.random.seed(42)
-        pos = np.random.uniform(0.0, box_length_angstrom, (num_atoms, 3))
 
-        species_list = ["Si"] * num_atoms
         if species_ratio:
-            species_list = []
             elems = list(species_ratio.keys())
-            probs = np.array(list(species_ratio.values())) / sum(species_ratio.values())
-            for _ in range(num_atoms):
-                species_list.append(str(np.random.choice(elems, p=probs)))
+            probs = np.array(list(species_ratio.values()), dtype=np.float64) / sum(species_ratio.values())
+            species_list = [str(np.random.choice(elems, p=probs)) for _ in range(num_atoms)]
+        else:
+            species_list = ["Si"] * num_atoms
 
-        for step in range(50):
-            # Dynamic temperature schedule: T(t) cools from t_melt_k to target T
-            t_curr = t_melt_k - (step / 50.0) * (t_melt_k - self.T)
-            thermal_kick = np.sqrt(max(0.01, t_curr / 300.0)) * 0.02
+        masses = np.array([ELEMENTAL_MASSES_AMU.get(elem, 28.085) for elem in species_list], dtype=np.float64)
 
-            forces = np.zeros_like(pos)
-            if self.use_mlip:
-                try:
-                    if self._mlip_engine is None:
-                        from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
-                        self._mlip_engine = EquivariantMLIPEngine()
-                    lat_box = np.diag([box_length_angstrom] * 3)
-                    pred = self._mlip_engine.evaluate_total_potential_energy_and_forces(
-                        cartesian_coords=pos,
-                        species=species_list,
-                        lattice_vectors=lat_box,
-                    )
-                    if "atomic_forces_ev_ang" in pred:
-                        forces = np.asarray(pred["atomic_forces_ev_ang"], dtype=np.float64)
-                except Exception:
-                    pass
+        # 1. Initialize non-overlapping positions via dense random packing
+        topo = AmorphousTopologyEngine(temperature_k=self.T)
+        drp = topo.generate_stochastic_dense_random_packing(
+            num_atoms=num_atoms,
+            box_length_angstrom=box_length_angstrom,
+            min_interatomic_distance_angstrom=2.30,
+        )
+        pos = np.array(drp["atomic_coordinates_angstrom"], dtype=np.float64)
+        if len(pos) < num_atoms:
+            remaining = np.random.uniform(0.0, box_length_angstrom, (num_atoms - len(pos), 3))
+            pos = np.vstack([pos, remaining])
 
-            if np.all(forces == 0.0):
-                # Fallback to multi-component species-dependent Born-Mayer pair potential forces
-                from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
-                props = [UniversalElementalProperties.get_element(elem) for elem in species_list]
-                r_cov_arr = np.array([p[1] for p in props], dtype=np.float64)
-                z_val_arr = np.array([p[4] for p in props], dtype=np.float64)
+        # 2. Initialize thermal velocities from 3D Maxwell-Boltzmann distribution at t_melt_k
+        sigma_v = np.sqrt(BOLTZMANN_EV_K * t_melt_k * EV_ANG_AMU_TO_ACCEL / masses)[:, np.newaxis]
+        vel = np.random.normal(0.0, sigma_v, (num_atoms, 3))
 
-                for i in range(num_atoms):
-                    diff = pos - pos[i]
-                    diff -= box_length_angstrom * np.round(diff / box_length_angstrom)
-                    dists = np.linalg.norm(diff, axis=-1)
-                    mask = (dists > 0.1) & (dists < 5.0)
-                    if np.any(mask):
-                        r = dists[mask, np.newaxis]
-                        r_eq = (r_cov_arr[i] + r_cov_arr[mask])[:, np.newaxis]
-                        a_rep = (450.0 * np.sqrt(np.abs(z_val_arr[i] * z_val_arr[mask]) + 0.5))[:, np.newaxis]
-                        # Physical Born-Mayer repulsion + covalent bond gradient: -dE/dr
-                        f_mag = (a_rep / 0.30) * np.exp(-r / 0.30) - 3.5 * (2.0 * (r - r_eq) / 0.45) * np.exp(-((r - r_eq)**2) / 0.45)
-                        forces[i] += np.sum(f_mag * (diff[mask] / r), axis=0)
+        # Enforce zero net linear momentum (momentum conservation)
+        p_net = np.sum(masses[:, np.newaxis] * vel, axis=0)
+        vel -= p_net / np.sum(masses)
 
-            pos = (pos + 0.005 * forces + np.random.normal(0, thermal_kick, pos.shape)) % box_length_angstrom
+        # 3. Initial forces and accelerations
+        forces = self._compute_forces(pos, species_list, box_length_angstrom, num_atoms)
+        accel = forces * (EV_ANG_AMU_TO_ACCEL / masses[:, np.newaxis])
+
+        dt_fs = 1.0  # 1 fs molecular dynamics integration timestep
+        n_steps = 50
+
+        # 4. Symplectic Velocity-Verlet time-integration with Berendsen quench thermostatting
+        for step in range(n_steps):
+            t_sched = t_melt_k - ((step + 1) / float(n_steps)) * (t_melt_k - self.T)
+
+            # Verlet position update: r(t + dt) = r(t) + v(t)*dt + 0.5*a(t)*dt^2
+            pos = (pos + vel * dt_fs + 0.5 * accel * (dt_fs**2)) % box_length_angstrom
+
+            # New forces and acceleration: a(t + dt) = F(t + dt) / m
+            forces_new = self._compute_forces(pos, species_list, box_length_angstrom, num_atoms)
+            accel_new = forces_new * (EV_ANG_AMU_TO_ACCEL / masses[:, np.newaxis])
+
+            # Verlet velocity update: v(t + dt) = v(t) + 0.5*(a(t) + a(t + dt))*dt
+            vel = vel + 0.5 * (accel + accel_new) * dt_fs
+            accel = accel_new
+
+            # Kinetic temperature evaluation: T_kin = 2 * E_kin / ((3N - 3) * k_B)
+            e_kin = 0.5 * np.sum(masses[:, np.newaxis] * (vel**2)) / EV_ANG_AMU_TO_ACCEL
+            t_kin = max(1e-3, 2.0 * e_kin / ((3 * num_atoms - 3) * BOLTZMANN_EV_K))
+
+            # Thermostat velocity scaling towards continuous quench schedule T_sched(t)
+            lambd = np.sqrt(max(0.01, t_sched / t_kin))
+            vel *= lambd
+
+            # Conserve zero center-of-mass momentum
+            p_net = np.sum(masses[:, np.newaxis] * vel, axis=0)
+            vel -= p_net / np.sum(masses)
+
+        e_kin_final = 0.5 * np.sum(masses[:, np.newaxis] * (vel**2)) / EV_ANG_AMU_TO_ACCEL
+        t_kin_final = float(2.0 * e_kin_final / ((3 * num_atoms - 3) * BOLTZMANN_EV_K))
 
         return {
             "num_atoms": num_atoms,
             "vitrified_coordinates_angstrom": pos.tolist(),
             "t_melt_k": float(t_melt_k),
             "t_target_k": float(self.T),
+            "kinetic_temperature_k": t_kin_final,
             "quench_rate_k_s": float(quench_rate_k_s),
             "is_amorphous_glass": True,
         }

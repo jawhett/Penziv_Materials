@@ -74,23 +74,26 @@ class AtomDynAgent:
         binding_energy_ev: float = 0.25,
         dislocation_density_m2: float = 1.0e12,
     ) -> float:
-        """Evaluate solute-drag dynamic barrier modification:
+        """Evaluate solute-drag dynamic barrier modification via Cottrell-Jaswon & Cahn theory:
 
-        Delta E_drag = (E_bind * c_solute) / (1 + (v_defect / v_drag_0)^2)
+        Delta E_drag = (2 * E_bind * c_solute * (v / v_c)) / (1 + (v / v_c)^2)
+        Drag is identically zero at static equilibrium (v = 0), reaches maximum at critical
+        drift velocity v_c = (D_solute / b) * (E_bind / k_B T), and decays as 1/v at high velocities.
         """
         if solute_concentration <= 1e-4 or strain_rate_s_inv <= 0.0:
             return 0.0
-        
+
         b = 2.54e-10
         v_defect = strain_rate_s_inv / (max(1e10, dislocation_density_m2) * b)
-        
+
         # Characteristic diffusion velocity of solute cloud (m/s)
         k_b_t = BOLTZMANN_EV_K * max(100.0, temperature_k)
         d_solute = 1e-5 * np.exp(-1.4 / max(0.01, k_b_t))
         v_drag_0 = max(1e-12, (d_solute / b) * (binding_energy_ev / max(0.01, k_b_t)))
-        
+
         velocity_ratio = min(100.0, v_defect / v_drag_0)
-        delta_e = (binding_energy_ev * solute_concentration) / (1.0 + (velocity_ratio**2))
+        # Cottrell-Jaswon non-monotonic bell curve: peaks at velocity_ratio == 1.0, zero at velocity_ratio == 0
+        delta_e = (2.0 * binding_energy_ev * solute_concentration * velocity_ratio) / (1.0 + (velocity_ratio**2))
         return float(delta_e)
 
     def integrate_path_dependent_defect_kinetics(

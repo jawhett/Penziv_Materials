@@ -127,14 +127,42 @@ class FormulaPredictionBenchmarkSuite:
         elem_props = [self.structure_predictor.search_engine.ELEMENT_PROPERTIES.get(e, (1.30, 1.80, 50.0, 2.0)) for e in elements]
         mean_mass = sum((cnt / total_atoms) * p[2] for cnt, p in zip(counts, elem_props))
         mean_rcov = sum((cnt / total_atoms) * p[0] for cnt, p in zip(counts, elem_props))
-        d_bond = 2.0 * mean_rcov
+
+        # Physical cation-anion bond distance: r_cation + r_anion
+        chis = [p[1] for p in elem_props]
+        rcovs = [p[0] for p in elem_props]
+        mean_chi = float(sum(cnt * chi for cnt, chi in zip(counts, chis)) / max(1e-6, total_atoms))
+        cat_mask = [chi < mean_chi for chi in chis]
+        ani_mask = [chi >= mean_chi for chi in chis]
+        if any(cat_mask) and any(ani_mask) and n_elem >= 2:
+            r_cat = sum(c * r for c, r, m in zip(counts, rcovs, cat_mask) if m) / max(1e-6, sum(c for c, m in zip(counts, cat_mask) if m))
+            r_ani = sum(c * r for c, r, m in zip(counts, rcovs, ani_mask) if m) / max(1e-6, sum(c for c, m in zip(counts, ani_mask) if m))
+            d_bond = r_cat + r_ani
+        else:
+            d_bond = 2.0 * mean_rcov
+
         f_ionicity = float(1.0 - np.exp(-0.25 * (delta_chi ** 2)))
+
+        # Effective coordination number from predicted crystallography
+        cn = 4
+        if c_sys == CrystalSystem.CUBIC:
+            if sg == "Fm-3m":
+                cn = 12 if "Metal" in mat_class or n_elem == 1 else 6
+            elif sg == "Im-3m":
+                cn = 8
+            elif sg in ["F-43m", "Fd-3m"]:
+                cn = 4
+        elif c_sys == CrystalSystem.HEXAGONAL:
+            cn = 12 if sg == "P6_3/mmc" else 6
+        elif c_sys in [CrystalSystem.TRIGONAL, CrystalSystem.TETRAGONAL]:
+            cn = 6
 
         # 3. First-Principles LCAO Orbital Tight-Binding Electronic Structure
         band_report = self.orbital_tb.compute_electronic_structure(
             elements=elements,
             stoichiometry=counts,
             bond_length_angstrom=d_bond,
+            coordination_number=cn,
             unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
             temperature_k=temperature_k,
         )
@@ -382,7 +410,7 @@ class FormulaPredictionBenchmarkSuite:
             hbar_const = 1.054571817e-34
             n_quantum = 2.0 * ((m_eff * 9.10938e-31 * kbt_j) / (2.0 * np.pi * (hbar_const**2))) ** 1.5
             n_intrinsic = float(max(1.0e12, n_quantum * np.exp(-min(40.0, (e_g * 1.60218e-19) / (2.0 * kbt_j)))))
-            n_defect = float(2.5e25 * np.exp(-e_g / 0.35)) if e_g < 0.35 else 0.0
+            n_defect = float(2.5e25 * np.exp(-e_g / 0.35)) if e_g < 0.50 else 0.0
             carrier_dens = max(n_intrinsic, n_defect)
 
         # 8. Anharmonic Grüneisen Parameter & First-Principles Debye Temperature

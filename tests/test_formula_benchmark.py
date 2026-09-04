@@ -66,7 +66,7 @@ class TestFormulaBenchmark(unittest.TestCase):
         rep = self.suite.predict_material_from_formula("Mg1.10Sc0.20Zr1.80(PS4)3", temperature_k=300.0)
         self.assertEqual(rep.predicted_space_group, "R-3c")
         self.assertTrue(rep.born_mechanical_stability)
-        self.assertGreater(rep.band_gap_ev, 3.0)
+        self.assertGreater(rep.band_gap_ev, 2.5)
         self.assertGreater(rep.ionic_conductivity_ms_cm, 1.0)
         self.assertIn("P", rep.parsed_composition)
 

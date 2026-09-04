@@ -198,41 +198,32 @@ class OrbitalTightBindingEngine:
                 and n_elem >= 3
             )
 
-            if has_polyanion:
-                # Polyanionic molecular orbital gap: ligand-field stabilization of polyanion
-                e_gap = float(round(max(2.5, 1.10 * v_3 + 0.35 * v_2), 2))
-                is_metal = False
-            elif has_tm_cation and has_non_metal_anion:
-                # Transition metal oxide / chalcogenide charge-transfer & ligand-field gap (e.g. TiO2, rutile/anatase)
-                tm_idx = next(i for i in range(n_elem) if abs(eps_d_list[i]) > 0.1)
-                anion_idx = next(i for i in range(n_elem) if elements[i] in ["O", "S", "Se", "Te", "F", "Cl", "N"])
-                delta_ct = abs(eps_d_list[tm_idx] - eps_p_list[anion_idx])
-                e_gap = float(round(max(1.5, delta_ct - 1.15 * v_2), 2))
-                is_metal = False
-            elif abs(v_3) > 4.5 or (has_non_metal_anion and not has_tm_cation and any(e in ["O", "F", "Cl"] for e in elements)):
-                # Wide bandgap closed-shell ionic oxide / halide (e.g. CaO, MgO, Al2O3)
-                e_gap = float(round(1.15 * abs(v_3) + 0.4 * abs(v_2), 2))
-                is_metal = False
+            # Universal solution to empirical tight-binding secular determinant:
+            # E_g = max(0.0, sqrt(V_2^2 + V_3^2) - alpha_dehyb * V_1)
+            # where V_2 is the covalent hopping coupling, V_3 is the polar/ionic separation,
+            # and V_1 = (eps_p - eps_s) / 4 is the intra-atomic promoter.
+            f_ion = float((v_3**2) / max(1e-4, v_2**2 + v_3**2))
+            dehyb_factor = float(1.3197 - 0.7212 * f_ion)
+            if n_elem == 1 and abs(v_3) < 1e-4:
+                # Homopolar diamond-cubic semiconductor (e.g. Si, Ge): indirect valley minimum Delta_1
+                gap_raw = float(v_2 - v_1)
+            elif coordination_number >= 6:
+                # Octahedral coordination (rock-salt / perovskite): ionic limit of secular equation
+                gap_raw = float(np.sqrt((1.35 * v_2)**2 + (1.25 * v_3)**2) - dehyb_factor * v_1)
             else:
-                f_ion = float((v_3**2) / max(1e-4, v_2**2 + v_3**2))
-                dehyb_factor = float(1.3197 - 0.7212 * f_ion)
-                gap_raw = float(v_hyb - dehyb_factor * v_1)
+                # Tetrahedral / zincblende semiconductors & polyanions: fundamental optical gap
+                gap_raw = float(np.sqrt(v_2**2 + v_3**2) - dehyb_factor * v_1)
 
-                if n_elem == 1 and abs(v_3) < 1e-4:
-                    # Homopolar diamond-cubic semiconductor (e.g. Si, Ge): indirect conduction valley minimum Delta_1
-                    gap_raw = float(v_2 - v_1)
-
-                if mean_delta_so >= 0.8 and gap_raw <= 0.2:
-                    # Relativistic spin-orbit inverted topological narrow gap (e.g. Bi2Te3, Bi2Se3)
-                    # Gap is formed by spin-orbit anticrossing between inverted Kramers parity states
-                    e_gap = float(round(max(0.12, (v_3**2) / (4.0 * mean_delta_so)), 2))
-                    is_metal = False
-                elif gap_raw <= 0.05:
-                    is_metal = True
-                    e_gap = 0.0
-                else:
-                    e_gap = float(round(max(0.1, gap_raw), 3))
-                    is_metal = False
+            # Relativistic spin-orbit coupling band inversion (topological narrow gap)
+            if mean_delta_so >= 0.8 and gap_raw <= 0.35:
+                e_gap = float(round(max(0.12, gap_raw * (1.0 - mean_delta_so / 2.0)), 2))
+                is_metal = False
+            elif gap_raw <= 0.05:
+                is_metal = True
+                e_gap = 0.0
+            else:
+                e_gap = float(round(max(0.1, gap_raw), 3))
+                is_metal = False
 
         # 4. Fermi Level & Density of States at E_F
         vol_m3 = unit_cell_volume_ang3 * 1.0e-30
@@ -359,14 +350,9 @@ class OrbitalTightBindingEngine:
 
             # Penn electronic dielectric constant eps_inf
             eps_inf = 1.0 + 0.85 * ((hw_plasma_ev / max(1.5, e_penn)) ** 2)
-            # Szigeti lattice ionic polarizability with Born effective charge enhancement in d0 transition metal oxides
-            is_d0_tm_oxide = any(e in ["Ti", "Zr", "Hf", "Nb", "Ta"] for e in elements) and any(e in ["O", "F"] for e in elements)
-            if is_d0_tm_oxide:
-                # Anomalous Born effective charge Z* and soft TO mode in d0 oxides (TiO2, SrTiO3, BaTiO3)
-                eps_ionic = float(12.0 * ((v_3 / max(0.5, v_2)) ** 2.0))
-            else:
-                eps_ionic = float(1.8 * ((v_3 / max(0.5, v_2)) ** 1.5))
-                
+            # Szigeti lattice ionic polarizability from Born effective charge and transverse optical phonons
+            f_ion_polar = float((v_3**2) / max(1e-4, v_2**2 + v_3**2))
+            eps_ionic = float(eps_inf * (f_ion_polar**1.5) * 1.5)
             eps_r = float(round(eps_inf + eps_ionic, 2))
             n_refr = float(round(np.sqrt(max(1.0, eps_inf)), 2))
 

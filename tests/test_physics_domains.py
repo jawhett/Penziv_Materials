@@ -256,6 +256,21 @@ class TestPhysicsDomains(unittest.TestCase):
         self.assertIn("energy_above_hull_ev_atom", res)
         self.assertTrue(res["is_thermodynamically_stable"])
 
+    def test_amorphous_melt_quench_molecular_dynamics(self):
+        melt_res = self.melt_quench.generate_melt_quenched_glass(
+            num_atoms=32,
+            t_melt_k=2200.0,
+            box_length_angstrom=10.0,
+            species_ratio={"Si": 0.8, "O": 0.2},
+        )
+        self.assertEqual(melt_res["num_atoms"], 32)
+        self.assertTrue(melt_res["is_amorphous_glass"])
+        self.assertEqual(melt_res["t_target_k"], 300.0)
+        coords = np.array(melt_res["vitrified_coordinates_angstrom"])
+        self.assertEqual(coords.shape, (32, 3))
+        self.assertTrue(np.all(coords >= 0.0) and np.all(coords < 10.0))
+        self.assertGreater(melt_res["kinetic_temperature_k"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
