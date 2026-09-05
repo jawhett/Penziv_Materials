@@ -248,8 +248,13 @@ class RetrosynthesisAssemblyPlanner:
         q_diff_j_mol: float,
         green_density_pct: float = 65.0,
         theoretical_density_pct: float = 99.5,
+        grain_size_nm: float = 200.0,
+        surface_energy_j_m2: float = 1.2,
+        atomic_volume_m3: float = 1.8e-29,
+        diffusivity_d0_m2_s: float = 1.0e-4,
+        diffusion_mechanism: str = "grain_boundary",
     ) -> Dict[str, Any]:
-        """Integrate generalized Master Sintering Curve (MSC) path integral:
+        """Integrate generalized Master Sintering Curve (MSC) path integral via Coble/Johnson kinetics:
 
         Theta(t) = \\int_0^t (1 / T(t')) * exp(-Q_diff / (R * T(t'))) dt'
         across continuous heating, dwell, and cooling trajectories.
@@ -273,9 +278,17 @@ class RetrosynthesisAssemblyPlanner:
         theta_cum = np.concatenate(([0.0], np.cumsum(trapz_terms)))
         final_theta = float(theta_cum[-1])
 
-        # Master Sintering Curve sigmoidal densification
+        # Master Sintering Curve sigmoidal densification via Coble / Johnson kinetics:
+        # Theta_0 = (k_B * G_0^p) / (gamma_surf * Omega * D_0)
+        k_b = 1.380649e-23
+        g0_m = max(10.0, grain_size_nm) * 1.0e-9
+        p_grain = 4.0 if diffusion_mechanism == "grain_boundary" else 3.0
+        n_msc = 1.0 / 3.0 if diffusion_mechanism == "grain_boundary" else 0.50
+        theta_0 = (k_b * (g0_m**p_grain)) / max(1e-35, surface_energy_j_m2 * atomic_volume_m3 * diffusivity_d0_m2_s)
+        scale_msc = 1.0 / max(1e-30, theta_0)
+
         delta_rho = theoretical_density_pct - green_density_pct
-        rel_dens_traj = green_density_pct + delta_rho * (1.0 - np.exp(-np.maximum(0.0, theta_cum * 1.0e11)**0.40))
+        rel_dens_traj = green_density_pct + delta_rho * (1.0 - np.exp(-np.maximum(0.0, theta_cum * scale_msc)**n_msc))
         rel_dens_traj = np.clip(rel_dens_traj, green_density_pct, theoretical_density_pct)
 
         return {
@@ -307,18 +320,27 @@ class RetrosynthesisAssemblyPlanner:
         if target_compound in self.EXTENDED_THERMO_DATABASE:
             t_melt_target_k = float(self.EXTENDED_THERMO_DATABASE[target_compound][2])
         else:
-            gaseous_nonmetals = {"O", "N", "F", "Cl", "H"}
-            metal_cations = {elem: cnt for elem, cnt in target_comp.items() if elem not in gaseous_nonmetals}
-            if any(elem in gaseous_nonmetals for elem in target_comp) and metal_cations:
-                # Ceramic oxide/nitride/halide: melting temperature is governed by ionic lattice energy of refractory cations
-                cation_tm = sum(
-                    (cnt / sum(metal_cations.values())) * self.EXTENDED_THERMO_DATABASE.get(elem, (0, 0, 1800.0))[2]
-                    for elem, cnt in metal_cations.items()
-                )
-                t_melt_target_k = float(max(1500.0, cation_tm * 1.15))
-            else:
-                total_atoms = sum(target_comp.values())
-                t_melt_target_k = float(sum((cnt / total_atoms) * self.EXTENDED_THERMO_DATABASE.get(elem, (0, 0, 1800.0))[2] for elem, cnt in target_comp.items())) if elements else 1800.0
+            # First-principles Lindemann melting criterion from cohesive lattice energy:
+            # E_coh = sum x_i * Delta H_atom(i) - Delta H_f(compound)
+            # T_m = E_coh / (c_Lindemann * k_B * N_atoms)
+            atomization_enthalpies_kj_mol: Dict[str, float] = {
+                "H": 218.0, "Li": 159.3, "Be": 324.0, "B": 560.0, "C": 716.7, "N": 472.7, "O": 249.2, "F": 79.4,
+                "Na": 107.3, "Mg": 147.1, "Al": 330.0, "Si": 450.0, "P": 314.6, "S": 278.8, "Cl": 121.3,
+                "K": 89.0, "Ca": 178.2, "Sc": 377.8, "Ti": 469.9, "V": 514.2, "Cr": 396.6, "Mn": 280.7,
+                "Fe": 416.3, "Co": 424.7, "Ni": 429.7, "Cu": 337.4, "Zn": 130.4, "Ga": 277.0, "Ge": 372.0,
+                "As": 302.5, "Se": 227.0, "Br": 111.9, "Y": 424.7, "Zr": 608.8, "Nb": 725.9, "Mo": 658.1,
+                "Cd": 112.0, "In": 243.0, "Sn": 302.0, "Sb": 262.3, "Te": 197.0, "La": 431.0, "Ta": 782.0,
+                "W": 849.4, "Pt": 565.3, "Au": 366.1, "Bi": 207.1,
+            }
+            total_atom_count = sum(target_comp.values()) if target_comp else 1.0
+            sum_atomization = sum(cnt * atomization_enthalpies_kj_mol.get(elem, 300.0) for elem, cnt in target_comp.items())
+            dh_f_kj = float(self.EXTENDED_THERMO_DATABASE.get(target_compound, (-350.0, 60.0, 1500.0))[0])
+            e_coh_kj_mol = max(100.0, sum_atomization - dh_f_kj)
+            e_coh_per_atom_j = (e_coh_kj_mol * 1000.0) / (total_atom_count * 6.02214076e23)
+            # Lindemann melting constant: c_Lindemann * k_B (where c_Lindemann ~ 30)
+            c_lindemann = 30.0
+            k_b = 1.380649e-23
+            t_melt_target_k = float(np.clip(e_coh_per_atom_j / (c_lindemann * k_b), 600.0, 4200.0))
 
         homologous_sinter_temp_c = 0.68 * t_melt_target_k - 273.15
         rec_sinter_temp_c = max(450.0, min(1450.0, homologous_sinter_temp_c))

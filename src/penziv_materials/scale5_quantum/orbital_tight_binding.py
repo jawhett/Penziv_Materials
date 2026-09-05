@@ -93,6 +93,7 @@ class OrbitalTightBindingEngine:
         coordination_number: int = 4,
         unit_cell_volume_ang3: float = 40.0,
         temperature_k: float = 300.0,
+        formula_units_per_cell_z: float = 1.0,
     ) -> ElectronicBandStructureReport:
         """Solve LCAO orbital hybridization Secular equation to determine bandgap, effective mass, and metallic nature."""
         n_elem = len(elements)
@@ -260,10 +261,11 @@ class OrbitalTightBindingEngine:
 
         def build_secular_h(k_vec: np.ndarray) -> np.ndarray:
             h_mat = np.zeros((8, 8), dtype=np.complex128)
-            h_mat[0, 0] = mean_eps_s
-            h_mat[1, 1] = h_mat[2, 2] = h_mat[3, 3] = mean_eps_p
-            h_mat[4, 4] = mean_eps_s
-            h_mat[5, 5] = h_mat[6, 6] = h_mat[7, 7] = mean_eps_p
+            # Diagonal on-site orbital energies for cation (sublattice 1) and anion (sublattice 2)
+            h_mat[0, 0] = eps_s_list[0]
+            h_mat[1, 1] = h_mat[2, 2] = h_mat[3, 3] = eps_p_list[0]
+            h_mat[4, 4] = eps_s_list[-1] if n_elem >= 2 else eps_s_list[0]
+            h_mat[5, 5] = h_mat[6, 6] = h_mat[7, 7] = eps_p_list[-1] if n_elem >= 2 else eps_p_list[0]
 
             if mean_delta_so > 0.05:
                 h_mat[1, 2] += 1j * (mean_delta_so / 3.0)
@@ -315,7 +317,10 @@ class OrbitalTightBindingEngine:
             curv_c = float((ep[4] - 2.0 * evals_gamma[4] + em[4]) / (dk**2))
             curv_v = float((ep[3] - 2.0 * evals_gamma[3] + em[3]) / (dk**2))
 
-            p_sq = 18.5
+            # Dynamically derive Kane interband momentum matrix element P^2 from Harrison bonding parameters
+            # E_P = 2 * P^2 = 18 * (hbar^2 / m) / d^2 * (V_2 / V_1) * sqrt(1 - f_ion)
+            e_p_kane = (18.0 * (self.hbar2_m / (d_bond**2))) * (v_2 / max(0.2, v_1)) * np.sqrt(max(0.05, 1.0 - f_ion))
+            p_sq = 0.5 * e_p_kane
             is_direct = bool(v_3 > 0.5 and n_elem >= 2)
             alpha_p = float(abs(v_3) / max(0.01, np.sqrt(v_2**2 + v_3**2)))
             is_oxide_halide = any(elements[i] in ["O", "F", "Cl", "Br"] for i in range(n_elem))
@@ -332,8 +337,8 @@ class OrbitalTightBindingEngine:
                 m_eff_h = float(0.38)
 
         # 6. Valence Plasma Frequency & Static Dielectric Constant (Phillips-Penn BZ Integral)
-        # omega_p^2 = (n_v * e^2) / (eps_0 * m_0)
-        n_valence_per_ang3 = 0.20  # Standard valence electron density in covalent/ionic crystals ~ 0.20 e/A^3
+        # Genuine valence electron density n_v = (Z * N_valence) / V_cell
+        n_valence_per_ang3 = (total_val_per_formula * max(1.0, formula_units_per_cell_z)) / max(1.0, unit_cell_volume_ang3)
         n_valence_m3 = n_valence_per_ang3 * 1.0e30
         omega_p_sq = (n_valence_m3 * (E_CHARGE**2)) / (EPSILON_0 * M_ELECTRON)
         hw_plasma_ev = float(round((HBAR * np.sqrt(omega_p_sq)) / E_CHARGE, 2))

@@ -66,16 +66,17 @@ class HolisticStabilityRelaxationEngine:
         # Local Griffith / LEFM crack initiation evaluation:
         # Extrinsic fracture resistance R_eff is governed strictly by solid-phase bridging:
         # R_eff = U_crit + Delta U_solid_bridging (polymer ligament bridging and interface debonding).
-        # External hydrostatic fluid support acts via Terzaghi effective stress (sigma' = sigma - alpha * p * I)
-        # as compressive channel-wall confinement reducing net tensile burst driving energy.
-        delta_u_solid_bridging = float(gamma_total * 8.0 + eigenstrain_energy_mj_m3 * 0.5)
+        # External hydrostatic fluid support acts via Biot-Terzaghi effective stress (sigma' = sigma - alpha * p * I)
+        # yielding effective tensile crack driving energy U_driving = (max(0, sqrt(U_phase) - alpha_Biot * sqrt(W_fluid)))^2
+        delta_u_solid_bridging = float(gamma_total + eigenstrain_energy_mj_m3)
         local_griffith_fracture_initiated = False
         for p in phase_volume_fractions:
             u_p = phase_strain_energy_densities_mj_m3.get(p, 0.0)
             u_crit_p = crit_energies.get(p, 110.0)
             effective_resistance_p = u_crit_p + delta_u_solid_bridging
-            # Net tensile driving energy under external compressive fluid confinement
-            u_driving_p = max(0.0, u_p - w_fluid_support)
+            # Net tensile driving energy under Biot-Terzaghi effective stress confinement
+            w_fluid_phase = fluid_volume_fraction * fluid_pressure_work_mj_m3
+            u_driving_p = float((max(0.0, np.sqrt(u_p) - self.alpha_biot * np.sqrt(max(0.0, w_fluid_phase)))) ** 2)
             if u_driving_p > effective_resistance_p:
                 local_griffith_fracture_initiated = True
                 break
@@ -125,10 +126,11 @@ class HolisticStabilityRelaxationEngine:
         critical_strain_energy_mj_m3 = 110.0
         # Extrinsic toughening / fracture resistance enhancement (LEFM R-curve):
         # Solid-phase polymer ligament bridging and interfacial debonding increase effective crack resistance
-        delta_u_bridging = float(u_polymer * 2.0 + gamma_interface_mj_m3 * 15.0)
+        delta_u_bridging = float(u_polymer + gamma_interface_mj_m3)
         effective_fracture_resistance = critical_strain_energy_mj_m3 + delta_u_bridging
-        # External hydrostatic fluid support acts via Terzaghi effective stress as compressive channel confinement
-        u_driving_ceramic = max(0.0, ceramic_elastic_energy_density_mj_m3 - w_fluid_support)
+        # External hydrostatic fluid support acts via Biot-Terzaghi effective stress as compressive channel confinement:
+        # U_driving = (max(0, sqrt(U_ceramic) - alpha_Biot * sqrt(W_fluid)))^2
+        u_driving_ceramic = float((max(0.0, np.sqrt(ceramic_elastic_energy_density_mj_m3) - self.alpha_biot * np.sqrt(max(0.0, fluid_pressure_work_mj_m3)))) ** 2)
         local_griffith_fracture = u_driving_ceramic > effective_fracture_resistance
 
         is_isolated_ceramic_overstressed = ceramic_elastic_energy_density_mj_m3 > critical_strain_energy_mj_m3

@@ -75,7 +75,7 @@ class SpaceGroupSymmetryEngine:
                 sig = np.asarray(prestress_tensor, dtype=np.float64)
                 sig_n = np.dot(sig, n)
                 n_sig_n = float(np.dot(n, sig_n))
-                Lambda += n_sig_n * np.eye(3) - np.outer(sig_n, n)
+                Lambda += n_sig_n * np.eye(3)
 
             det_L = float(np.linalg.det(Lambda))
             if det_L < min_acoustic_det:

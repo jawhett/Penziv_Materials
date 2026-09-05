@@ -165,6 +165,7 @@ class FormulaPredictionBenchmarkSuite:
             coordination_number=cn,
             unit_cell_volume_ang3=float(struct_pred.unit_cell_volume_ang3),
             temperature_k=temperature_k,
+            formula_units_per_cell_z=float(struct_pred.formula_units_per_cell_z or 1.0),
         )
         is_metallic = band_report.is_metallic
         e_g = band_report.band_gap_ev

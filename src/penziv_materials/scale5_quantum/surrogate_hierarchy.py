@@ -199,8 +199,12 @@ class UniversalMLIPCalculator:
             band_gap_ev=base_res.band_gap_ev,
             epistemic_uncertainty=float(unc),
             is_converged=bool(max_f < 0.05),
-            calculator_name=f"EquivariantSO3_{self.model_name}",
-            metadata={"backend": "EquivariantMLIPEngine", "device": self.device},
+            calculator_name=eq.calculator_name,
+            metadata={
+                "backend": "EquivariantMLIPEngine",
+                "device": self.device,
+                "foundation_weights_loaded": eq.is_foundation_model_active,
+            },
         )
 
 

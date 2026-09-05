@@ -227,6 +227,11 @@ class GlobalCrystalStructureSearchEngine:
         cn_per_atom = np.zeros(n_atoms, dtype=np.float64)
         rho_per_atom = np.zeros(n_atoms, dtype=np.float64)
 
+        vol_cell = float(abs(np.linalg.det(lattice_matrix)))
+        # Dynamic Ewald splitting parameter eta balancing real-space and reciprocal-space convergence:
+        # eta = sqrt(pi) * (N / V^2)^(1/6)
+        eta_ewald = float(np.clip(np.sqrt(np.pi) * ((n_atoms / max(1.0, vol_cell**2))**(1.0 / 6.0)), 0.25, 0.75))
+
         # Collect nearest-neighbor vectors for 3-body angular quantum strain
         neighbor_cart_vectors: List[List[np.ndarray]] = [[] for _ in range(n_atoms)]
 
@@ -249,7 +254,7 @@ class GlobalCrystalStructureSearchEngine:
             e_rep_tot += float(np.sum(e_rep))
 
             # 2. 3D Periodic Ewald electrostatic Madelung sum using physical signed charges
-            ewald = erfc(0.32 * r_safe)
+            ewald = erfc(eta_ewald * r_safe)
             # Physical Coulomb interaction: q1*q2 < 0 is attractive (unlike ions), q1*q2 > 0 is repulsive (like ions)
             coul_term = (14.3996 * q1_q2_mat * (f_ion_mat**2)) * (ewald / np.maximum(0.1, r_safe))
             coul_metallic = -1.1 * np.exp(-r_safe / 2.0)
@@ -275,34 +280,43 @@ class GlobalCrystalStructureSearchEngine:
                         neighbor_cart_vectors[i].append(r_cart[i, j])
 
         # Complete 3D periodic Ewald summation: Reciprocal space Fourier sum & central self-energy correction
-        vol_cell = float(abs(np.linalg.det(lattice_matrix)))
-        if vol_cell > 1.0 and np.any(np.abs(z_val) > 0.1) and np.any(f_ion_mat > 0.1):
+        if vol_cell > 1.0 and np.any(np.abs(q_signed) > 0.05) and np.any(f_ion_mat > 0.05):
             try:
                 recip_lat = 2.0 * np.pi * np.linalg.inv(lattice_matrix).T
-                eta_ewald = 0.32
                 cart_coords = np.dot(coords, lattice_matrix)
-                # Self-energy correction: E_self = 14.3996 * (eta / sqrt(pi)) * sum(q_i^2)
-                e_self = float(14.3996 * (eta_ewald / np.sqrt(np.pi)) * np.sum((z_val * np.mean(f_ion_mat))**2))
+                # Physical signed charges scaled by ionicity fraction
+                mean_f_ion = float(np.mean(f_ion_mat))
+                q_eff = q_signed * mean_f_ion
 
-                # Reciprocal space Fourier sum over reciprocal lattice vectors G != 0
+                # Self-energy correction: E_self = 14.3996 * (eta / sqrt(pi)) * sum(q_eff_i^2)
+                e_self = float(14.3996 * (eta_ewald / np.sqrt(np.pi)) * np.sum(q_eff**2))
+
+                # Reciprocal space cutoff G_max = 2 * eta * sqrt(-ln(eps_tol)) with eps_tol = 1e-5
+                tol_ewald = 1.0e-5
+                g_max = float(2.0 * eta_ewald * np.sqrt(-np.log(tol_ewald)))
+                b_norms = [float(np.linalg.norm(recip_lat[i])) for i in range(3)]
+                h_max = max(2, min(5, int(np.ceil(g_max / max(0.1, b_norms[0])))))
+                k_max = max(2, min(5, int(np.ceil(g_max / max(0.1, b_norms[1])))))
+                l_max = max(2, min(5, int(np.ceil(g_max / max(0.1, b_norms[2])))))
+
                 e_recip = 0.0
-                for h_idx in range(-2, 3):
-                    for k_idx in range(-2, 3):
-                        for l_idx in range(-2, 3):
+                for h_idx in range(-h_max, h_max + 1):
+                    for k_idx in range(-k_max, k_max + 1):
+                        for l_idx in range(-l_max, l_max + 1):
                             if h_idx == 0 and k_idx == 0 and l_idx == 0:
                                 continue
                             G_vec = h_idx * recip_lat[0] + k_idx * recip_lat[1] + l_idx * recip_lat[2]
                             G_sq = float(np.dot(G_vec, G_vec))
-                            if G_sq > 25.0:
+                            if G_sq > (g_max**2):
                                 continue
                             phases = np.dot(cart_coords, G_vec)
-                            sf_re = float(np.sum(z_val * np.cos(phases)))
-                            sf_im = float(np.sum(z_val * np.sin(phases)))
+                            sf_re = float(np.sum(q_eff * np.cos(phases)))
+                            sf_im = float(np.sum(q_eff * np.sin(phases)))
                             sf_sq = sf_re**2 + sf_im**2
                             e_recip += (np.exp(-G_sq / (4.0 * eta_ewald**2)) / G_sq) * sf_sq
 
-                e_recip *= float(14.3996 * (2.0 * np.pi / vol_cell) * (np.mean(f_ion_mat)**2))
-                e_coul_tot += (2.0 * e_recip - 2.0 * e_self)
+                e_recip *= float(14.3996 * (2.0 * np.pi / vol_cell))
+                e_coul_tot += (e_recip - e_self)
             except Exception:
                 pass
 
