@@ -9,7 +9,7 @@
 <rect x="0" y="0" width="980" height="580" fill="#FFFFFF" />
 <text x="105" y="34" fill="#111827" font-size="18" font-weight="bold" letter-spacing="-0.01em">Predicted vs. Actual Parity (Log-Log): Linear Thermal Expansion (CTE) [ppm/K]</text>
 <text x="105" y="54" fill="#4B5563" font-size="12" font-style="italic">Zero-Parameter First-Principles Multiscale Predictions vs. Experimental Benchmark (Logarithmic Axes, N = 24)</text>
-<g transform="translate(735, 90)"><rect width="175" height="92" rx="3" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.2" /><text x="14" y="22" fill="#111827" font-size="12" font-weight="bold">Statistical Summary</text><line x1="14" y1="28" x2="161" y2="28" stroke="#D1D5DB" stroke-width="0.8" /><text x="14" y="44" fill="#111827" font-size="11.5">Sample Size: <tspan font-weight="bold">N = 24</tspan></text><text x="14" y="60" fill="#111827" font-size="11.5">Determination: <tspan font-weight="bold">R² = 0.6186</tspan></text><text x="14" y="76" fill="#111827" font-size="11.5">Mean Abs % Err: <tspan font-weight="bold">MAPE = 34.88%</tspan></text></g>
+<g transform="translate(735, 90)"><rect width="175" height="92" rx="3" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.2" /><text x="14" y="22" fill="#111827" font-size="12" font-weight="bold">Statistical Summary</text><line x1="14" y1="28" x2="161" y2="28" stroke="#D1D5DB" stroke-width="0.8" /><text x="14" y="44" fill="#111827" font-size="11.5">Sample Size: <tspan font-weight="bold">N = 24</tspan></text><text x="14" y="60" fill="#111827" font-size="11.5">Determination: <tspan font-weight="bold">R² = 0.6190</tspan></text><text x="14" y="76" fill="#111827" font-size="11.5">Mean Abs % Err: <tspan font-weight="bold">MAPE = 34.87%</tspan></text></g>
 <line x1="228.4" y1="75" x2="228.4" y2="495" stroke="#F3F4F6" stroke-width="0.6" />
 <line x1="105" y1="431.8" x2="925" y2="431.8" stroke="#F3F4F6" stroke-width="0.6" />
 <line x1="102" y1="431.8" x2="105" y2="431.8" stroke="#111827" stroke-width="0.8" opacity="0.6" />
@@ -192,9 +192,9 @@
 <circle cx="701.5" cy="195.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
 <circle cx="701.5" cy="195.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
 <text x="709.5" y="208.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Mg1.10Sc0.20Zr1.80(PS4)3 <tspan fill="#6B7280" font-size="9.5">(-6.0%)</tspan></text>
-<line x1="710.6" y1="184.8" x2="710.6" y2="194.1" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
-<circle cx="710.6" cy="194.1" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
-<circle cx="710.6" cy="194.1" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
-<text x="718.6" y="207.1" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Li10GeP2S12 <tspan fill="#6B7280" font-size="9.5">(-9.7%)</tspan></text>
+<line x1="710.6" y1="184.8" x2="710.6" y2="193.7" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.75" clip-path="url(#plotClip)" />
+<circle cx="710.6" cy="193.7" r="5.5" fill="#1F2937" stroke="#FFFFFF" stroke-width="1.5" />
+<circle cx="710.6" cy="193.7" r="5.5" fill="none" stroke="#000000" stroke-width="1.2" />
+<text x="718.6" y="206.7" fill="#111827" font-size="10.5" font-weight="600" text-anchor="start">Li10GeP2S12 <tspan fill="#6B7280" font-size="9.5">(-9.3%)</tspan></text>
 <g transform="translate(105, 564)" font-size="11" fill="#4B5563"><circle cx="6" cy="-4" r="5" fill="#1F2937" stroke="#000000" stroke-width="1.0" /><text x="18" y="0">First-Principles Evaluation Point</text><line x1="210" y1="-4" x2="235" y2="-4" stroke="#111827" stroke-dasharray="5,3" stroke-width="1.5" /><text x="242" y="0">Ideal 1:1 Parity Line</text><rect x="380" y="-8" width="18" height="10" fill="rgba(0, 0, 0, 0.04)" stroke="#9CA3AF" stroke-dasharray="2,2" stroke-width="0.8" /><text x="405" y="0">±10% Confidence Interval</text><line x1="560" y1="-4" x2="585" y2="-4" stroke="#6B7280" stroke-dasharray="2,2" stroke-width="1.2" /><text x="592" y="0">Residual Drop Stem</text></g>
 </svg>

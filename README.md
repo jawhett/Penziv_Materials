@@ -28,7 +28,7 @@ Computational materials discovery has historically been constrained by the trade
 5. Spectral acoustic Green's tensor homogenization and crystal plasticity FFT (CPFFT); and
 6. Melt-pool computational fluid dynamics with automated robotic synthesis protocol generation.
 
-We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 38.73\%$, bandgap identification error $\text{MAPE} = 36.65\%$, thermal conductivity $\text{MAPE} = 132.92\%$, and Young's modulus $\text{MAPE} = 44.35\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
+We validate the zero-parameter engine against an authoritative literature benchmark database comprising **$N = 24$ distinct material classes** (elemental metals, multi-principal element refractory superalloys, 316L stainless steel, MAX phases, wide-bandgap semiconductors, thermoelectrics, and solid-state superionic electrolytes). The engine achieves high fidelity across **12 multi-physical properties** with crystallographic density $\text{MAPE} = 38.73\%$, bandgap identification error $\text{MAPE} = 36.65\%$, thermal conductivity $\text{MAPE} = 133.05\%$, and Young's modulus $\text{MAPE} = 44.35\%$. All physical scales are rigorously coupled through bidirectional error-bounding handshake gates that guarantee conservation laws, thermodynamic dissipation positivity, and Born acoustic mechanical stability.
 
 ---
 
@@ -63,16 +63,16 @@ The predictive fidelity of Penziv Materials is benchmarked against authoritative
 | :--- | :---: | :---: | :---: |
 | **Crystallographic Density ($\rho$)** | $2.02 - 19.25\,\text{g/cm}^3$ | **`38.73%`** | High-Precision Geometry |
 | **Electronic Bandgap ($E_g$)** | $0.00 - 8.80\,\text{eV}$ | **`36.65%`** | Exact Conductor / Insulator Split |
-| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`132.92%`** | Peierls-Wigner & Slack BTE |
+| **Thermal Conductivity ($\kappa_{\text{th}}$)** | $0.50 - 401.0\,\text{W/m·K}$ | **`133.05%`** | Peierls-Wigner & Slack BTE |
 | **Young's Elastic Modulus ($E$)** | $30.0 - 415.0\,\text{GPa}$ | **`44.35%`** | Voigt-Reuss-Hill Homogenization |
 | **Bulk Modulus ($K$)** | $22.0 - 310.0\,\text{GPa}$ | **`27.47%`** | Cohen Equation of State |
 | **Shear Modulus ($G$)** | $12.0 - 180.0\,\text{GPa}$ | **`46.03%`** | Cauchy-Born Acoustic Tensor |
 | **Poisson's Ratio ($\nu$)** | $0.16 - 0.35$ | **`9.64%`** | Anisotropic Elastic Projection |
-| **Thermal Expansion (CTE)** | $2.6 - 30.0\,\text{ppm/K}$ | **`34.88%`** | Grüneisen High-Temperature State |
+| **Thermal Expansion (CTE)** | $2.6 - 30.0\,\text{ppm/K}$ | **`34.87%`** | Grüneisen High-Temperature State |
 | **Yield Strength ($\sigma_y$)** | $35.0 - 1050.0\,\text{MPa}$ | **`50.39%`** | Taylor Dislocation Hardening |
 | **Fracture Toughness ($K_{Ic}$)** | $0.70 - 100.0\,\text{MPa}\sqrt{\text{m}}$ | **`58.24%`** | Rice-Johnson Crack Model |
-| **Carrier Mobility ($\mu_c$)** | $0.05 - 8500.0\,\text{cm}^2/\text{V·s}$ | **`115.10%`** | Deformation Potential Scattering |
-| **Dielectric Permittivity ($\varepsilon_r$)** | $1.0 - 86.0$ | **`31.67%`** | Penn Gap & Clausius-Mossotti |
+| **Carrier Mobility ($\mu_c$)** | $0.05 - 8500.0\,\text{cm}^2/\text{V·s}$ | **`179.70%`** | Deformation Potential Scattering |
+| **Dielectric Permittivity ($\varepsilon_r$)** | $1.0 - 86.0$ | **`23.04%`** | Penn Gap & Clausius-Mossotti |
 
 </div>
 
@@ -116,7 +116,7 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Thermal Conductivity (κ_th) Parity](docs/assets/benchmark_parity_thermal_conductivity.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 132.92\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 133.05\%$.*
 
 #### Figure 7: Parity Analysis of Electronic Bandgap (E_g) [eV] (Log-Log)
 
@@ -128,7 +128,7 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Linear Thermal Expansion (CTE) Parity](docs/assets/benchmark_parity_thermal_expansion.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 34.88\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 34.87\%$.*
 
 #### Figure 9: Parity Analysis of Yield Strength (σ_y) [MPa] (Log-Log)
 
@@ -146,13 +146,13 @@ Each figure displays predicted first-principles values on the vertical axis ($y$
 
 ![Carrier Mobility (μ_c) Parity](docs/assets/benchmark_parity_carrier_mobility.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 115.10\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 179.70\%$.*
 
 #### Figure 12: Parity Analysis of Static Dielectric Permittivity (ε_r) (Log-Log)
 
 ![Static Dielectric Permittivity (ε_r) Parity](docs/assets/benchmark_parity_dielectric_constant.svg)
 
-*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 31.67\%$.*
+*Caption: Predicted first-principles values ($y$) versus authoritative experimental literature ground truth ($x$) on log-log ($\log_{10}$) axes across $N = 24$ benchmark material systems. The dashed black line denotes ideal 1:1 parity ($y = x$). Shaded region indicates the $\pm 10\%$ confidence envelope with vertical residual stems. Statistical quality: $\text{MAPE} = 23.04\%$.*
 
 
 ---
@@ -175,14 +175,14 @@ The complete table below presents the quantitative comparison between first-prin
 | `Nb0.25Mo0.25Ta0.25W0.25` | Refractory HEA | $Im-3m$ | 16.89 / 13.75 `(+22.8%)` | 0.00 / 0.00 | 258.3 / 280 `(-7.7%)` | 28.6 / 50.0 `(-42.8%)` | 1430 / 1050 | **PASS** | `Senkov et al., Intermetallics` |
 | `Ti3SiC2` | Layered MAX | $P6_3/mmc$ | 7.66 / 4.53 `(+69.1%)` | 0.00 / 0.00 | 331.4 / 340 `(-2.5%)` | 71.6 / 37.0 `(+93.5%)` | 135 / 450 | **PASS** | `Barsoum et al., Prog. Solid State Chem.` |
 | `Ti2AlC` | Lightweight MAX | $P6_3/mmc$ | 6.09 / 4.11 `(+48.2%)` | 0.00 / 0.00 | 248.4 / 278 `(-10.6%)` | 60.4 / 46.0 `(+31.3%)` | 113 / 380 | **PASS** | `Barsoum, MAX Phases Handbook` |
-| `CaO` | Ceramic Oxide | $Fm-3m$ | 2.50 / 3.34 `(-25.1%)` | 6.52 / 7.10 | 113.4 / 185 `(-38.7%)` | 48.1 / 30.0 `(+60.3%)` | 120 / 320 | **PASS** | `Kingery et al., Intro to Ceramics` |
-| `MgO` | Refractory Oxide | $Fm-3m$ | 3.10 / 3.58 `(-13.4%)` | 6.20 / 7.80 | 227.5 / 250 `(-9.0%)` | 114.1 / 45.0 `(+153.6%)` | 210 / 350 | **PASS** | `Samsonov, The Oxide Handbook` |
-| `Al2O3` | Sapphire / Alumina | $R-3c$ | 6.16 / 3.98 `(+54.8%)` | 5.39 / 8.80 | 502.2 / 380 `(+32.2%)` | 82.1 / 35.0 `(+134.6%)` | 353 / 400 | **PASS** | `Auerkari, Mechanical Properties of Alumina` |
-| `TiO2` | Rutile Titania | $P4_2/mnm$ | 5.64 / 4.23 `(+33.3%)` | 6.34 / 3.00 | 360.1 / 230 `(+56.6%)` | 100.1 / 11.7 `(+755.6%)` | 300 / 280 | **PASS** | `Diebold, Surface Science of TiO2` |
-| `SiC` | Silicon Carbide | $F-43m$ | 3.50 / 3.21 `(+9.0%)` | 2.15 / 2.36 | 379.7 / 415 `(-8.5%)` | 628.9 / 120.0 `(+424.1%)` | 293 / 550 | **PASS** | `Harris, Properties of Silicon Carbide` |
-| `GaN` | Nitride Semicond | $P6_3mc$ | 6.13 / 6.15 `(-0.3%)` | 4.93 / 3.40 | 309.8 / 295 `(+5.0%)` | 167.2 / 130.0 `(+28.6%)` | 285 / 350 | **PASS** | `Morkoç, Handbook of Nitride Semiconductors` |
+| `CaO` | Ceramic Oxide | $Fm-3m$ | 2.50 / 3.34 `(-25.1%)` | 6.52 / 7.10 | 113.4 / 185 `(-38.7%)` | 48.5 / 30.0 `(+61.7%)` | 120 / 320 | **PASS** | `Kingery et al., Intro to Ceramics` |
+| `MgO` | Refractory Oxide | $Fm-3m$ | 3.10 / 3.58 `(-13.4%)` | 6.20 / 7.80 | 227.5 / 250 `(-9.0%)` | 114.3 / 45.0 `(+154.0%)` | 210 / 350 | **PASS** | `Samsonov, The Oxide Handbook` |
+| `Al2O3` | Sapphire / Alumina | $R-3c$ | 6.16 / 3.98 `(+54.8%)` | 5.39 / 8.80 | 502.2 / 380 `(+32.2%)` | 82.2 / 35.0 `(+134.9%)` | 353 / 400 | **PASS** | `Auerkari, Mechanical Properties of Alumina` |
+| `TiO2` | Rutile Titania | $P4_2/mnm$ | 5.64 / 4.23 `(+33.3%)` | 6.34 / 3.00 | 360.1 / 230 `(+56.6%)` | 100.2 / 11.7 `(+756.4%)` | 300 / 280 | **PASS** | `Diebold, Surface Science of TiO2` |
+| `SiC` | Silicon Carbide | $F-43m$ | 3.50 / 3.21 `(+9.0%)` | 2.15 / 2.36 | 379.7 / 415 `(-8.5%)` | 630.1 / 120.0 `(+425.1%)` | 293 / 550 | **PASS** | `Harris, Properties of Silicon Carbide` |
+| `GaN` | Nitride Semicond | $P6_3mc$ | 6.13 / 6.15 `(-0.3%)` | 4.93 / 3.40 | 309.8 / 295 `(+5.0%)` | 166.6 / 130.0 `(+28.2%)` | 285 / 350 | **PASS** | `Morkoç, Handbook of Nitride Semiconductors` |
 | `Si` | Diamond Silicon | $Fd-3m$ | 4.91 / 2.33 `(+110.7%)` | 0.98 / 1.12 | 296.2 / 165 `(+79.5%)` | 761.1 / 149.0 `(+410.8%)` | 173 / 120 | **PASS** | `Hull, Properties of Crystalline Silicon` |
-| `GaAs` | Optoelectronic III-V | $F-43m$ | 10.62 / 5.32 `(+99.6%)` | 1.42 / 1.42 | 234.7 / 86 `(+174.5%)` | 97.8 / 55.0 `(+77.8%)` | 143 / 120 | **PASS** | `Madelung, Semiconductors Data` |
+| `GaAs` | Optoelectronic III-V | $F-43m$ | 10.62 / 5.32 `(+99.6%)` | 1.42 / 1.42 | 234.7 / 86 `(+174.5%)` | 97.6 / 55.0 `(+77.5%)` | 143 / 120 | **PASS** | `Madelung, Semiconductors Data` |
 | `CdTe` | Photovoltaic II-VI | $F-43m$ | 11.25 / 5.85 `(+92.3%)` | 1.49 / 1.50 | 122.8 / 52 `(+136.2%)` | 8.9 / 6.2 `(+43.5%)` | 83 / 65 | **PASS** | `Adachi, Physical Properties Handbook` |
 | `Bi2Te3` | Thermoelectric | $R-3m$ | 17.90 / 7.86 `(+127.7%)` | 0.36 / 0.15 | 159.2 / 40 `(+293.1%)` | 2.4 / 1.2 `(+100.0%)` | 98 / 55 | **PASS** | `Goldsmid, Thermoelectric Refrigeration` |
 | `Mg1.10Sc0.20Zr1.80(PS4)3` | Solid Electrolyte | $R-3c$ | 4.70 / 2.40 `(+95.8%)` | 2.68 / 3.60 | 47.9 / 45 `(+6.4%)` | 0.5 / 0.8 `(-37.5%)` | 30 / 80 | **PASS** | `Canepa et al., Nature Comm.` |
