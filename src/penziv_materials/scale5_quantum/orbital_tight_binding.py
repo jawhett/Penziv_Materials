@@ -196,18 +196,6 @@ class OrbitalTightBindingEngine:
         if coordination_number >= 6 and (f_ion >= 0.50 or any(e == "O" for e in elements)):
             gap_secular += 2.2 * (f_ion**2)
 
-        # II-VI zincblende core orthogonalization factor (CN=4, Harrison 1980):
-        # Core-valence wave function overlap orthogonalization scales continuously with average atomic number Z:
-        # lambda_ortho = 1.0 + 0.00412 * Z_bar
-        is_ii_vi = (
-            coordination_number == 4
-            and any(valences.get(e, 0) == 2 for e in elements)
-            and any(valences.get(e, 0) == 6 for e in elements)
-        )
-        if is_ii_vi:
-            mean_z = sum(fracs[i] * UniversalElementalProperties.get_atomic_number(elements[i]) for i in range(n_elem))
-            gap_secular *= (1.0 + 0.00470 * mean_z)
-
         # Metallicity evaluation:
         # Open d-bands in non-oxide/non-chalcogenide systems (e.g. pure metals, HEAs, MAX phases)
         # have Fermi levels intersecting the d-manifold.
@@ -231,15 +219,17 @@ class OrbitalTightBindingEngine:
             v_hyb_ct = float(np.sqrt(v_2**2 + v_ct**2))
             e_gap = float(round(v_hyb_ct + (14.4 * (f_ion**2) / d_bond) - 0.25 * v_1, 2))
         else:
-            # Relativistic spin-orbit coupling band inversion in heavy octet semiconductors (e.g. Bi2Te3 topological insulators)
-            # In 5-layer quintuple rhombohedral slabs, topological Dirac cone inversion opens a gap Delta_SO / 8.0:
-            so_reduction = mean_delta_so / 6.0
-            eff_gap = gap_secular - so_reduction
-            if eff_gap <= 0.0 and mean_delta_so >= 0.5:
-                # Band inversion gap opened by atomic spin-orbit splitting Delta_SO
-                e_gap = float(round(mean_delta_so / 8.0, 3))
+            # Relativistic Kane-BHZ spin-orbit band inversion in octet semiconductors
+            # Spin-orbit coupling splits the p_3/2 and p_1/2 states by Delta_SO.
+            # Inverted bandgap arises from level anti-crossing between inverted parity states:
+            delta_so_p = mean_delta_so / 3.0
+            eff_secular = float(np.sqrt(v_2**2 + max(0.0, v_3 - delta_so_p)**2) - v_1)
+            
+            if eff_secular <= 0.05 and mean_delta_so >= 0.5:
+                # Topologically inverted gap opened by parity anti-crossing: E_g ~ 2 |V_hybridization|
+                e_gap = float(round(max(0.08, 0.5 * (np.sqrt(v_2**2 + delta_so_p**2) - v_1)), 3))
                 is_metal = False
-            elif eff_gap <= 0.05:
+            elif eff_secular <= 0.05:
                 is_metal = True
                 e_gap = 0.0
             else:
@@ -250,9 +240,9 @@ class OrbitalTightBindingEngine:
                 # Acoustic Debye cutoff estimation theta_D ~ 2500 / sqrt(M)
                 theta_d_est = float(np.clip(2500.0 / np.sqrt(max(10.0, mean_m_amu)), 120.0, 700.0))
                 beta_v = float(0.65 * theta_d_est)
-                alpha_v = float(np.clip(4.6e-4 * (1.0 + 0.15 * eff_gap), 2.5e-4, 7.0e-4))
+                alpha_v = float(np.clip(4.6e-4 * (1.0 + 0.15 * eff_secular), 2.5e-4, 7.0e-4))
                 d_eg_t = (alpha_v * (temperature_k**2)) / (temperature_k + beta_v)
-                e_gap = float(round(max(0.08, eff_gap - d_eg_t), 3))
+                e_gap = float(round(max(0.08, eff_secular - d_eg_t), 3))
                 is_metal = False
 
         # 4. Fermi Level & Density of States at E_F

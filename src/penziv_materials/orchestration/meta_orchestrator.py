@@ -104,7 +104,23 @@ class MetaOrchestrator:
             yield_strength_mpa=cont_state.yield_strength_mpa,
             thermal_expansion_coeff=q_state.thermal_expansion_coeff,
         )
-        cfd_res = self.meltpool_cfd.compute_melt_pool_dimensions_and_history()
+        # First-principles process thermal parameters derived from constituent elements & structure
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        total_atoms = max(1e-6, sum(composition.values()))
+        mean_mass = sum((cnt / total_atoms) * UniversalElementalProperties.get_element(elem)[0] for elem, cnt in composition.items())
+        mean_tm = sum((cnt / total_atoms) * UniversalElementalProperties.get_element(elem)[5] for elem, cnt in composition.items())
+
+        if structure is not None and hasattr(structure, "lattice") and structure.lattice.volume_ang3 > 0:
+            vol_m3 = structure.lattice.volume_ang3 * 1.0e-30
+            n_sites = len(structure.sites)
+            density_calc = float((n_sites * mean_mass * 1.66054e-27) / max(1e-33, vol_m3))
+        else:
+            density_calc = 6500.0
+
+        cfd_res = self.meltpool_cfd.compute_melt_pool_dimensions_and_history(
+            density_kg_m3=float(np.clip(density_calc, 800.0, 25000.0)),
+            delta_tm_k=float(max(150.0, mean_tm - 353.15)),
+        )
         proc_state.solidification_cooling_rate_k_s = float(cfd_res.get("cooling_rate_k_s", proc_state.solidification_cooling_rate_k_s))
         proc_state.thermal_gradient_k_m = float(cfd_res.get("thermal_gradient_k_m", proc_state.thermal_gradient_k_m))
 

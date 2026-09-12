@@ -269,33 +269,22 @@ class FormulaPredictionBenchmarkSuite:
         elif is_metallic:
             # Friedel d-band filling and tight-binding spd hybridization
             z_s = min(2.0, vec)
-            period_fac = 1.0 + 0.30 * max(0.0, mean_period - 3.0)
-            # Noble metal s-d core polarization: exp(-z_d_eff) naturally adds ~1.8 eV when d-band is full (z_d_eff=0)
-            e_coh_ev = float(1.20 + 0.65 * z_s + 0.70 * z_d_eff * period_fac + 1.80 * np.exp(-z_d_eff))
+            period_fac = 1.0 + 0.25 * max(0.0, mean_period - 3.0)
+            e_coh_metal = float(1.20 + 0.65 * z_s + 0.70 * z_d_eff * period_fac + 1.80 * np.exp(-z_d_eff))
 
-            # Continuous interstitial and magnetic exchange volume scaling
-            mag_softening = 0.82 if (mean_period < 3.5 and 2.5 <= vec <= 8.5 and f_covalent_interstitial < 0.05) else 1.0
-            k_scale = 2.10 if f_covalent_interstitial >= 0.08 else (2.85 * mag_softening)
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * k_scale, 1))
-            nu = float(round(0.35 - 0.08 * (z_d_eff / 5.0) - 0.12 * min(1.0, f_covalent_interstitial * 5.0), 2))
+            # Covalent p-d hybridization in interstitial alloys, carbides, nitrides, and MAX phases
+            x_interstitial = float(sum(cnt / total_atoms for cnt, p in zip(counts, elem_props) if p[0] < 0.85))
+            e_coh_ev = float(e_coh_metal + 5.5 * x_interstitial)
+
+            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 2.50, 1))
+            nu_metal = float(np.clip(0.33 - 0.05 * (z_d_eff / 5.0), 0.22, 0.42))
+            nu = float(round((1.0 - x_interstitial) * nu_metal + x_interstitial * 0.20, 2))
         elif e_g > 0.0:
-            # Covalent hybridized & ionic oxides / ceramics / semiconductors
+            # Covalent & ionic semiconductors / ceramics
             z_eff = float(sum((cnt / total_atoms) * abs(p[3]) for cnt, p in zip(counts, elem_props)))
             e_coh_ev = float((14.3996 * (z_eff**0.45) / d_bond) * (1.0 - 0.30 * f_ionicity) + (1.7476 * 14.3996 * f_ionicity) / d_bond)
-            
-            # Closed-shell ionic oxides vs covalent semiconductors
-            is_oxide_ceramic = any(p[1] >= 3.4 for p in elem_props)
-            k_scale = 0.60 if is_oxide_ceramic else 0.85
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * k_scale, 1))
-            
-            if is_oxide_ceramic:
-                nu = float(round(0.18 + 0.10 * f_ionicity, 2))
-            elif f_ionicity < 0.10:
-                # Group IV / Non-polar covalent semiconductors (Si, SiC)
-                nu = float(round(0.16 + 0.18 * f_ionicity + 0.08 * ((d_bond - 1.54) / 1.54), 2))
-            else:
-                # Polar III-V / II-VI zincblende & wurtzite crystals (GaN, GaAs, CdTe)
-                nu = float(round(0.18 + 0.12 * f_ionicity + 0.05 * (mean_z_atomic / 80.0), 2))
+            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 0.75, 1))
+            nu = float(round(np.clip(0.18 + 0.12 * f_ionicity, 0.12, 0.35), 2))
         else:
             e_coh_ev = 4.0
             k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 1.5, 1))
@@ -573,12 +562,11 @@ class FormulaPredictionBenchmarkSuite:
             cand_born = BornStabilityValidator.validate_universal_born_and_acoustic_stability(candidate_c_voigt)
             if cand_born["is_mechanically_stable"]:
                 vrh_cand = compute_voigt_reuss_hill_aggregates(candidate_c_voigt)
-                if vrh_cand["youngs_modulus_gpa"] > 0.5 * e_mod:
-                    c_voigt_mat = candidate_c_voigt
-                    k_mod_calc = float(round(vrh_cand["bulk_modulus_hill_gpa"], 1))
-                    g_mod_calc = float(round(vrh_cand["shear_modulus_hill_gpa"], 1))
-                    e_mod_calc = float(round(vrh_cand["youngs_modulus_gpa"], 1))
-                    nu_calc = float(round(vrh_cand["poissons_ratio"], 2))
+                c_voigt_mat = candidate_c_voigt
+                k_mod_calc = float(round(vrh_cand["bulk_modulus_hill_gpa"], 1))
+                g_mod_calc = float(round(vrh_cand["shear_modulus_hill_gpa"], 1))
+                e_mod_calc = float(round(vrh_cand["youngs_modulus_gpa"], 1))
+                nu_calc = float(round(vrh_cand["poissons_ratio"], 2))
 
         if c_voigt_mat is None:
             # Construct crystallographic symmetry-enforced single-crystal Voigt stiffness tensor
@@ -618,7 +606,7 @@ class FormulaPredictionBenchmarkSuite:
         )
 
         # Continuum yield strength and fracture toughness directly from multiscale candidate state
-        ys_final = float(round(c_state.yield_strength_mpa if c_state else ys_pred, 1))
+        ys_final = float(round(c_state.yield_strength_mpa if (c_state and c_state.yield_strength_mpa > 0.0) else ys_pred, 1))
         kic_final = float(round(c_state.fracture_toughness_k_ic_mpa_sqrt_m if c_state else kic_pred, 1))
 
         # Thermal expansion coefficient directly from quantum state

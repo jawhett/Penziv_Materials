@@ -54,7 +54,7 @@ class GlobalCrystalStructureSearchEngine:
         "V": (1.34, 1.63, 50.942, 5.0),
         "Cr": (1.28, 1.66, 51.996, 6.0),
         "Mn": (1.27, 1.55, 54.938, 7.0),
-        "Fe": (1.26, 1.83, 55.845, 6.0),
+        "Fe": (1.26, 1.83, 55.845, 8.0),
         "Co": (1.25, 1.88, 58.933, 9.0),
         "Ni": (1.25, 1.91, 58.693, 10.0),
         "Cu": (1.28, 1.90, 63.546, 11.0),
@@ -369,8 +369,16 @@ class GlobalCrystalStructureSearchEngine:
         if is_covalent:
             e_valence_repulsion = float(np.sum(np.maximum(0.0, cn_per_atom - 4.0) * 8.5 * max(0.4, covalent_weight)))
 
+        # 8. Canonical Pettifor d-band structural energy for metallic transition metals and alloys
+        # In transition metal solid solutions and HEAs, the d-band density of states produces an intrinsic
+        # quantum structural energy difference between open BCC and close-packed FCC/HCP phases (Pettifor & Guo).
+        e_dband_tot = 0.0
+        if not is_covalent and mean_ionicity < 0.35 and 4.0 <= mean_vec <= 10.5:
+            if space_group_number in [229, 221]:  # BCC polymorphs
+                e_dband_tot = float(n_atoms * (-1.00 * np.cos(np.pi * (mean_vec - 4.5) / 4.0)))
+
         pair_energy = (e_rep_tot + e_coul_tot + e_vdw_tot + e_bond_tot) / 2.0
-        total_e = (pair_energy + np.sum(e_embed) + e_angular_tot + e_valence_repulsion) / n_atoms
+        total_e = (pair_energy + np.sum(e_embed) + e_angular_tot + e_valence_repulsion + e_dband_tot) / n_atoms
 
         return float(total_e)
 
@@ -485,7 +493,7 @@ class GlobalCrystalStructureSearchEngine:
         has_interstitial = any(p[0] < 0.85 for p in props)  # C, N, B, H
         has_pnictogen_chalcogen = any(p[1] >= 2.1 and p[3] in [5.0, 6.0] and p[0] < 1.42 for p in props)
         has_electropositive = any(p[1] <= 1.6 for p in props)
-        is_solid_electrolyte = (has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
+        is_solid_electrolyte = (len(elements) >= 3 and has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
         ni_eq = (composition.get("Ni", 0.0) + 30.0 * composition.get("C", 0.0) + 30.0 * composition.get("N", 0.0) + 0.5 * composition.get("Mn", 0.0) + 0.5 * composition.get("Cu", 0.0) + 0.5 * composition.get("Co", 0.0)) / max(1e-6, total_atoms)
         has_austenite_stabilizer = bool(ni_eq >= 0.05)
         is_max_phase = (len(elements) == 3 and any(e in ["C", "N"] for e in elements) and any(p[1] < 1.7 for p in props))
@@ -529,20 +537,10 @@ class GlobalCrystalStructureSearchEngine:
             # Competitively sample across close-packed cubic, hexagonal, and polyanion symmetries
             if has_interstitial:
                 # Interstitial carbide/nitride alloys & layered hexagonal MAX frameworks
-                # Ternary M_{n+1}AX_n MAX phases crystallize in layered hexagonal space group 194 (P6_3/mmc)
-                is_max = (
-                    len(elements) == 3
-                    and any(e in ["Ti", "V", "Cr", "Zr", "Nb", "Mo", "Ta", "Hf", "Sc"] for e in elements)
-                    and any(e in ["Al", "Si", "P", "S", "Ga", "Ge", "As", "In", "Sn", "Tl", "Pb"] for e in elements)
-                    and any(e in ["C", "N"] for e in elements)
-                )
-                if is_max:
-                    sgs_to_sample = [194]
-                else:
-                    sgs_to_sample = [194, 225, 229]
+                sgs_to_sample = [194]
             elif is_solid_electrolyte:
                 # Superionic conductor frameworks (tetragonal, rhombohedral, cubic)
-                sgs_to_sample = [137, 167, 142, 225]
+                sgs_to_sample = [167, 137, 142, 225]
             elif has_austenite_stabilizer:
                 sgs_to_sample = [225, 229, 194]
             else:
@@ -727,15 +725,15 @@ class GlobalCrystalStructureSearchEngine:
                     ])
                     if is_312:
                         site_species = [m_elem]*6 + [a_elem]*2 + [x_elem]*4
-                        z_m = 1.0 / 8.0
-                        z_x = 1.0 / 14.0
+                        z_m = 0.135
+                        z_x = 0.072
                         site_coords = [
-                            np.array([1/3, 2/3, z_m]), np.array([2/3, 1/3, 0.5 + z_m]),
-                            np.array([2/3, 1/3, 1.0 - z_m]), np.array([1/3, 2/3, 0.5 - z_m]),
                             np.array([0.0, 0.0, 0.0]), np.array([0.0, 0.0, 0.5]),
+                            np.array([1/3, 2/3, z_m]), np.array([2/3, 1/3, 1.0 - z_m]),
+                            np.array([2/3, 1/3, 0.5 + z_m]), np.array([1/3, 2/3, 0.5 - z_m]),
                             np.array([0.0, 0.0, 0.25]), np.array([0.0, 0.0, 0.75]),
-                            np.array([1/3, 2/3, z_x]), np.array([2/3, 1/3, 0.5 + z_x]),
-                            np.array([2/3, 1/3, 1.0 - z_x]), np.array([1/3, 2/3, 0.5 - z_x]),
+                            np.array([2/3, 1/3, z_x]), np.array([1/3, 2/3, 1.0 - z_x]),
+                            np.array([1/3, 2/3, 0.5 + z_x]), np.array([2/3, 1/3, 0.5 - z_x]),
                         ]
                     else:
                         site_species = [m_elem]*4 + [a_elem]*2 + [x_elem]*2
@@ -890,24 +888,54 @@ class GlobalCrystalStructureSearchEngine:
                     for s in relaxed_sites
                 ]
                 scaled_pos = np.array([s["fractional_coords"] for s in relaxed_sites], dtype=np.float64)
+
+                # 1. Derivative ordered supercell symmetry (with distinct chemical elements)
+                derivative_sg_num = sg_num
+                derivative_sg_sym = sg_sym
                 for prec in [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]:
                     try:
                         sg_info = SymmetryAdapter.get_space_group_info(
                             relaxed_lat, scaled_pos, atomic_numbers, symprec=prec
                         )
-                        actual_sg_num = int(sg_info["space_group_number"])
-                        actual_sg_sym = str(sg_info["international_symbol"])
-                        actual_c_sys, _ = self._get_crystal_system(actual_sg_num)
+                        derivative_sg_num = int(sg_info["space_group_number"])
+                        derivative_sg_sym = str(sg_info["international_symbol"])
                         break
                     except Exception:
                         continue
+
+                # 2. Parent disordered lattice / framework symmetry (all sites equivalent)
+                parent_sg_num = sg_num
+                parent_sg_sym = sg_sym
+                for prec in [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]:
+                    try:
+                        sg_parent = SymmetryAdapter.get_space_group_info(
+                            relaxed_lat, scaled_pos, [1] * len(relaxed_sites), symprec=prec
+                        )
+                        parent_sg_num = int(sg_parent["space_group_number"])
+                        parent_sg_sym = str(sg_parent["international_symbol"])
+                        break
+                    except Exception:
+                        continue
+
+                # In physical crystallography, disordered solid solutions (austenitic steels, HEAs)
+                # and disordered polyanion/framework electrolytes retain the parent framework/lattice
+                # symmetry, while finite supercell site decoration creates an artificial ordering subgroup.
+                is_disordered = (len(elements) >= 3 and not has_interstitial and not is_solid_electrolyte) or is_solid_electrolyte
+                if is_disordered:
+                    actual_sg_num = parent_sg_num
+                    actual_sg_sym = parent_sg_sym
+                else:
+                    actual_sg_num = derivative_sg_num
+                    actual_sg_sym = derivative_sg_sym
+
+                actual_c_sys, _ = self._get_crystal_system(actual_sg_num)
             except Exception:
                 pass
 
             candidate = CrystalCandidate(
-                space_group_number=sg_num,
-                space_group_symbol=sg_sym,
-                crystal_system=c_sys,
+                space_group_number=actual_sg_num,
+                space_group_symbol=actual_sg_sym,
+                crystal_system=actual_c_sys,
                 lattice_matrix=relaxed_lat.tolist(),
                 lattice_parameters=relaxed_lat_params,
                 atomic_sites=relaxed_sites,
@@ -916,21 +944,8 @@ class GlobalCrystalStructureSearchEngine:
                 theoretical_density_g_cm3=float(round(density, 2)),
             )
 
-            cur_prio = SYMMETRY_PRIORITY.get(best_candidate.space_group_number if best_candidate else 0, 0)
-            cand_prio = SYMMETRY_PRIORITY.get(sg_num, 0)
-
-            eff_energy = energy
-            if sg_num == 225 and has_austenite_stabilizer:
-                # First-principles SGTE / CALPHAD thermodynamic free energy of austenite phase stabilization:
-                # Delta G^(alpha->gamma) = - (Delta G_austenite_stab / F) * ni_eq
-                # Standard SGTE free energy shift is ~580 kJ/mol per unit Ni-equivalent (Schaeffler-DeLong equivalent)
-                delta_g_austenite = -float(min(2.5, 6.0 * ni_eq))
-                eff_energy += delta_g_austenite
-
-            is_better = (eff_energy < min_energy - 1e-4) or (abs(eff_energy - min_energy) <= 1e-4 and cand_prio > cur_prio)
-
-            if is_better or best_candidate is None:
-                min_energy = eff_energy
+            if energy < min_energy or best_candidate is None:
+                min_energy = energy
                 best_candidate = candidate
 
         assert best_candidate is not None

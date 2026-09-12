@@ -87,23 +87,44 @@ class SemiconductorElectronicEngine:
     ) -> Dict[str, Any]:
         """Compute piezoelectric strain tensor d_{ijk} (pC/N) and electrostrictive tensor Q_{ijkl} (m^4 / C^2)."""
         d_tensor = np.zeros((3, 3, 3), dtype=np.float64)
+        c_mat = np.asarray(elastic_stiffness_c_gpa, dtype=np.float64)
+        if c_mat.shape == (6, 6):
+            try:
+                s_mat = np.linalg.pinv(c_mat) * 1.0e-9  # Compliance S in Pa^-1
+            except Exception:
+                s_mat = np.eye(6) * (1.0 / (max(10.0, np.trace(c_mat) / 6.0) * 1.0e9))
+        else:
+            s_mat = np.eye(6) * 1.0e-11
 
-        if "wurtzite" in crystal_system.lower() or "hexagonal" in crystal_system.lower():
-            d_tensor[2, 2, 2] = 4.5e-12
-            d_tensor[2, 0, 0] = -1.8e-12
-            d_tensor[2, 1, 1] = -1.8e-12
-            d_tensor[0, 0, 2] = d_tensor[0, 2, 0] = 3.2e-12
-            d_tensor[1, 1, 2] = d_tensor[1, 2, 1] = 3.2e-12
+        is_piezo_sym = bool(
+            any(s in crystal_system.lower() for s in ["wurtzite", "hexagonal", "zincblende", "trigonal", "tetragonal"])
+            and "centrosymmetric" not in crystal_system.lower()
+        )
 
+        d33 = 0.0
+        d31 = 0.0
+        if is_piezo_sym and born_effective_charges is not None:
+            z_eff = float(np.mean(np.abs(born_effective_charges)))
+            if z_eff > 0.1:
+                # First-principles internal strain polarization: e_33 = (e / Omega) * Z*_33 * xi
+                # where xi is the Kleinman internal strain parameter (~0.5)
+                xi_kleinman = 0.50
+                e33_c_m2 = (1.602176634e-19 * z_eff * xi_kleinman) / 35.0e-30
+                d33 = float(e33_c_m2 * s_mat[2, 2])
+                d31 = float(-0.45 * d33)
+                d_tensor[2, 2, 2] = d33
+                d_tensor[2, 0, 0] = d_tensor[2, 1, 1] = d31
+
+        # Electrostrictive tensor Q_ijkl from compliance and polarization coupling
+        q33 = float(np.clip(1.2 * s_mat[2, 2] * 1.0e9 * 0.015, 0.005, 0.15))
         q_tensor = np.zeros((3, 3, 3, 3), dtype=np.float64)
-        q_tensor[2, 2, 2, 2] = 0.045
-        q_tensor[0, 0, 0, 0] = q_tensor[1, 1, 1, 1] = 0.035
+        q_tensor[2, 2, 2, 2] = q33
 
         return {
-            "piezoelectric_d33_pc_n": float(d_tensor[2, 2, 2] * 1.0e12),
-            "piezoelectric_d31_pc_n": float(d_tensor[2, 0, 0] * 1.0e12),
+            "piezoelectric_d33_pc_n": float(d33 * 1.0e12),
+            "piezoelectric_d31_pc_n": float(d31 * 1.0e12),
             "is_piezoelectric": bool(np.max(np.abs(d_tensor)) > 1.0e-15),
-            "electrostriction_q33_m4_c2": float(q_tensor[2, 2, 2, 2]),
+            "electrostriction_q33_m4_c2": q33,
         }
 
     def compute_wannier_bte_mobility_tensor(

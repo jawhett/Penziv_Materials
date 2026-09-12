@@ -239,6 +239,70 @@ class QElecAgent:
         f_vib = zero_point_e - BOLTZMANN_EV_K * temperature_k * (np.pi**4 / (5.0 * (x**3))) if x > 10 else zero_point_e - BOLTZMANN_EV_K * temperature_k * 3.0 * np.log(max(1e-3, 1.0/x))
         return float(f_vib)
 
+    def _compute_keating_3body_energy(
+        self,
+        lattice_matrix: np.ndarray,
+        species_list: List[str],
+        cart_coords: np.ndarray,
+    ) -> float:
+        """Physical 3-body Keating bond-bending potential for directional covalent & metalloid bonds.
+
+        Central pair potentials (EAM / Morse / Buckingham) satisfy the Cauchy relation (C12 = C44)
+        and have zero resistance to pure shear distortion at constant bond length.
+        This method adds the standard Stillinger-Weber / Keating directional angular restoring energy
+        for non-metal / metalloid hybridized orbitals (B, C, N, O, Si, P, S, Ge, As, Se, Te).
+        """
+        covalent_nonmetals = {"B", "C", "N", "O", "Si", "P", "S", "Ge", "As", "Se", "Te"}
+        n_atoms = len(species_list)
+        inv_lat = np.linalg.pinv(lattice_matrix)
+        frac_coords = np.dot(cart_coords, inv_lat)
+        shifts = np.array([
+            [nx, ny, nz]
+            for nx in [-1, 0, 1]
+            for ny in [-1, 0, 1]
+            for nz in [-1, 0, 1]
+        ], dtype=np.float64)
+        e_angle = 0.0
+
+        for i in range(n_atoms):
+            sp_i = species_list[i]
+            if sp_i not in covalent_nonmetals:
+                continue
+            _, r1, _, _, _, _ = UniversalElementalProperties.get_element(sp_i)
+            diff_f = frac_coords - frac_coords[i]
+            neighbors = []
+            for j in range(n_atoms):
+                _, r2, _, _, _, _ = UniversalElementalProperties.get_element(species_list[j])
+                r_bond_max = 1.25 * (r1 + r2)
+                for s in shifts:
+                    if i == j and np.all(s == 0):
+                        continue
+                    rc = np.dot(diff_f[j] + s, lattice_matrix)
+                    d = float(np.linalg.norm(rc))
+                    if 0.8 < d < r_bond_max:
+                        neighbors.append(rc / d)
+
+            cn = len(neighbors)
+            if cn < 2:
+                continue
+
+            # Coordination geometry: tetrahedral (CN <= 4) vs octahedral (CN >= 5)
+            is_tetrahedral = (cn <= 4)
+            k_theta = 2.5  # eV
+
+            for a in range(len(neighbors)):
+                v_a = neighbors[a]
+                for b in range(a + 1, len(neighbors)):
+                    v_b = neighbors[b]
+                    cos_th = float(np.dot(v_a, v_b))
+                    if is_tetrahedral:
+                        penalty = (cos_th + (1.0 / 3.0)) ** 2
+                    else:
+                        penalty = min(cos_th ** 2, (cos_th + 1.0) ** 2)
+                    e_angle += k_theta * penalty
+
+        return float(e_angle)
+
     def _eval_lattice_pes_energy(
         self,
         lattice_matrix: np.ndarray,
@@ -246,6 +310,7 @@ class QElecAgent:
         cart_coords: np.ndarray,
     ) -> float:
         """Evaluate potential energy of deformed crystal unit cell on PES."""
+        e_angle = self._compute_keating_3body_energy(lattice_matrix, species_list, cart_coords)
         if self.use_mlip:
             try:
                 if self._mlip_engine is None:
@@ -257,7 +322,7 @@ class QElecAgent:
                     lattice_vectors=lattice_matrix,
                 )
                 if "total_energy_ev" in res:
-                    return float(res["total_energy_ev"])
+                    return float(res["total_energy_ev"]) + e_angle
             except Exception:
                 pass
 
@@ -301,7 +366,7 @@ class QElecAgent:
                             fc = 0.5 * (1.0 + np.cos(np.pi * (r - r_in) / (r_cut - r_in)))
                         e_tot += 0.5 * (e_morse + e_coul) * fc
 
-        return float(e_tot)
+        return float(e_tot) + e_angle
 
     def compute_full_cauchy_born_stiffness_matrix(
         self,

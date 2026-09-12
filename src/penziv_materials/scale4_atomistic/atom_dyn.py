@@ -246,7 +246,19 @@ class AtomDynAgent:
         k_b_t_ev = BOLTZMANN_EV_K * max(1.0, temperature_k)
         kinetic_rate = self.nu_0 * np.exp(-delta_e_barrier / k_b_t_ev)
 
-        force_variance = 0.018 + 0.004 * len(composition)
+        # Fundamental statistical variance in local migration barrier from thermal fluctuations and chemical disorder:
+        # sigma_Ea^2 = (k_B T)^2 + sum_i x_i * (E_i - <E>)^2
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        c_elems = list(composition.keys())
+        c_cnts = [float(composition[e]) for e in c_elems]
+        tot_cnt = max(1e-6, sum(c_cnts))
+        elem_tm = [UniversalElementalProperties.get_element(e)[5] for e in c_elems]
+        elem_barriers = [1.15e-3 * tm for tm in elem_tm]
+        mean_b = sum((c / tot_cnt) * b for c, b in zip(c_cnts, elem_barriers))
+        chem_var = sum((c / tot_cnt) * ((b - mean_b) ** 2) for c, b in zip(c_cnts, elem_barriers))
+        thermal_var = k_b_t_ev ** 2
+        force_variance = float(np.sqrt(thermal_var + chem_var))
+
         # Authentic transition state theory kinetic rate variance: sigma_ln_gamma^2 = (sigma_Ea / k_B T)^2
         sigma_ln_gamma_sq = float(round((force_variance / max(1e-3, k_b_t_ev))**2, 4))
         nll, is_ood = self.evaluate_gmm_ood(np.array([force_variance * 10.0, 0.5]))

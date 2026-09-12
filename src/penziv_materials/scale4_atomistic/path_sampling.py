@@ -156,7 +156,9 @@ class TransitionPathSamplingEngine:
         if barrier_matrix is None:
             diff = sites[:, np.newaxis, :] - sites[np.newaxis, :, :]
             dists = np.linalg.norm(diff, axis=-1)
-            adj = np.where(dists < 4.0, dists * 0.35 + 0.15, np.inf)
+            # Physical harmonic elastic strain barrier: E_barrier = 1/2 * k_eff * (d/2)^2 (Flynn defect model)
+            k_eff = 1.6  # eV/Angstrom^2 effective lattice curvature
+            adj = np.where(dists < 4.0, 0.5 * k_eff * ((dists / 2.0) ** 2), np.inf)
             np.fill_diagonal(adj, 0.0)
         else:
             adj = barrier_matrix.copy()

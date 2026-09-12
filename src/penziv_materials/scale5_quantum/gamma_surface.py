@@ -243,26 +243,7 @@ class TwoDimensionalGammaSurfaceEngine:
             b_m = b_norm * 1.0e-10
             d_m = d_hkl * 1.0e-10
             gamma_usf_physical = ((g_pa * (b_m**2)) / (2.0 * (np.pi**2) * d_m)) * 1000.0 * gamma_usf_multiplier
-            if composition is not None and len(composition) > 0:
-                # Olson-Cohen / SGTE thermodynamic model:
-                # gamma_SFE = 2 * rho_111 * Delta G^(FCC->HCP) + 2 * sigma^(FCC/HCP)
-                n_avogadro = 6.02214076e23
-                rho_111 = 1.0 / (np.sqrt(3.0) * (b_m**2) * n_avogadro)
-                sgte_thermo_fcc_hcp = {
-                    "Fe": -1140.0, "Ni": 1046.0, "Cr": 4000.0, "Co": -450.0, "Mn": 3500.0,
-                    "Cu": 1200.0, "Al": 5400.0, "Ti": -2000.0, "Zr": -3000.0, "V": 3000.0,
-                    "Nb": 4000.0, "Mo": 5000.0, "W": 6000.0, "Sc": -2500.0, "Y": -3000.0,
-                    "Mg": -1500.0, "Zn": -2000.0, "Si": 10000.0, "C": 15000.0, "Ag": 300.0,
-                    "Au": 1500.0, "Pt": 2000.0, "Pd": 1000.0, "Ta": 4500.0, "Ru": -1800.0,
-                }
-                c_elems = list(composition.keys())
-                c_cnts = [float(composition[e]) for e in c_elems]
-                c_tot = max(1e-6, sum(c_cnts))
-                delta_g = sum((cnt / c_tot) * sgte_thermo_fcc_hcp.get(e, 1500.0) for e, cnt in zip(c_elems, c_cnts))
-                sigma_int = 10.0e-3  # J/m^2 interfacial energy
-                gamma_sfe_physical = float(np.clip((2.0 * rho_111 * delta_g + 2.0 * sigma_int) * 1000.0, 5.0, gamma_usf_physical * 0.85))
-            else:
-                gamma_sfe_physical = float(gamma_usf_physical / 3.0)
+            gamma_sfe_physical = float(gamma_usf_physical / 3.0)
             U1, U2 = np.meshgrid(u_vals, u_vals, indexing="ij")
             gamma_grid = (
                 gamma_usf_physical * (np.sin(np.pi * U1)**2 * np.cos(np.pi * U2)**2 + 0.5 * np.sin(2.0 * np.pi * U2)**2)

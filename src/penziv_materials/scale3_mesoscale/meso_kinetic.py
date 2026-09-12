@@ -84,7 +84,7 @@ class MesoKineticAgent:
         f_p = precipitate_vol_frac if precipitate_vol_frac is not None else 0.55
         r_p = precipitate_radius_nm if precipitate_radius_nm is not None else 35.0
 
-        g_shear = float(c_voigt_gpa[3, 3]) if c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6) else 80.0
+        g_shear = float(c_voigt_gpa[3, 3]) if (c_voigt_gpa is not None and c_voigt_gpa.shape == (6, 6) and c_voigt_gpa[3, 3] > 0.0) else 80.0
         tau_precip = self.compute_precipitate_strengthening(f_p=f_p, r_p_nm=r_p, shear_modulus_gpa=g_shear)
         tau_crss_total = tau_p_gpa + tau_precip
 
