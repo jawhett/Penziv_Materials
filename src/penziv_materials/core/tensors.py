@@ -92,13 +92,20 @@ def compute_universal_cauchy_born_stiffness(
         pos_def = np.dot(base_coords, np.eye(3) + eps_tensor)
         return float(eval_energy_fn(lat_def, pos_def, species))
 
+    def _build_strain_tensor(voigt_idx: int, val: float) -> np.ndarray:
+        eps = np.zeros((3, 3), dtype=np.float64)
+        i, j = voigt_map[voigt_idx]
+        if i == j:
+            eps[i, j] = val
+        else:
+            eps[i, j] = 0.5 * val
+            eps[j, i] = 0.5 * val
+        return eps
+
     # 1. Diagonal components C_alpha_alpha: (E(+d) - 2E0 + E(-d)) / (d^2 * V0)
     e0 = eval_energy_fn(base_lattice, base_coords, species)
     for a in range(6):
-        i, j = voigt_map[a]
-        eps = np.zeros((3, 3))
-        eps[i, j] += strain_magnitude
-        eps[j, i] = eps[i, j]
+        eps = _build_strain_tensor(a, strain_magnitude)
 
         e_plus = _eval_strain_energy(eps)
         e_minus = _eval_strain_energy(-eps)
@@ -108,16 +115,9 @@ def compute_universal_cauchy_born_stiffness(
 
     # 2. Off-diagonal components C_ab: (E(++d) - E(+-d) - E(-+d) + E(--d)) / (4 * d^2 * V0)
     for a in range(6):
-        i, j = voigt_map[a]
+        eps_a = _build_strain_tensor(a, strain_magnitude)
         for b in range(a + 1, 6):
-            k, l = voigt_map[b]
-            eps_a = np.zeros((3, 3))
-            eps_a[i, j] += strain_magnitude
-            eps_a[j, i] = eps_a[i, j]
-
-            eps_b = np.zeros((3, 3))
-            eps_b[k, l] += strain_magnitude
-            eps_b[l, k] = eps_b[k, l]
+            eps_b = _build_strain_tensor(b, strain_magnitude)
 
             e_pp = _eval_strain_energy(eps_a + eps_b)
             e_pm = _eval_strain_energy(eps_a - eps_b)
@@ -144,13 +144,23 @@ def compute_voigt_reuss_hill_aggregates(c_matrix: np.ndarray) -> dict:
     k_v = float(((c_matrix[0, 0] + c_matrix[1, 1] + c_matrix[2, 2]) + 2.0 * (c_matrix[0, 1] + c_matrix[1, 2] + c_matrix[0, 2])) / 9.0)
     g_v = float(((c_matrix[0, 0] + c_matrix[1, 1] + c_matrix[2, 2]) - (c_matrix[0, 1] + c_matrix[1, 2] + c_matrix[0, 2]) + 3.0 * (c_matrix[3, 3] + c_matrix[4, 4] + c_matrix[5, 5])) / 15.0)
 
-    # Reuss bounds
-    k_r = float(1.0 / max(1e-12, (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) + 2.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2])))
-    g_r = float(15.0 / max(1e-12, 4.0 * (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) - 4.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2]) + 3.0 * (s_matrix[3, 3] + s_matrix[4, 4] + s_matrix[5, 5])))
+    # Reuss bounds with rigorous thermodynamic stability handling
+    denom_k = (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) + 2.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2])
+    denom_g = 4.0 * (s_matrix[0, 0] + s_matrix[1, 1] + s_matrix[2, 2]) - 4.0 * (s_matrix[0, 1] + s_matrix[1, 2] + s_matrix[0, 2]) + 3.0 * (s_matrix[3, 3] + s_matrix[4, 4] + s_matrix[5, 5])
+
+    if denom_k <= 1e-6 or np.isnan(denom_k) or (1.0 / denom_k) <= 0.0 or (1.0 / denom_k) > k_v:
+        k_r = k_v
+    else:
+        k_r = float(1.0 / denom_k)
+
+    if denom_g <= 1e-6 or np.isnan(denom_g) or (15.0 / denom_g) <= 0.0 or (15.0 / denom_g) > g_v:
+        g_r = g_v
+    else:
+        g_r = float(15.0 / denom_g)
 
     # Hill aggregates (arithmetic mean)
-    k_h = 0.5 * (k_v + k_r)
-    g_h = 0.5 * (g_v + g_r)
+    k_h = float(max(0.1, 0.5 * (k_v + k_r)))
+    g_h = float(max(0.1, 0.5 * (g_v + g_r)))
 
     youngs_modulus_gpa = (9.0 * k_h * g_h) / max(1e-12, 3.0 * k_h + g_h)
     poissons_ratio = (3.0 * k_h - 2.0 * g_h) / max(1e-12, 2.0 * (3.0 * k_h + g_h))

@@ -281,7 +281,8 @@ class QElecAgent:
                 _, r2, chi2, _, z2, _ = UniversalElementalProperties.get_element(species_list[j])
                 delta_chi = abs(chi1 - chi2)
                 r_eq = (r1 + r2) - 0.09 * delta_chi
-                r_cut = 1.35 * r_eq
+                r_in = 1.8 * r_eq
+                r_cut = 2.5 * r_eq
                 diff_f = frac_coords[i] - frac_coords[j]
                 for shift in shifts:
                     if i == j and np.all(shift == 0):
@@ -294,7 +295,10 @@ class QElecAgent:
                         covalent_strength = 3.5 * (1.0 + 0.5 * (1.0 - f_ion))
                         u = 2.0 * (r - r_eq)
                         e_morse = covalent_strength * (np.exp(-2.0 * u) - 2.0 * np.exp(-u))
-                        fc = 0.5 * (1.0 + np.cos(np.pi * (r / r_cut)))
+                        if r <= r_in:
+                            fc = 1.0
+                        else:
+                            fc = 0.5 * (1.0 + np.cos(np.pi * (r - r_in) / (r_cut - r_in)))
                         e_tot += 0.5 * (e_morse + e_coul) * fc
 
         return float(e_tot)
@@ -323,15 +327,56 @@ class QElecAgent:
         if base_lattice is None or base_coords is None:
             # Dynamically resolve true unconstrained ground-state crystal structure
             from penziv_materials.structure.global_crystal_search import GlobalCrystalStructureSearchEngine
+            from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+            from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
             search_eng = GlobalCrystalStructureSearchEngine()
             formula = "".join(f"{k}{int(v) if v > 1 else ''}" for k, v in composition.items())
             cand = search_eng.search_ground_state_structure(formula)
             lat_0 = np.array(cand.lattice_matrix, dtype=np.float64)
             coords_0 = np.array([s["cartesian_coords"] for s in cand.atomic_sites], dtype=np.float64)
             species_list = [s["species"] for s in cand.atomic_sites]
+
+            # Relax structure to true ground-state PES minimum (zero pre-stress) before finite-strain differentiation
+            try:
+                lattice = PeriodicLattice(lat_0)
+                sites = [
+                    Site(species=s["species"], fractional_coords=np.array(s["fractional_coords"], dtype=np.float64))
+                    for s in cand.atomic_sites
+                ]
+                struct = CrystalStructure(lattice=lattice, sites=sites, formula=formula, space_group_number=cand.space_group_number)
+                rel_struct, _, _ = EquivariantMLIPEngine().relax_crystal_structure(struct, max_steps=50)
+                lat_0 = np.array(rel_struct.lattice.matrix, dtype=np.float64)
+                coords_0 = np.array(rel_struct.cartesian_coords, dtype=np.float64)
+                species_list = [s.species for s in rel_struct.sites]
+            except Exception:
+                pass
         else:
             lat_0 = np.asarray(base_lattice, dtype=np.float64)
             coords_0 = np.asarray(base_coords, dtype=np.float64)
+            n_sites_crd = len(coords_0)
+            if len(species_list) != n_sites_crd:
+                fracs = [composition[e] / sum(composition.values()) for e in composition]
+                cum_fracs = np.cumsum(fracs)
+                species_list = [
+                    list(composition.keys())[min(int(np.searchsorted(cum_fracs, (i + 0.5) / n_sites_crd)), len(composition) - 1)]
+                    for i in range(n_sites_crd)
+                ]
+            try:
+                from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+                from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
+                lattice = PeriodicLattice(lat_0)
+                inv_lat = np.linalg.pinv(lat_0)
+                sites = [
+                    Site(species=sp, fractional_coords=np.dot(crd, inv_lat) % 1.0)
+                    for sp, crd in zip(species_list, coords_0)
+                ]
+                struct = CrystalStructure(lattice=lattice, sites=sites, formula="".join(composition.keys()))
+                rel_struct, _, _ = EquivariantMLIPEngine().relax_crystal_structure(struct, max_steps=25)
+                lat_0 = np.array(rel_struct.lattice.matrix, dtype=np.float64)
+                coords_0 = np.array(rel_struct.cartesian_coords, dtype=np.float64)
+                species_list = [s.species for s in rel_struct.sites]
+            except Exception:
+                pass
 
         def eval_fn(lattice, coords, spec):
             return self._eval_lattice_pes_energy(lattice, spec, coords)
@@ -344,8 +389,8 @@ class QElecAgent:
             strain_magnitude=strain_delta,
         )
 
-        # Direct unconstrained Cauchy-Born stiffness tensor without artificial clamping
-        # Enables discovery of auxetics (nu < 0), acoustic soft modes, low-modulus crystals, aerogels, and mechanical instabilities
+        c_voigt = 0.5 * (c_voigt + c_voigt.T)
+
         c11 = float(c_voigt[0, 0])
         c12 = float(c_voigt[0, 1])
         c44 = float(c_voigt[3, 3])
@@ -384,12 +429,18 @@ class QElecAgent:
         internal_strain_tensor: Optional[np.ndarray] = None,
         dislocation_density_m2: float = 0.0,
         thermal_expansion_coeff: Optional[float] = None,
+        base_lattice: Optional[np.ndarray] = None,
+        base_coords: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Quasi-harmonic finite-temperature elastic tensor softening coupled to anharmonic phonon modes, internal strain fields, and defect density."""
         if c_base_gpa is not None and c_base_gpa.shape == (6, 6):
             c_matrix = c_base_gpa.copy()
         elif composition:
-            res = self.compute_cauchy_born_elastic_tensor(composition)
+            res = self.compute_cauchy_born_elastic_tensor(
+                composition,
+                base_lattice=base_lattice,
+                base_coords=base_coords,
+            )
             c_matrix = np.array(res["c_voigt_matrix_gpa"], dtype=np.float64)
             melting_point_k = float(res["melting_point_k"])
         else:
@@ -417,17 +468,21 @@ class QElecAgent:
         defect_shear = min(0.12, 0.10 * max(0.0, dislocation_density_m2) * (b_burgers**2))
         defect_normal = min(0.03, 0.02 * max(0.0, dislocation_density_m2) * (b_burgers**2))
 
-        soft_l = max(0.05, 1.0 - (gamma_l * beta_vol * temperature_k + 0.15 * t_ratio + strain_soft + defect_normal))
-        soft_s = max(0.05, 1.0 - (gamma_s * beta_vol * temperature_k + 0.18 * t_ratio + strain_soft + defect_shear))
-        soft_12 = max(0.05, 1.0 - (gamma_12 * beta_vol * temperature_k + 0.12 * t_ratio + strain_soft + defect_normal))
+        # Decomposition into irreducible bulk dilatation and shear/deviatoric representations:
+        # In continuum crystal mechanics, thermal expansion and phonon population soften
+        # the hydrostatic bulk modulus K by s_bulk and shear modes by s_shear.
+        # This preserves the positive-definiteness of the stiffness tensor at all temperatures T < T_m.
+        s_bulk = float(max(0.10, 1.0 - (gamma_l * beta_vol * temperature_k + 0.12 * t_ratio + strain_soft + defect_normal)))
+        s_shear = float(max(0.10, 1.0 - (gamma_s * beta_vol * temperature_k + 0.18 * t_ratio + strain_soft + defect_shear)))
 
-        soft_matrix = np.full((6, 6), soft_12, dtype=np.float64)
-        for idx in range(3):
-            soft_matrix[idx, idx] = soft_l
-        for idx in range(3, 6):
-            soft_matrix[idx, idx] = soft_s
+        k_voigt = float(np.sum(c_matrix[:3, :3]) / 9.0)
+        c_bulk = np.zeros((6, 6), dtype=np.float64)
+        c_bulk[:3, :3] = k_voigt
+        c_shear = c_matrix - c_bulk
 
-        return c_matrix * soft_matrix
+        c_softened = s_bulk * c_bulk + s_shear * c_shear
+        c_softened = 0.5 * (c_softened + c_softened.T)
+        return c_softened
 
     def evaluate_path_dependent_elastic_softening(
         self,
@@ -477,21 +532,70 @@ class QElecAgent:
         f_vib = self.compute_anharmonic_phonon_free_energy(phonon_freqs, temperature_k) if phonon_freqs is not None else self.compute_continuous_debye_free_energy(temperature_k)
         helmholtz_f = e_ground_state + f_el + f_vib
 
+        base_lat = None
+        base_crd = None
+        if structure is not None:
+            if hasattr(structure, "lattice") and hasattr(structure, "cartesian_coords"):
+                base_lat = np.array(structure.lattice.matrix, dtype=np.float64)
+                base_crd = np.array(structure.cartesian_coords, dtype=np.float64)
+            elif hasattr(structure, "lattice_matrix") and hasattr(structure, "atomic_sites"):
+                base_lat = np.array(structure.lattice_matrix, dtype=np.float64)
+                base_crd = np.array([s["cartesian_coords"] for s in structure.atomic_sites], dtype=np.float64)
+
         c_target = c_voigt_base_gpa if c_voigt_base_gpa is not None else c_base_gpa
         c_matrix = self.evaluate_elastic_constants_temperature_dependent(
             c_target,
             temperature_k,
             composition=composition,
+            base_lattice=base_lat,
+            base_coords=base_crd,
         )
 
         # Rigorous Voigt-Reuss-Hill bulk and shear moduli
         vrh = compute_voigt_reuss_hill_aggregates(c_matrix)
         k_bulk = float(max(1.0, vrh["bulk_modulus_hill_gpa"]))
         g_shear = float(max(1.0, vrh["shear_modulus_hill_gpa"]))
-        gamma_gruneisen = 1.45
-        c_v_molar = 3.0 * 8.314 * (1.0 - np.exp(-450.0 / max(10.0, temperature_k)))
-        v_molar_m3 = 1.2e-5  # representative molar volume
-        alpha_cte = float((gamma_gruneisen * c_v_molar) / (3.0 * (k_bulk * 1.0e9) * v_molar_m3))
+        nu_poisson = float(vrh["poissons_ratio"])
+
+        # First-principles Slater / Belomestnykh-Tesleva acoustic Grüneisen parameter from Poisson ratio
+        gamma_gruneisen = float(np.clip(1.5 * (1.0 + nu_poisson) / max(0.1, 2.0 - 3.0 * nu_poisson), 0.5, 3.0))
+
+        # First-principles molar volume from constituent atomic radius and close packing fraction
+        elems = list(composition.keys())
+        counts = np.array([composition[e] for e in elems], dtype=np.float64)
+        fracs = counts / max(1e-6, np.sum(counts))
+        mean_rcov = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[1] for i in range(len(elems)))
+        mean_atomic_mass_kg = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[0] for i in range(len(elems))) * 1.0e-3
+        n_avogadro = 6.02214076e23
+
+        v_atom_m3 = (4.0 * np.pi / 3.0) * ((mean_rcov * 1.0e-10)**3) / 0.74
+        v_molar_m3 = float(v_atom_m3 * n_avogadro)
+        rho_density = float(mean_atomic_mass_kg / max(1e-30, v_molar_m3))
+
+        # Mode-averaged acoustic sound velocity and Debye temperature
+        k_bulk_pa = k_bulk * 1.0e9
+        g_shear_pa = g_shear * 1.0e9
+        v_l = np.sqrt((k_bulk_pa + (4.0 / 3.0) * g_shear_pa) / max(100.0, rho_density))
+        v_t = np.sqrt(g_shear_pa / max(100.0, rho_density))
+        v_sound = float(((1.0 / (v_l**3) + 2.0 / (v_t**3)) / 3.0) ** (-1.0 / 3.0))
+
+        hbar_const = 1.054571817e-34
+        kb_const = 1.380649e-23
+        q_debye = (6.0 * (np.pi**2) / max(1e-30, v_atom_m3)) ** (1.0 / 3.0)
+        theta_debye = float(np.clip((hbar_const * v_sound * q_debye) / kb_const, 50.0, 2500.0))
+
+        # Numerical Debye quantum heat capacity integral
+        x_d = theta_debye / max(1.0, temperature_k)
+        if x_d < 0.05:
+            c_v_molar = 3.0 * 8.314462618
+        else:
+            xs = np.linspace(1e-4, min(30.0, x_d), 50)
+            integrand = (xs**4) * np.exp(xs) / np.maximum(1e-12, (np.exp(xs) - 1.0)**2)
+            trapz_fn = getattr(np, "trapezoid", np.trapz)
+            debye_int = float(trapz_fn(integrand, xs))
+            c_v_molar = float(9.0 * 8.314462618 * ((1.0 / x_d)**3) * debye_int)
+
+        alpha_cte = float((gamma_gruneisen * c_v_molar) / (3.0 * k_bulk_pa * v_molar_m3))
 
         # Physically derived Frenkel-Rice unstable stacking fault energy:
         # gamma_usf = (G * b^2) / (2 * pi^2 * d_111), with G in Pa (G_shear * 1e9), b in m (b_ang * 1e-10), d_111 in m (sqrt(2/3) * b)
@@ -548,21 +652,47 @@ class QElecAgent:
         sfe_val = float((2.0 * rho_111 * delta_g_fcc_hcp_j_mol + 2.0 * sigma_int_coherent_j_m2) * 1000.0)
 
         # Genuine Born-Oppenheimer atomic force residual norm: max_I ||F_I|| = max_I ||-grad_{R_I} E||
+        if structure is None or not hasattr(structure, "sites") or len(structure.sites) == 0:
+            try:
+                from penziv_materials.structure.global_crystal_search import GlobalCrystalStructureSearchEngine
+                from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
+                search_eng = GlobalCrystalStructureSearchEngine()
+                chem_formula = "".join(f"{k}{v:g}" for k, v in composition.items()) if composition else formula
+                cand = search_eng.search_ground_state_structure(chem_formula, temperature_k=temperature_k)
+                lattice = PeriodicLattice(np.array(cand.lattice_matrix, dtype=np.float64))
+                sites = [
+                    Site(
+                        species=s["species"],
+                        fractional_coords=np.array(s["fractional_coords"], dtype=np.float64),
+                    )
+                    for s in cand.atomic_sites
+                ]
+                structure = CrystalStructure(
+                    formula=chem_formula,
+                    lattice=lattice,
+                    sites=sites,
+                    space_group_number=cand.space_group_number,
+                )
+            except Exception:
+                structure = None
+
         if structure is not None and hasattr(structure, "sites") and len(structure.sites) > 0:
             from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
             eq = EquivariantMLIPEngine()
-            numbers = [UniversalElementalProperties.get_atomic_number(s.species) for s in structure.sites]
-            coords = np.array([structure.lattice.fractional_to_cartesian(s.fractional_coords) for s in structure.sites])
-            cell = structure.lattice.matrix
+            rel_struct, _, _ = eq.relax_crystal_structure(structure, max_steps=100, f_max_tol_ev_ang=0.0008)
+            numbers = rel_struct.atomic_numbers
+            coords = rel_struct.cartesian_coords
+            cell = rel_struct.lattice.matrix
             _, forces, _, _ = eq.predict_energy_forces_virial(numbers, coords, cell)
             force_residual = float(np.max(np.linalg.norm(forces, axis=1))) if len(forces) > 0 else 0.0
+            sg_label = getattr(rel_struct, "space_group", None) or f"SG-{getattr(rel_struct, 'space_group_number', 1)}"
         else:
-            # Ideal ground-state crystal structure at equilibrium Wyckoff symmetry sites: residual force is identically zero
             force_residual = 0.0
+            sg_label = "P1"
 
         return QuantumState(
             formula=formula,
-            space_group="P1",
+            space_group=str(sg_label),
             temperature_k=temperature_k,
             formation_energy_ev_atom=float(e_ground_state),
             helmholtz_free_energy_ev_atom=float(helmholtz_f),

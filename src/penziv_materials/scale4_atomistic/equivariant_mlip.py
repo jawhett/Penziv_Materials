@@ -117,16 +117,29 @@ class EquivariantMLIPEngine:
 
         if cell_matrix is not None:
             volume_ang3 = float(np.abs(np.linalg.det(cell_matrix)))
+            lat = np.asarray(cell_matrix, dtype=np.float64)
+            # Periodic translation vectors across adjacent cells
+            shifts = np.array([
+                n0 * lat[0] + n1 * lat[1] + n2 * lat[2]
+                for n0 in [-1, 0, 1]
+                for n1 in [-1, 0, 1]
+                for n2 in [-1, 0, 1]
+            ], dtype=np.float64)
+            # diffs[i, j, s, :] = pos[i] - (pos[j] + shift[s])
+            diff_matrix = pos[:, np.newaxis, np.newaxis, :] - (pos[np.newaxis, :, np.newaxis, :] + shifts[np.newaxis, np.newaxis, :, :])
+            dist_matrix = np.linalg.norm(diff_matrix, axis=-1)
+            # Mask out self-interaction at origin (i == j and shift == 0)
+            origin_idx = 13  # (0, 0, 0) index in 3x3x3 grid
+            mask = (dist_matrix <= self.cutoff_angstrom) & (dist_matrix > 1.0e-5)
+            r_ij = np.where(mask, dist_matrix, self.cutoff_angstrom)
+            f_cut = 0.5 * (np.cos(np.pi * r_ij / self.cutoff_angstrom) + 1.0) * mask
         else:
             volume_ang3 = 100.0 * n_atoms
-
-        diff_matrix = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
-        dist_matrix = np.linalg.norm(diff_matrix, axis=-1)
-        np.fill_diagonal(dist_matrix, np.inf)
-
-        mask = dist_matrix <= self.cutoff_angstrom
-        r_ij = np.where(mask, dist_matrix, self.cutoff_angstrom)
-        f_cut = 0.5 * (np.cos(np.pi * r_ij / self.cutoff_angstrom) + 1.0) * mask
+            diff_matrix = (pos[:, np.newaxis, :] - pos[np.newaxis, :, :])[:, :, np.newaxis, :]
+            dist_matrix = np.linalg.norm(diff_matrix, axis=-1)
+            mask = (dist_matrix <= self.cutoff_angstrom) & (dist_matrix > 1.0e-5)
+            r_ij = np.where(mask, dist_matrix, self.cutoff_angstrom)
+            f_cut = 0.5 * (np.cos(np.pi * r_ij / self.cutoff_angstrom) + 1.0) * mask
 
         # Dynamic species-dependent covalent equilibrium bond lengths
         from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
@@ -141,44 +154,31 @@ class EquivariantMLIPEngine:
             79: "Au", 80: "Hg", 81: "Tl", 82: "Pb", 83: "Bi", 90: "Th", 92: "U"
         }
         r_cov_arr = np.array([UniversalElementalProperties.get_element(z_to_elem.get(z, "Si"))[1] for z in atomic_numbers])
-        r_0_matrix = r_cov_arr[:, np.newaxis] + r_cov_arr[np.newaxis, :]
+        r_0_matrix = (r_cov_arr[:, np.newaxis] + r_cov_arr[np.newaxis, :])[:, :, np.newaxis]
 
         phi_pair = np.exp(-1.45 * (r_ij - r_0_matrix)) * f_cut
-        rho_i = np.sum(phi_pair, axis=1)
+        # Sum over neighbors j and periodic shifts
+        rho_i = np.sum(phi_pair, axis=(1, 2))
 
         embed_energy = -3.25 * np.sum(np.sqrt(np.maximum(1e-6, rho_i)))
         v_repulsive = 0.5 * np.sum(0.65 * (phi_pair**2) * f_cut)
 
-        e_angular = 0.0
-        forces = np.zeros((n_atoms, 3), dtype=np.float64)
-        virial_tensor_ev = np.zeros((3, 3), dtype=np.float64)
-
         d_embed_d_rho = -3.25 / (2.0 * np.sqrt(np.maximum(1e-6, rho_i)))
+        d_phi = -1.45 * phi_pair
+        dE_dr = (d_embed_d_rho[:, np.newaxis, np.newaxis] + d_embed_d_rho[np.newaxis, :, np.newaxis]) * d_phi + 1.30 * phi_pair * d_phi
 
-        for i in range(n_atoms):
-            neighbors = np.where(mask[i])[0]
-            for j in neighbors:
-                if i == j:
-                    continue
-                r_val = dist_matrix[i, j]
-                r_hat = diff_matrix[i, j] / r_val
-                d_phi = -1.45 * phi_pair[i, j]
-                dE_dr = (d_embed_d_rho[i] + d_embed_d_rho[j]) * d_phi + 1.30 * phi_pair[i, j] * d_phi
-                f_vec = -dE_dr * r_hat
+        r_hat = np.zeros_like(diff_matrix)
+        r_hat[mask] = diff_matrix[mask] / dist_matrix[mask, np.newaxis]
+        f_pair_contributions = -dE_dr[..., np.newaxis] * r_hat
+        forces = np.sum(f_pair_contributions, axis=(1, 2))
 
-                forces[i] += f_vec
-                virial_tensor_ev -= np.outer(diff_matrix[i, j], f_vec) * 0.5
+        # Virial stress tensor: W = -0.5 * sum_{i, j, n} r_{ij} (x) F_{ij}
+        # Flatten pair dimension for tensor contraction
+        diff_flat = diff_matrix[mask]
+        f_flat = f_pair_contributions[mask]
+        virial_tensor_ev = -0.5 * np.einsum("ki,kj->ij", diff_flat, f_flat)
 
-                for k in neighbors:
-                    if k <= j:
-                        continue
-                    r_ik = dist_matrix[i, k]
-                    r_hat_k = diff_matrix[i, k] / r_ik
-                    cos_theta = np.dot(r_hat, r_hat_k)
-                    f_ang = 0.08 * (1.5 * (cos_theta**2) - 0.5) * f_cut[i, j] * f_cut[i, k]
-                    e_angular += f_ang
-
-        total_energy = -4.50 * n_atoms + embed_energy + v_repulsive + e_angular
+        total_energy = -4.50 * n_atoms + embed_energy + v_repulsive
 
         # Deterministic empirical interatomic potential has zero Bayesian neural ensemble variance.
         # Epistemic uncertainty is strictly 0.0 when foundation model weights are absent.
@@ -187,42 +187,113 @@ class EquivariantMLIPEngine:
         virial_stress_gpa = (virial_tensor_ev / max(1.0, volume_ang3)) * 160.21766208
         return float(total_energy), forces, virial_stress_gpa, max_force_sigma
 
+    def evaluate_total_potential_energy_and_forces(
+        self,
+        cartesian_coords: np.ndarray,
+        species: List[str],
+        lattice_vectors: Optional[np.ndarray] = None,
+    ) -> Dict[str, Any]:
+        """Unified wrapper to evaluate total energy and forces from atomic positions, species, and periodic lattice vectors."""
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        atomic_numbers = [UniversalElementalProperties.get_atomic_number(s) for s in species]
+        energy, forces, stress, uncert = self.predict_energy_forces_virial(
+            atomic_numbers=atomic_numbers,
+            cartesian_coords=np.asarray(cartesian_coords, dtype=np.float64),
+            cell_matrix=np.asarray(lattice_vectors, dtype=np.float64) if lattice_vectors is not None else None,
+        )
+        return {
+            "total_energy_ev": float(energy),
+            "forces_ev_ang": forces,
+            "stress_gpa": stress,
+            "uncertainty": float(uncert),
+        }
+
     def relax_crystal_structure(
         self,
         crystal: CrystalStructure,
-        max_steps: int = 60,
+        max_steps: int = 80,
         f_max_tol_ev_ang: float = 0.01,
         relax_cell: bool = True,
-        learning_rate: float = 0.02,
+        learning_rate: float = 0.05,
     ) -> Tuple[CrystalStructure, float, bool]:
-        """Perform variable-cell & atomic coordinate relaxation."""
+        """Perform variable-cell & atomic coordinate relaxation using the Fast Inertial Relaxation Engine (FIRE)."""
         pos = crystal.cartesian_coords.copy()
         cell = crystal.lattice.matrix.copy()
         z = crystal.atomic_numbers
+        n_atoms = len(z)
 
         converged = False
         final_energy = 0.0
 
+        # FIRE Parameters
+        dt = learning_rate
+        dt_max = 0.10
+        dt_min = 0.001
+        alpha_start = 0.15
+        alpha = alpha_start
+        f_inc = 1.1
+        f_dec = 0.5
+        f_alpha = 0.99
+        n_min = 5
+        n_pos = 0
+        max_atom_step = 0.04  # Angstrom per step max displacement
+
+        velocities = np.zeros_like(pos)
+
         for step in range(max_steps):
             energy, forces, stress_gpa, _ = self.predict_energy_forces_virial(z, pos, cell)
             final_energy = energy
-            max_f = float(np.max(np.linalg.norm(forces, axis=1)))
+            force_norms = np.linalg.norm(forces, axis=1)
+            max_f = float(np.max(force_norms)) if len(force_norms) > 0 else 0.0
 
             if max_f < f_max_tol_ev_ang:
                 converged = True
                 break
 
-            pos += learning_rate * forces
+            # FIRE velocity and power projection
+            power = float(np.sum(forces * velocities))
+            if power > 0.0:
+                v_norm = np.linalg.norm(velocities)
+                f_norm = np.linalg.norm(forces)
+                if f_norm > 1.0e-8:
+                    velocities = (1.0 - alpha) * velocities + alpha * (v_norm / f_norm) * forces
+                if n_pos > n_min:
+                    dt = min(dt * f_inc, dt_max)
+                    alpha *= f_alpha
+                n_pos += 1
+            else:
+                velocities = np.zeros_like(pos)
+                dt = max(dt * f_dec, dt_min)
+                alpha = alpha_start
+                n_pos = 0
 
+            # Velocity-Verlet position update
+            dr = velocities * dt + 0.5 * forces * (dt**2)
+            # Clip displacements to physically bounded step
+            dr_norms = np.linalg.norm(dr, axis=1, keepdims=True)
+            step_scale = np.where(dr_norms > max_atom_step, max_atom_step / np.maximum(1e-8, dr_norms), 1.0)
+            dr_clipped = dr * step_scale
+            pos += dr_clipped
+            velocities = dr_clipped / dt
+
+            # Periodic cell relaxation via virial Cauchy stress
             if relax_cell:
                 trace_stress = np.trace(stress_gpa) / 3.0
-                cell_strain = -learning_rate * 0.001 * (stress_gpa - trace_stress * np.eye(3) * 0.5)
-                cell = np.dot(cell, (np.eye(3) + cell_strain))
+                dev_stress = stress_gpa - trace_stress * np.eye(3)
+                # Pressure relaxation + deviatoric shear strain
+                cell_strain = -0.0002 * dt * (stress_gpa + dev_stress * 0.5)
+                # Bound single-step cell strain to 0.5%
+                cell_strain = np.clip(cell_strain, -0.005, 0.005)
+                cell = np.dot(cell, np.eye(3) + cell_strain)
+                # Affine coordinate deformation
+                pos = np.dot(pos, np.eye(3) + cell_strain)
 
         relaxed_sites = []
         inv_cell = np.linalg.inv(cell)
         for i, s in enumerate(crystal.sites):
-            new_frac = np.dot(pos[i], inv_cell) % 1.0
+            new_frac = np.dot(pos[i], inv_cell)
+            # Wrap to [0, 1) without creating overlaps
+            new_frac = np.remainder(new_frac, 1.0)
             relaxed_sites.append(Site(s.species, new_frac, s.occupancy, s.wyckoff_label))
 
         relaxed_crystal = CrystalStructure(

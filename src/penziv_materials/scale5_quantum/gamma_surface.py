@@ -109,13 +109,33 @@ class TwoDimensionalGammaSurfaceEngine:
         interplanar_spacing_angstrom: float = 2.08,
         gamma_usf_multiplier: float = 1.0,
         lattice_constant_angstrom: float = 3.615,
-        species: str = "Cu",
+        species: Optional[Any] = None,
+        composition: Optional[Dict[str, float]] = None,
         relax_z: bool = True,
         relax_z_steps: int = 15,
     ) -> Dict[str, Any]:
         """Compute the 2D energy landscape gamma(u_1, u_2) (mJ/m^2) by shearing supercell crystal slabs with z-relaxation."""
-        a = lattice_constant_angstrom
-        d_hkl = interplanar_spacing_angstrom
+        # Dynamic ground-state lattice constant and interplanar spacing from composition
+        if composition is not None and len(composition) > 0:
+            from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+            c_elems = list(composition.keys())
+            c_counts = [float(composition[e]) for e in c_elems]
+            tot = max(1e-6, sum(c_counts))
+            mean_r = sum((c / tot) * UniversalElementalProperties.get_element(e)[1] for e, c in zip(c_elems, c_counts))
+            if abs(lattice_constant_angstrom - 3.615) < 1e-4:
+                # Dynamic FCC / close-packed cubic lattice constant a = 2 * sqrt(2) * r_atom
+                a = float(2.0 * np.sqrt(2.0) * mean_r)
+            else:
+                a = lattice_constant_angstrom
+
+            if abs(interplanar_spacing_angstrom - 2.08) < 1e-4:
+                h, k, l = miller_plane
+                d_hkl = float(a / np.sqrt(max(1, h**2 + k**2 + l**2)))
+            else:
+                d_hkl = interplanar_spacing_angstrom
+        else:
+            a = lattice_constant_angstrom
+            d_hkl = interplanar_spacing_angstrom
 
         # Standard close-packed in-plane slip vectors if not explicitly given
         if slip_basis_1 is None:
@@ -143,9 +163,26 @@ class TwoDimensionalGammaSurfaceEngine:
             [0.0, 0.0, z_height],
         ])
 
+        # Resolve species distribution matching candidate stoichiometry
+        total_sites = n_layers * 4
+        rng = np.random.default_rng(42)
+        if composition is not None and len(composition) > 0:
+            c_elems = list(composition.keys())
+            c_counts = [float(composition[e]) for e in c_elems]
+            tot = sum(c_counts)
+            p_dist = [c / tot for c in c_counts]
+            site_species_pool = [c_elems[int(rng.choice(len(c_elems), p=p_dist))] for _ in range(total_sites)]
+        elif isinstance(species, (list, tuple)) and len(species) > 0:
+            site_species_pool = [species[k % len(species)] for k in range(total_sites)]
+        elif isinstance(species, str) and species:
+            site_species_pool = [species] * total_sites
+        else:
+            site_species_pool = ["Cu"] * total_sites
+
         # Generate atomic coordinates in unrelaxed slab
         coords = []
         species_list = []
+        site_idx = 0
         for layer in range(n_layers):
             z_pos = layer * d_hkl + 2.0
             shift_x = (layer % 3) * (np.linalg.norm(b1) / 3.0)
@@ -155,7 +192,8 @@ class TwoDimensionalGammaSurfaceEngine:
                     x_pos = (ix * 0.5 * np.linalg.norm(b1) + shift_x) % np.linalg.norm(b1)
                     y_pos = (iy * 0.5 * np.linalg.norm(b2) + shift_y) % np.linalg.norm(b2)
                     coords.append([x_pos, y_pos, z_pos])
-                    species_list.append(species)
+                    species_list.append(site_species_pool[site_idx])
+                    site_idx += 1
 
         coords_arr = np.array(coords)
         n_atoms = len(coords_arr)
@@ -205,7 +243,26 @@ class TwoDimensionalGammaSurfaceEngine:
             b_m = b_norm * 1.0e-10
             d_m = d_hkl * 1.0e-10
             gamma_usf_physical = ((g_pa * (b_m**2)) / (2.0 * (np.pi**2) * d_m)) * 1000.0 * gamma_usf_multiplier
-            gamma_sfe_physical = 0.28 * gamma_usf_physical
+            if composition is not None and len(composition) > 0:
+                # Olson-Cohen / SGTE thermodynamic model:
+                # gamma_SFE = 2 * rho_111 * Delta G^(FCC->HCP) + 2 * sigma^(FCC/HCP)
+                n_avogadro = 6.02214076e23
+                rho_111 = 1.0 / (np.sqrt(3.0) * (b_m**2) * n_avogadro)
+                sgte_thermo_fcc_hcp = {
+                    "Fe": -1140.0, "Ni": 1046.0, "Cr": 4000.0, "Co": -450.0, "Mn": 3500.0,
+                    "Cu": 1200.0, "Al": 5400.0, "Ti": -2000.0, "Zr": -3000.0, "V": 3000.0,
+                    "Nb": 4000.0, "Mo": 5000.0, "W": 6000.0, "Sc": -2500.0, "Y": -3000.0,
+                    "Mg": -1500.0, "Zn": -2000.0, "Si": 10000.0, "C": 15000.0, "Ag": 300.0,
+                    "Au": 1500.0, "Pt": 2000.0, "Pd": 1000.0, "Ta": 4500.0, "Ru": -1800.0,
+                }
+                c_elems = list(composition.keys())
+                c_cnts = [float(composition[e]) for e in c_elems]
+                c_tot = max(1e-6, sum(c_cnts))
+                delta_g = sum((cnt / c_tot) * sgte_thermo_fcc_hcp.get(e, 1500.0) for e, cnt in zip(c_elems, c_cnts))
+                sigma_int = 10.0e-3  # J/m^2 interfacial energy
+                gamma_sfe_physical = float(np.clip((2.0 * rho_111 * delta_g + 2.0 * sigma_int) * 1000.0, 5.0, gamma_usf_physical * 0.85))
+            else:
+                gamma_sfe_physical = float(gamma_usf_physical / 3.0)
             U1, U2 = np.meshgrid(u_vals, u_vals, indexing="ij")
             gamma_grid = (
                 gamma_usf_physical * (np.sin(np.pi * U1)**2 * np.cos(np.pi * U2)**2 + 0.5 * np.sin(2.0 * np.pi * U2)**2)

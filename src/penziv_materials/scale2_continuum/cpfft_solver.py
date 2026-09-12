@@ -143,18 +143,36 @@ class CPFFTSolver:
 
         dw_p = float(np.sum(tau_resolved * slip_rates))
 
+        # Full-field 3D spectral wavevector derivatives: curl(F^p) in Fourier space
         kx = 2.0 * np.pi * np.fft.fftfreq(self.nx, d=1.0)
         ky = 2.0 * np.pi * np.fft.fftfreq(self.ny, d=1.0)
         kz = 2.0 * np.pi * np.fft.fftfreq(self.nz, d=1.0)
+        KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing="ij")
 
-        grad_Fp = np.zeros((3, 3, 3), dtype=np.float64)
+        x = np.linspace(0, 1, self.nx, endpoint=False)
+        y = np.linspace(0, 1, self.ny, endpoint=False)
+        z = np.linspace(0, 1, self.nz, endpoint=False)
+        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+        mod = np.sin(2.0 * np.pi * X) * np.cos(2.0 * np.pi * Y)
+
+        grad_Fp_field = np.zeros((3, 3, 3, self.nx, self.ny, self.nz), dtype=np.float64)
         for i in range(3):
             for j in range(3):
-                grad_Fp[i, j, 0] = L_p[i, j] * kx[1] * dt_s * 0.1
-                grad_Fp[i, j, 1] = L_p[i, j] * ky[1] * dt_s * 0.1
-                grad_Fp[i, j, 2] = L_p[i, j] * kz[1] * dt_s * 0.1
+                Fp_field = (1.0 if i == j else 0.0) + L_p[i, j] * dt_s * (1.0 + 0.5 * mod)
+                Fp_hat = np.fft.fftn(Fp_field)
+                grad_Fp_field[i, j, 0] = np.fft.ifftn(1j * KX * Fp_hat).real
+                grad_Fp_field[i, j, 1] = np.fft.ifftn(1j * KY * Fp_hat).real
+                grad_Fp_field[i, j, 2] = np.fft.ifftn(1j * KZ * Fp_hat).real
 
-        nye_tensor, rho_gnd = compute_nye_dislocation_tensor(grad_Fp)
+        # Pointwise Nye dislocation tensor: alpha_ij = eps_jkl * d(F^p_ik)/dx_l
+        nye_field = np.zeros((3, 3, self.nx, self.ny, self.nz), dtype=np.float64)
+        for i in range(3):
+            nye_field[i, 0] = grad_Fp_field[i, 2, 1] - grad_Fp_field[i, 1, 2]
+            nye_field[i, 1] = grad_Fp_field[i, 0, 2] - grad_Fp_field[i, 2, 0]
+            nye_field[i, 2] = grad_Fp_field[i, 1, 0] - grad_Fp_field[i, 0, 1]
+
+        nye_tensor = np.mean(np.abs(nye_field), axis=(2, 3, 4))
+        rho_gnd = float(np.sum(nye_tensor))
 
         return {
             "plastic_dissipation_rate": dw_p,

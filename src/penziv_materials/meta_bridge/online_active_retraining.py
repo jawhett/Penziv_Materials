@@ -47,12 +47,29 @@ class OnlineActiveRetrainingWorkflow:
         np.fill_diagonal(dists, np.inf)
 
         min_dists = np.min(dists, axis=1)
+        # Dynamic species-dependent covalent equilibrium bond lengths
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        z_to_elem = {
+            1: "H", 2: "He", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F", 10: "Ne",
+            11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P", 16: "S", 17: "Cl", 18: "Ar",
+            19: "K", 20: "Ca", 21: "Sc", 22: "Ti", 23: "V", 24: "Cr", 25: "Mn", 26: "Fe",
+            27: "Co", 28: "Ni", 29: "Cu", 30: "Zn", 31: "Ga", 32: "Ge", 33: "As", 34: "Se", 35: "Br", 36: "Kr",
+            37: "Rb", 38: "Sr", 39: "Y", 40: "Zr", 41: "Nb", 42: "Mo", 43: "Tc", 44: "Ru", 45: "Rh", 46: "Pd",
+            47: "Ag", 48: "Cd", 49: "In", 50: "Sn", 51: "Sb", 52: "Te", 53: "I", 54: "Xe",
+            55: "Cs", 56: "Ba", 57: "La", 72: "Hf", 73: "Ta", 74: "W", 75: "Re", 76: "Os", 77: "Ir", 78: "Pt",
+            79: "Au", 80: "Hg", 81: "Tl", 82: "Pb", 83: "Bi", 90: "Th", 92: "U"
+        }
+        r_cov = np.array([UniversalElementalProperties.get_element(z_to_elem.get(z, "Si"))[1] for z in atomic_numbers])
+        nearest_neighbors = np.argmin(dists, axis=1)
+        d_eq = r_cov + r_cov[nearest_neighbors]
+
         # Anomalous compression or severe stretching increases epistemic variance
-        distortion = np.abs(min_dists - 2.45)
-        force_var = float(0.005 + 0.025 * np.max(distortion))
+        distortion = np.abs(min_dists - d_eq)
+        rel_distortion = distortion / np.maximum(1e-4, d_eq)
+        force_var = float(0.005 + 0.06 * np.max(rel_distortion))
 
         # GMM NLL density
-        gmm_nll = float(5.0 + 4.0 * np.mean(distortion))
+        gmm_nll = float(5.0 + 12.0 * np.mean(rel_distortion))
 
         is_ood = (force_var > self.var_thresh) or (gmm_nll > self.nll_thresh)
         reasons = []

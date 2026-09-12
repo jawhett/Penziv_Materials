@@ -342,15 +342,22 @@ class ThermomechanicalHistoryEngine:
         base_youngs_modulus_gpa: float,
         history: ThermomechanicalHistoryParameters,
         lattice_friction_stress_mpa: Optional[float] = None,
+        bulk_modulus_gpa: Optional[float] = None,
+        shear_modulus_gpa: Optional[float] = None,
+        pugh_ratio: Optional[float] = None,
     ) -> ThermomechanicalPropertyResponse:
         """Compute full physical property alterations conditioned on thermomechanical route via continuous ISVs."""
         route = history.route
         E_gpa = base_youngs_modulus_gpa
         E_pa = E_gpa * 1.0e9
-        G_pa = E_pa / (2.0 * (1.0 + self.nu))
-        
+        G_gpa = shear_modulus_gpa if shear_modulus_gpa is not None else (E_gpa / (2.0 * (1.0 + self.nu)))
+        G_pa = G_gpa * 1.0e9
+        K_gpa = bulk_modulus_gpa if bulk_modulus_gpa is not None else (E_gpa / (3.0 * (1.0 - 2.0 * self.nu)))
+        p_ratio = float(pugh_ratio if pugh_ratio is not None else (K_gpa / max(1.0, G_gpa)))
+
         # Friction stress sigma_0 (Peierls-Nabarro + solid solution baseline)
         sigma_0 = lattice_friction_stress_mpa or max(50.0, base_yield_strength_mpa * 0.70)
+        is_brittle = (p_ratio < 1.75) or (sigma_0 > 2500.0)
 
         # 1. Integrate Continuous Internal State Variables
         if route == ProcessingRoute.ANNEALED_RECRYSTALLIZED:
@@ -361,9 +368,10 @@ class ThermomechanicalHistoryEngine:
             sigma_res_mpa = 0.0
             void_frac = max(1e-5, history.void_volume_fraction)
             k_surf = 1.0
-            n_exp = 0.28
-            eps_u = 38.0
-            eps_f = 52.0
+            n_exp = 0.05 if is_brittle else 0.28
+            # Considere criterion: uniform elongation = 100 * n_exp for ductile, <1% for brittle
+            eps_u = float(np.clip(0.3 * (p_ratio / 1.75), 0.05, 0.8)) if is_brittle else float(100.0 * n_exp)
+            eps_f = float(np.clip(0.5 * (p_ratio / 1.75), 0.1, 1.2)) if is_brittle else float(eps_u * (1.50 + 0.15 * max(0.0, p_ratio - 1.75)))
 
         elif route == ProcessingRoute.COLD_WORKED_50PCT:
             strain_50 = 0.693  # ln(1 / (1 - 0.50))
@@ -385,6 +393,7 @@ class ThermomechanicalHistoryEngine:
             eps_f = 14.0
 
         elif route == ProcessingRoute.SOLUTION_TREATED_PEAK_AGED_T6:
+            # Physical solution treatment followed by peak aging (Orowan looping regime)
             d_um = 30.0
             rho_disl = 4.0e13
             f_v = 0.18
@@ -477,8 +486,11 @@ class ThermomechanicalHistoryEngine:
 
         # 4. Fracture Toughness K_Ic & Plastic Zone Size
         gamma_surface_j_m2 = 2.2
-        gamma_plastic_dissipation = 3200.0 * ((eps_f / 30.0) ** 1.6) * (600.0 / max(200.0, sigma_y))
-        gamma_eff = gamma_surface_j_m2 * (1.0 + gamma_plastic_dissipation)
+        if not is_brittle and eps_f > 2.0:
+            gamma_plastic_dissipation = 3200.0 * ((eps_f / 30.0) ** 1.6) * (600.0 / max(200.0, sigma_y))
+            gamma_eff = gamma_surface_j_m2 * (1.0 + gamma_plastic_dissipation)
+        else:
+            gamma_eff = 2.0 * gamma_surface_j_m2
 
         k_ic_pa_sqrt_m = np.sqrt((2.0 * E_pa * gamma_eff) / max(0.1, 1.0 - self.nu**2))
         k_ic = float(max(1.0, k_ic_pa_sqrt_m * 1.0e-6))

@@ -43,6 +43,7 @@ class MetaOrchestrator:
         applied_stress_mpa: Optional[float] = None,
         precipitate_vol_frac: float = 0.55,
         crystal_system: CrystalSystem = CrystalSystem.CUBIC,
+        structure: Optional[Any] = None,
     ) -> MaterialCandidate:
         """Execute forward scale-bridging from Scale 5 down to Scale 1."""
         stress_val = applied_stress_mpa if applied_stress_mpa is not None else 250.0
@@ -52,6 +53,7 @@ class MetaOrchestrator:
             formula=candidate_name,
             composition=composition,
             temperature_k=target_temperature_k,
+            structure=structure,
         )
         c_voigt_matrix = np.array(q_state.c_voigt_gpa)
 
@@ -59,10 +61,12 @@ class MetaOrchestrator:
         atom_state = self.atom_dyn.execute_atomistic_evaluation(
             temperature_k=target_temperature_k,
             composition=composition,
+            crystal_structure=structure,
         )
 
         # 3. Scale 3: Mesoscale Dislocation Dynamics & Phase Field
         meso_state = self.meso_disloc.execute_mesoscale_evaluation(
+            composition=composition,
             temperature_k=target_temperature_k,
             c_voigt_gpa=c_voigt_matrix,
             gamma_sfe_mj_m2=q_state.sro_stacking_fault_energy_mj_m2,

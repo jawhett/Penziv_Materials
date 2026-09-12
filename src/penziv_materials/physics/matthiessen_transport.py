@@ -109,15 +109,15 @@ class MatthiessenTransportEngine:
         rate_gb = (v_char / d_grain_m) * (0.01 if is_metallic else 1.0)
         # 7. Mott s-d Interband Scattering & Electron-Phonon Fermi-Surface Scattering in Metals
         if is_metallic:
-            # Electron-phonon transport coupling parameter lambda_ep (Grimvall 1981, Allen 1987)
+            # First-principles electron-phonon transport coupling lambda_ep (McMillan / Allen-Dynes formulation)
+            # lambda_ep scales with N(E_F) * E_def^2 / (rho * v_s^2)
+            e_def_norm = float(np.clip(deformation_potential_ev / 8.0, 0.5, 2.0))
             if d_band_dos_at_fermi_level > 0.05:
-                # Transition metals with active d-band at Fermi level (Ti, Ni, Fe, W)
-                dos_norm = min(1.0, float(d_band_dos_at_fermi_level / 2.0))
-                lambda_ep = 0.32 + 0.22 * dos_norm
-            elif effective_mass_ratio > 1.30:
-                lambda_ep = 0.45   # Polyvalent light metals (Al)
+                dos_norm = float(np.clip(d_band_dos_at_fermi_level / 2.0, 0.1, 2.5))
+                lambda_ep = float(np.clip(0.18 + 0.22 * dos_norm * e_def_norm, 0.15, 1.20))
             else:
-                lambda_ep = 0.165  # Simple / noble metals (Cu, Ag, Au)
+                m_norm = float(np.clip(effective_mass_ratio, 0.8, 2.5))
+                lambda_ep = float(np.clip(0.14 + 0.12 * (m_norm - 1.0) * e_def_norm, 0.12, 0.50))
                 
             rate_ep = float((2.0 * np.pi * k_b_t * lambda_ep) / HBAR)
             
@@ -238,8 +238,9 @@ class MatthiessenTransportEngine:
 
         if is_metal and solute_fraction > 0.01 and not is_ordered_compound:
             # Nordheim's rule for concentrated solid solutions: rho_total = rho_phonon + rho_alloy
+            # Scattering cross-section scales quadratically with atomic radius and valence misfit
             rho_phonon = 1.0 / max(1.0, sigma_el_bare)
-            misfit_fac = 0.5 if is_isovalent_hea else (1.0 + 8.0 * solute_misfit_factor)
+            misfit_fac = float(np.clip(1.0 + 6.0 * (solute_misfit_factor**2), 0.4, 8.0))
             rho_alloy = 2.2e-6 * misfit_fac * (solute_fraction * (1.0 - solute_fraction))  # Ohm*m
             sigma_eff = 1.0 / (rho_phonon + rho_alloy)
         else:

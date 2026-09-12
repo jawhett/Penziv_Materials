@@ -55,29 +55,51 @@ class StateDrivenDAGOrchestrator:
         c_rank4_sym = np.asarray(el_tensor.voigt_symmetrized, dtype=np.float64)
 
         # 3. Transport and Domain-Specific Multiphysics Tier
+        k_bulk = float(getattr(el_tensor, "k_vrh", 120.0))
+        g_shear = float(getattr(el_tensor, "g_vrh", 60.0))
+
+        # First-principles acoustic sound velocities and Debye cutoff frequency
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        n_avogadro = 6.02214076e23
+        elems = list(composition.keys())
+        fracs = list(composition.values())
+        mean_mass_kg = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[0] for i in range(len(elems))) * 1.0e-3
+        mean_rcov = sum(fracs[i] * UniversalElementalProperties.get_element(elems[i])[1] for i in range(len(elems)))
+
+        v_atom_m3 = (4.0 * np.pi / 3.0) * ((mean_rcov * 1.0e-10)**3) / 0.74
+        v_cell_ang3 = float(v_atom_m3 * 1.0e30 * max(1, len(elems)))
+        rho_density = float(mean_mass_kg / max(1e-30, v_atom_m3 * n_avogadro))
+
+        v_l = np.sqrt(max(10.0, (k_bulk + 4.0 / 3.0 * g_shear) * 1.0e9) / max(100.0, rho_density))
+        v_t = np.sqrt(max(10.0, g_shear * 1.0e9) / max(100.0, rho_density))
+        v_sound = float(((1.0 / (v_l**3) + 2.0 / (v_t**3)) / 3.0) ** (-1.0 / 3.0))
+
+        omega_debye_rad_s = v_sound * ((6.0 * np.pi**2 / max(1e-30, v_atom_m3)) ** (1.0 / 3.0))
+        f_debye_thz = float(np.clip(omega_debye_rad_s / (2.0 * np.pi * 1.0e12), 2.0, 30.0))
+
         transport_engine = UnifiedThermalElectronicTransportEngine(temperature_k=T)
-        freqs = np.linspace(1.0, 15.0, 30)
-        linewidths = np.ones(30) * 0.35
-        vels = np.ones((30, 3)) * 3400.0
+        freqs = np.linspace(0.2, f_debye_thz, 30)
+        linewidths = np.ones(30) * float(0.10 + 0.25 * (T / 300.0))
+        vels = np.ones((30, 3)) * v_sound
 
         thermal_res = transport_engine.solve_dual_channel_peierls_wigner_thermal_conductivity(
             frequencies_thz=freqs,
             linewidths_thz=linewidths,
             diagonal_velocities_m_s=vels,
-            cell_volume_ang3=110.0,
+            cell_volume_ang3=v_cell_ang3,
         )
 
         e_grid = np.linspace(-2.0, 2.0, 50)
         dos = np.ones(50) * 1.8
         e_vels = np.ones((50, 3)) * 2.5e5
-        tau_e = np.ones(50) * 40.0
+        tau_e = np.ones(50) * float(40.0 * (300.0 / max(50.0, T)))
         el_res = transport_engine.solve_full_brillouin_zone_electronic_transport(
             energies_ev=e_grid,
             dos_states_ev=dos,
             band_velocities_m_s=e_vels,
             relaxation_times_fs=tau_e,
             fermi_energy_ev=0.0,
-            cell_volume_ang3=110.0,
+            cell_volume_ang3=v_cell_ang3,
         )
 
         # 4. CALPHAD-Coupled Grand Potential Phase Field & STZ Kinetics

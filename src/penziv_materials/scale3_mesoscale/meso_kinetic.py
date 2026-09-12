@@ -72,6 +72,8 @@ class MesoKineticAgent:
         precipitate_radius_nm: Optional[float] = None,
         temperature_k: float = 300.0,
         c_voigt_gpa: Optional[np.ndarray] = None,
+        cooling_rate_k_s: Optional[float] = None,
+        solidification_velocity_m_s: Optional[float] = None,
     ) -> MesoscaleState:
         """Execute Scale 3 mesoscale evaluation directly incorporating Phase-Field microstructure morphology."""
         if composition:
@@ -86,16 +88,33 @@ class MesoKineticAgent:
         tau_precip = self.compute_precipitate_strengthening(f_p=f_p, r_p_nm=r_p, shear_modulus_gpa=g_shear)
         tau_crss_total = tau_p_gpa + tau_precip
 
-        k_solute = self.compute_continuous_growth_solute_trapping(solidification_velocity_m_s=0.025)
+        v_sol = solidification_velocity_m_s if solidification_velocity_m_s is not None else 0.025
+        k_solute = self.compute_continuous_growth_solute_trapping(solidification_velocity_m_s=v_sol)
+
+        # Microstructure grain size from secondary dendrite spacing / cooling rate: d ~ A * (T_dot)^(-1/3)
+        if cooling_rate_k_s is not None and cooling_rate_k_s > 0.0:
+            d_grain_um = float(np.clip(50.0 * (cooling_rate_k_s ** (-1.0 / 3.0)), 0.5, 100.0))
+        else:
+            d_grain_um = float(np.clip(25.0 + 15.0 * (temperature_k / 1000.0), 5.0, 60.0))
+
+        rve_dim = float(max(20.0, 3.5 * d_grain_um))
+
+        # Asymmetric hardening q-factor governed by deformation twinning vs dislocation slip:
+        # Low SFE promotes mechanical twinning and strong tension-compression asymmetry (q ~ 1.3 - 1.5)
+        q_asym = float(np.clip(1.05 + 0.45 * np.exp(-max(1.0, gamma_sfe_mj_m2) / 40.0), 1.05, 1.55))
+
+        # Thermal shrinkage / vacancy coalescence void fraction
+        void_fraction = float(np.clip(5.0e-5 * (1.0 + temperature_k / 1000.0), 1.0e-5, 0.002))
+        mesh_err = float(round(0.004 * np.sqrt(d_grain_um / 20.0), 4))
 
         return MesoscaleState(
-            rve_dimension_um=50.0,
-            average_grain_size_um=15.0,
+            rve_dimension_um=rve_dim,
+            average_grain_size_um=d_grain_um,
             crss_basal_gpa=float(tau_crss_total),
-            asymmetric_hardening_q=1.40,
+            asymmetric_hardening_q=q_asym,
             solute_trapping_partition_k=float(k_solute),
-            rve_mesh_convergence_error=0.008,
-            void_volume_fraction=0.0001,
+            rve_mesh_convergence_error=mesh_err,
+            void_volume_fraction=void_fraction,
         )
 
 

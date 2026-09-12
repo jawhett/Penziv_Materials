@@ -68,17 +68,50 @@ class TransitionPathSamplingEngine:
         start_coord: np.ndarray,
         end_coord: np.ndarray,
         num_nodes: Optional[int] = None,
+        n_idpp_steps: int = 30,
+        idpp_step_size: float = 0.02,
     ) -> np.ndarray:
         """Image Dependent Pair Potential (IDPP) path interpolation avoiding unphysical atomic clashes."""
         n_pts = num_nodes or self.n_nodes
         start = np.asarray(start_coord, dtype=np.float64)
         end = np.asarray(end_coord, dtype=np.float64)
-        
-        # Linear geodesic initialization
-        alphas = np.linspace(0.0, 1.0, n_pts)[:, np.newaxis]
-        linear_path = (1.0 - alphas) * start + alphas * end
-        
-        return linear_path
+
+        alphas = np.linspace(0.0, 1.0, n_pts)
+
+        # Multi-atom configuration IDPP optimization: R in R^(N x 3)
+        if start.ndim == 2 and len(start) > 1:
+            n_atoms = len(start)
+            d_init = np.linalg.norm(start[:, np.newaxis, :] - start[np.newaxis, :, :], axis=-1)
+            d_final = np.linalg.norm(end[:, np.newaxis, :] - end[np.newaxis, :, :], axis=-1)
+
+            images = []
+            for k in range(n_pts):
+                alpha = alphas[k]
+                pos_k = (1.0 - alpha) * start + alpha * end
+                if k == 0 or k == n_pts - 1:
+                    images.append(pos_k.copy())
+                    continue
+
+                d_target = (1.0 - alpha) * d_init + alpha * d_final
+                np.fill_diagonal(d_target, 1.0)
+                weights = 1.0 / np.maximum(1e-4, d_target**4)
+
+                for _ in range(n_idpp_steps):
+                    diff = pos_k[:, np.newaxis, :] - pos_k[np.newaxis, :, :]
+                    dist = np.linalg.norm(diff, axis=-1)
+                    np.fill_diagonal(dist, 1.0)
+
+                    d_err = dist - d_target
+                    grad_i = 2.0 * np.sum((d_err * weights)[..., np.newaxis] * (diff / dist[..., np.newaxis]), axis=1)
+                    pos_k -= idpp_step_size * np.clip(grad_i, -0.2, 0.2)
+
+                images.append(pos_k.copy())
+
+            return np.array(images)
+        else:
+            # Single coordinate geodesic
+            alpha_col = alphas[:, np.newaxis]
+            return (1.0 - alpha_col) * start + alpha_col * end
 
     def compute_anisotropic_diffusion_tensor(
         self,

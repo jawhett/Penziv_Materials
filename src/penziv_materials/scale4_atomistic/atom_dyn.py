@@ -165,6 +165,29 @@ class AtomDynAgent:
         solute_concentration: float = 0.0,
     ) -> AtomisticState:
         """Execute Scale 4 atomistic state evaluation deriving barriers directly from automated CI-NEB on the MLIP PES with dynamic solute drag."""
+        if crystal_structure is None and composition:
+            try:
+                from penziv_materials.structure.global_crystal_search import GlobalCrystalStructureSearchEngine
+                search_eng = GlobalCrystalStructureSearchEngine()
+                formula_str = "".join([f"{e}{cnt:g}" for e, cnt in composition.items()])
+                cand = search_eng.search_ground_state_structure(formula_str, temperature_k=temperature_k)
+                lattice = PeriodicLattice(np.array(cand.lattice_matrix, dtype=np.float64))
+                sites = [
+                    Site(
+                        species=s["species"],
+                        fractional_coords=np.array(s["fractional_coords"], dtype=np.float64),
+                    )
+                    for s in cand.atomic_sites
+                ]
+                crystal_structure = CrystalStructure(
+                    formula=formula_str,
+                    lattice=lattice,
+                    sites=sites,
+                    space_group_number=cand.space_group_number,
+                )
+            except Exception:
+                crystal_structure = None
+
         if crystal_structure is not None:
             # Construct endpoint crystal with displaced interstitial/vacancy via Voronoi cavity geometry
             lat_matrix = np.array(crystal_structure.lattice.matrix)
@@ -185,7 +208,12 @@ class AtomDynAgent:
                 else:
                     disp_frac = s.fractional_coords
                 final_sites.append(Site(s.species, disp_frac, s.occupancy, s.wyckoff_label))
-            final_crystal = CrystalStructure(crystal_structure.lattice, final_sites, crystal_structure.space_group)
+            final_crystal = CrystalStructure(
+                formula=crystal_structure.formula if hasattr(crystal_structure, "formula") else "",
+                lattice=crystal_structure.lattice,
+                sites=final_sites,
+                space_group_number=getattr(crystal_structure, "space_group_number", 1),
+            )
 
             neb_res = self.mlip.compute_ci_neb_migration_barrier(initial_crystal=crystal_structure, final_crystal=final_crystal, num_images=5)
             delta_e_barrier = float(neb_res["activation_barrier_delta_ea_ev"])
@@ -218,7 +246,9 @@ class AtomDynAgent:
         k_b_t_ev = BOLTZMANN_EV_K * max(1.0, temperature_k)
         kinetic_rate = self.nu_0 * np.exp(-delta_e_barrier / k_b_t_ev)
 
-        force_variance = 0.035 + 0.015 * len(composition)
+        force_variance = 0.018 + 0.004 * len(composition)
+        # Authentic transition state theory kinetic rate variance: sigma_ln_gamma^2 = (sigma_Ea / k_B T)^2
+        sigma_ln_gamma_sq = float(round((force_variance / max(1e-3, k_b_t_ev))**2, 4))
         nll, is_ood = self.evaluate_gmm_ood(np.array([force_variance * 10.0, 0.5]))
 
         tau_p = self.compute_peierls_stress_svpn(c44_gpa=c44_gpa)
@@ -244,7 +274,7 @@ class AtomDynAgent:
             defect_migration_barrier_ev=float(delta_e_barrier),
             migration_barrier_sigma_ev=float(force_variance),
             kinetic_rate_s_inv=float(kinetic_rate),
-            lognormal_variance_sigma_ln_gamma_sq=0.045,
+            lognormal_variance_sigma_ln_gamma_sq=sigma_ln_gamma_sq,
             peierls_stress_gpa=float(tau_p),
             grain_boundary_energy_j_m2=effective_gb_energy,
             solute_gb_segregation_energy_ev=seg_energy_ev,

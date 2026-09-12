@@ -26,6 +26,7 @@ class PredictedCrystallographicState(BaseModel):
     radius_ratio: float
     order_disorder_temperature_tc_k: Optional[float] = None
     prediction_rationale: str
+    candidate: Optional[Any] = None
 
 
 class AutonomousCrystalStructurePredictor:
@@ -147,4 +148,5 @@ class AutonomousCrystalStructurePredictor:
             radius_ratio=float(round(r_ratio, 3)),
             order_disorder_temperature_tc_k=tc_k,
             prediction_rationale=rationale,
+            candidate=candidate,
         )

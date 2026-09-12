@@ -65,18 +65,35 @@ class ContMicroAgent:
         self,
         youngs_modulus_gpa: float,
         poisson_ratio: float,
+        shear_modulus_gpa: Optional[float] = None,
+        bulk_modulus_gpa: Optional[float] = None,
+        yield_strength_mpa: Optional[float] = None,
         surface_energy_j_m2: float = 2.2,
-        plastic_dissipation_factor: float = 400.0,
     ) -> float:
-        """Evaluate directional fracture toughness K_Ic = sqrt(2 * E * (gamma_s + gamma_p) / (1 - nu^2)):
+        """Evaluate directional fracture toughness K_Ic via Rice-Thomson dislocation emission vs Griffith flaw cleavage.
 
         K_Ic in MPa * sqrt(m)
         """
         e_pa = youngs_modulus_gpa * 1.0e9
         nu = poisson_ratio
-        g_c_total = surface_energy_j_m2 * (1.0 + plastic_dissipation_factor)
+        g_gpa = shear_modulus_gpa if shear_modulus_gpa is not None else (youngs_modulus_gpa / (2.0 * (1.0 + nu)))
+        k_gpa = bulk_modulus_gpa if bulk_modulus_gpa is not None else (youngs_modulus_gpa / (3.0 * (1.0 - 2.0 * nu)))
+        pugh_ratio = float(k_gpa / max(1.0, g_gpa))
 
-        k_ic_pa_sqrt_m = np.sqrt(max(1e3, (2.0 * e_pa * g_c_total) / max(0.1, 1.0 - nu**2)))
+        # Rice-Thomson criterion: Dislocation emission blunts crack tips if Pugh ratio K/G >= 1.75
+        is_ductile_blunting = pugh_ratio >= 1.75
+
+        if is_ductile_blunting:
+            ys = max(20.0, float(yield_strength_mpa)) if yield_strength_mpa is not None else 300.0
+            # Crack-tip opening displacement (CTOD) plastic work
+            delta_ctod_m = 1.0e-4 * np.sqrt(100.0 / ys)
+            gamma_plastic_j_m2 = float(ys * 1.0e6 * delta_ctod_m)
+            g_c_total = 2.0 * surface_energy_j_m2 + gamma_plastic_j_m2
+        else:
+            # Pure brittle Griffith cleavage for covalent crystals, semiconductors, and ceramics
+            g_c_total = 2.0 * surface_energy_j_m2
+
+        k_ic_pa_sqrt_m = np.sqrt(max(1e3, (e_pa * g_c_total) / max(0.1, 1.0 - nu**2)))
         k_ic_mpa_sqrt_m = float(k_ic_pa_sqrt_m * 1.0e-6)
         return float(max(0.1, k_ic_mpa_sqrt_m))
 
@@ -162,7 +179,13 @@ class ContMicroAgent:
             stacking_fault_energy_mj_m2=stacking_fault_energy_mj_m2,
         )
 
-        k_ic = self.compute_anisotropic_fracture_toughness(youngs_modulus_gpa=e_vrh, poisson_ratio=nu)
+        k_ic = self.compute_anisotropic_fracture_toughness(
+            youngs_modulus_gpa=e_vrh,
+            poisson_ratio=nu,
+            shear_modulus_gpa=g_vrh,
+            bulk_modulus_gpa=k_vrh,
+            yield_strength_mpa=sigma_y_mpa,
+        )
         creep_rate = self.compute_steady_state_creep_rate(
             applied_stress_mpa=applied_stress_mpa,
             temperature_k=temperature_k,
@@ -170,13 +193,22 @@ class ContMicroAgent:
             shear_modulus_gpa=g_vrh,
         )
 
+        pugh = float(k_vrh / max(1.0, g_vrh))
+        # Defect sensitivity / Weibull modulus: ceramics ~8-12, ductile metals ~18-30
+        weibull_m = float(np.clip(4.0 + 8.0 * pugh, 4.0, 32.0))
+        # Ritchie-Suresh Paris crack growth scaling
+        m_paris = float(np.clip(3.0 + 15.0 * max(0.0, 1.75 - pugh), 2.5, 30.0))
+        c_paris = float(1.0e-11 * ((300.0 / max(50.0, sigma_y_mpa)) ** 1.5))
+        # Clausius-Duhem mechanical dissipation power D = sigma : eps_dot
+        dissipation_rate = float(max(10.0, applied_stress_mpa * 1.0e6 * max(1e-12, creep_rate)))
+
         return ContinuumState(
             yield_strength_mpa=float(sigma_y_mpa),
             ultimate_tensile_strength_mpa=float(uts_mpa),
             fracture_toughness_k_ic_mpa_sqrt_m=float(k_ic),
             steady_state_creep_rate_s_inv=float(creep_rate),
-            weibull_modulus_m=14.5,
-            paris_law_c=3.2e-11,
-            paris_law_m=3.1,
-            clausius_duhem_dissipation_w_m3=1.5e5,
+            weibull_modulus_m=weibull_m,
+            paris_law_c=c_paris,
+            paris_law_m=m_paris,
+            clausius_duhem_dissipation_w_m3=dissipation_rate,
         )

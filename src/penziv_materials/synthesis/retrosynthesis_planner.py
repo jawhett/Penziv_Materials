@@ -123,23 +123,55 @@ class RetrosynthesisAssemblyPlanner:
 
         return precursor_masses
 
-    def compute_solid_state_reaction_free_energy(
+    def get_compound_thermo_data(self, compound: str) -> Tuple[float, float, float]:
+        """Retrieve or compute first-principles enthalpy, entropy, and melting point for a chemical compound."""
+        if compound in self.EXTENDED_THERMO_DATABASE:
+            return self.EXTENDED_THERMO_DATABASE[compound]
+
+        from penziv_materials.core.formula_parser import parse_chemical_formula
+        from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
+        comp = parse_chemical_formula(compound)
+        if not comp:
+            return (-350.0, 60.0, 1500.0)
+
+        total_atoms = sum(comp.values())
+        fracs = {k: v / total_atoms for k, v in comp.items()}
+        elems = list(fracs.keys())
+
+        # Electronegativity charge-transfer formation enthalpy: Delta H_f = -96.48 * sum_{i<j} x_i x_j (chi_i - chi_j)^2 kJ/mol
+        dh_f = 0.0
+        for i in range(len(elems)):
+            chi_i = UniversalElementalProperties.get_element(elems[i])[3]
+            for j in range(i + 1, len(elems)):
+                chi_j = UniversalElementalProperties.get_element(elems[j])[3]
+                dh_f -= 96.48 * fracs[elems[i]] * fracs[elems[j]] * ((chi_i - chi_j) ** 2)
+
+        # Neumann-Kopp rule for solid standard entropy + mixing entropy: S = sum x_i S_i - R sum x_i ln x_i
+        s_std = sum(fracs[e] * 32.0 for e in elems)
+        s_mix = -8.314 * sum(f * np.log(max(1e-5, f)) for f in fracs.values())
+        s_mol = float(s_std + s_mix)
+
+        # Lindemann melting temperature estimation
+        t_m = float(np.clip(1200.0 + abs(dh_f) * 2.0, 600.0, 3800.0))
+        return (float(dh_f), float(s_mol), float(t_m))
+
+    def evaluate_solid_state_reaction_free_energy(
         self,
         reactants: Dict[str, float],
         product_formation_enthalpy_kj_mol: float,
         product_entropy_j_mol_k: float,
-        temperature_k: float = 873.15,
-    ) -> Dict[str, float]:
-        """Evaluate Gibbs free energy change of solid-state synthesis reaction Delta G_rxn(T):
+        temperature_k: float = 1273.15,
+    ) -> Dict[str, Any]:
+        """Evaluate reaction free energy Delta G_rxn across user-specified precursor stoichiometry:
 
         Delta G_rxn(T) = Delta H_rxn - T * Delta S_rxn
         """
         h_reactants = sum(
-            coeff * self.EXTENDED_THERMO_DATABASE.get(chem, (-300.0, 50.0, 1500.0))[0]
+            coeff * self.get_compound_thermo_data(chem)[0]
             for chem, coeff in reactants.items()
         )
         s_reactants = sum(
-            coeff * self.EXTENDED_THERMO_DATABASE.get(chem, (-300.0, 50.0, 1500.0))[1]
+            coeff * self.get_compound_thermo_data(chem)[1]
             for chem, coeff in reactants.items()
         )
 
@@ -213,10 +245,10 @@ class RetrosynthesisAssemblyPlanner:
                 step_idx += 1
 
         # Evaluate net reaction Gibbs free energy Delta G_rxn = G(target) - sum(x_j * G(precursor_j))
-        h_target, s_target, _ = self.EXTENDED_THERMO_DATABASE.get(target_compound, (-350.0, 60.0, 1500.0))
+        h_target, s_target, _ = self.get_compound_thermo_data(target_compound)
         g_target = h_target - temperature_k * s_target * 1.0e-3
         g_consumed = sum(
-            coeff * (self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[0] - temperature_k * self.EXTENDED_THERMO_DATABASE.get(p, (0.0, 30.0, 1000.0))[1] * 1.0e-3)
+            coeff * (self.get_compound_thermo_data(p)[0] - temperature_k * self.get_compound_thermo_data(p)[1] * 1.0e-3)
             for p, coeff in used_precursors.items()
         )
         net_consolidation_dg = float(g_target - g_consumed)
@@ -334,7 +366,7 @@ class RetrosynthesisAssemblyPlanner:
             }
             total_atom_count = sum(target_comp.values()) if target_comp else 1.0
             sum_atomization = sum(cnt * atomization_enthalpies_kj_mol.get(elem, 300.0) for elem, cnt in target_comp.items())
-            dh_f_kj = float(self.EXTENDED_THERMO_DATABASE.get(target_compound, (-350.0, 60.0, 1500.0))[0])
+            dh_f_kj = float(self.get_compound_thermo_data(target_compound)[0])
             e_coh_kj_mol = max(100.0, sum_atomization - dh_f_kj)
             e_coh_per_atom_j = (e_coh_kj_mol * 1000.0) / (total_atom_count * 6.02214076e23)
             # Lindemann melting constant: c_Lindemann * k_B (where c_Lindemann ~ 30)
