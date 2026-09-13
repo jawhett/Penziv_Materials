@@ -141,9 +141,9 @@ class RetrosynthesisAssemblyPlanner:
         # Electronegativity charge-transfer formation enthalpy: Delta H_f = -96.48 * sum_{i<j} x_i x_j (chi_i - chi_j)^2 kJ/mol
         dh_f = 0.0
         for i in range(len(elems)):
-            chi_i = UniversalElementalProperties.get_element(elems[i])[3]
+            chi_i = UniversalElementalProperties.get_element(elems[i])[2]
             for j in range(i + 1, len(elems)):
-                chi_j = UniversalElementalProperties.get_element(elems[j])[3]
+                chi_j = UniversalElementalProperties.get_element(elems[j])[2]
                 dh_f -= 96.48 * fracs[elems[i]] * fracs[elems[j]] * ((chi_i - chi_j) ** 2)
 
         # Neumann-Kopp rule for solid standard entropy + mixing entropy: S = sum x_i S_i - R sum x_i ln x_i

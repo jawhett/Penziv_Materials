@@ -238,6 +238,19 @@ class EquivariantMLIPEngine:
         n_pos = 0
         max_atom_step = 0.04  # Angstrom per step max displacement
 
+        a_len, b_len, c_len = np.linalg.norm(cell, axis=1)
+        metric = np.dot(cell, cell.T)
+        diag_metric = np.diag([a_len**2, b_len**2, c_len**2])
+        is_cubic = bool(
+            (crystal.space_group_number is not None and crystal.space_group_number >= 195)
+            or (
+                abs(a_len - b_len) / max(1e-4, a_len) < 0.01
+                and abs(a_len - c_len) / max(1e-4, a_len) < 0.01
+                and np.allclose(metric, diag_metric, atol=0.05 * (a_len**2))
+            )
+        )
+        stress_tol_gpa = 0.10
+
         velocities = np.zeros_like(pos)
 
         for step in range(max_steps):
@@ -245,8 +258,9 @@ class EquivariantMLIPEngine:
             final_energy = energy
             force_norms = np.linalg.norm(forces, axis=1)
             max_f = float(np.max(force_norms)) if len(force_norms) > 0 else 0.0
+            max_s = float(np.abs(np.trace(stress_gpa) / 3.0)) if is_cubic else float(np.max(np.abs(stress_gpa)))
 
-            if max_f < f_max_tol_ev_ang:
+            if max_f < f_max_tol_ev_ang and (not relax_cell or max_s < stress_tol_gpa):
                 converged = True
                 break
 
@@ -278,15 +292,19 @@ class EquivariantMLIPEngine:
 
             # Periodic cell relaxation via virial Cauchy stress
             if relax_cell:
-                trace_stress = np.trace(stress_gpa) / 3.0
-                dev_stress = stress_gpa - trace_stress * np.eye(3)
-                # Pressure relaxation + deviatoric shear strain
-                cell_strain = -0.0002 * dt * (stress_gpa + dev_stress * 0.5)
-                # Bound single-step cell strain to 0.5%
-                cell_strain = np.clip(cell_strain, -0.005, 0.005)
-                cell = np.dot(cell, np.eye(3) + cell_strain)
-                # Affine coordinate deformation
-                pos = np.dot(pos, np.eye(3) + cell_strain)
+                if is_cubic:
+                    p = np.trace(stress_gpa) / 3.0
+                    cell_strain = -0.0015 * p * np.eye(3)
+                    cell_strain = np.clip(cell_strain, -0.005, 0.005)
+                    cell = np.dot(cell, np.eye(3) + cell_strain)
+                    pos = np.dot(pos, np.eye(3) + cell_strain)
+                else:
+                    trace_stress = np.trace(stress_gpa) / 3.0
+                    dev_stress = stress_gpa - trace_stress * np.eye(3)
+                    cell_strain = -0.0015 * (stress_gpa + dev_stress * 0.5)
+                    cell_strain = np.clip(cell_strain, -0.005, 0.005)
+                    cell = np.dot(cell, np.eye(3) + cell_strain)
+                    pos = np.dot(pos, np.eye(3) + cell_strain)
 
         relaxed_sites = []
         inv_cell = np.linalg.inv(cell)

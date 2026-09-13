@@ -50,15 +50,13 @@ class MatthiessenTransportEngine:
         else:
             v_char = np.sqrt(max(1e2, 3.0 * k_b_t / m_eff))
 
-        # 1. Acoustic Phonon Deformation Potential Scattering (Bardeen-Shockley / Herring-Vogt with Multi-Valley Degeneracy)
+        # 1. Acoustic Phonon Deformation Potential Scattering (Bardeen-Shockley formulation)
         e_ac_j = deformation_potential_ev * E_CHARGE
         c_elastic = density_kg_m3 * (longitudinal_sound_velocity_m_s**2)
         # Thermally averaged Bardeen-Shockley acoustic mobility: mu_ac = (2*sqrt(2*pi)*e*hbar^4*c_ii) / (3*(m*)^2.5 * (kT)^1.5 * E_1^2)
-        rate_ac_single = (3.0 * (m_eff**1.5) * ((k_b_t)**1.5) * (e_ac_j**2)) / (
+        rate_ac = (3.0 * (m_eff**1.5) * ((k_b_t)**1.5) * (e_ac_j**2)) / (
             2.0 * np.sqrt(2.0 * np.pi) * (HBAR**4) * max(1e9, c_elastic)
         )
-        # Multi-valley / intervalley phonon scattering in anisotropic/indirect semiconductors (Si, SiC, Bi2Te3)
-        rate_ac = rate_ac_single * (4.5 if (effective_mass_ratio >= 0.25 or high_freq_dielectric_constant > 15.0) else 1.0)
 
         # 2. Polar Optical Phonon Fröhlich Scattering (Ehrenreich / Howarth-Sondheimer)
         eps_s = static_dielectric_constant * VACUUM_PERMITTIVITY
@@ -82,11 +80,8 @@ class MatthiessenTransportEngine:
         else:
             rate_pop = 0.0
 
-        # 3. Intervalley Phonon Scattering in Indirect & Multi-Valley Crystals (Si, SiC, Bi2Te3)
-        if not is_metallic and effective_mass_ratio >= 0.12 and alpha_frohlich < 0.20:
-            rate_iv = float(5.5e12 * (effective_mass_ratio / 0.26))
-        else:
-            rate_iv = 0.0
+        # 3. Intervalley Phonon Scattering (zero when intervalley coupling constants are unprescribed)
+        rate_iv = 0.0
 
         # 4. Brooks-Herring Ionized Impurity Scattering
         n_i = max(1e18, ionized_impurity_density_m3)
@@ -201,9 +196,8 @@ class MatthiessenTransportEngine:
         # Acoustic Debye temperature theta_a = theta_D / n_basis^(1/3)
         theta_a = theta_d / (n_basis ** (1.0 / 3.0))
         
-        # Acoustic-optical branch interaction and natural mass variance damping
-        ao_heavy = 1.2 * ((m_bar / 100.0) ** 2) if (m_bar > 80.0 and not is_metal) else 0.0
-        damping_factor = (1.0 + 0.35 * (n_basis ** (1.0 / 3.0) - 1.0) + ao_heavy) * (1.0 + 1.5 * max(0.01, mass_variance_gamma))
+        # Acoustic-optical branch interaction and natural mass variance damping (Slack 1979 / Klemens 1958)
+        damping_factor = (1.0 + 0.35 * (n_basis ** (1.0 / 3.0) - 1.0)) * (1.0 + 1.5 * max(0.01, mass_variance_gamma))
         
         # Slack formula: kappa_L = (3.1e-6 * M_bar * delta_ang * theta_a^3) / (gamma^2 * T * julian_denom * damping)
         kappa_lat_slack = (

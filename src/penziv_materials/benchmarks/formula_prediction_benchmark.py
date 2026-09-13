@@ -246,12 +246,11 @@ class FormulaPredictionBenchmarkSuite:
             sigma_ion = 0.0
             e_window = f"0.00 V - {e_g:.2f} V"
 
-        # 5. First-Principles Equation of State Elastic Constants (VRH Homogenization)
-        # Atomic volume: V_atom = M_bar / (N_A * rho)
-        v_atom_ang3 = float((mean_mass * 1.66054) / max(0.1, density_theoretical))
-
-        # First-principles cohesive energy density u_coh = E_coh / V_atom
-        z_d_val = float(sum((cnt / total_atoms) * max(0.0, p[3] - 2.0) for cnt, p in zip(counts, elem_props))) if is_metallic else 0.0
+        # 5. Cohesive Energy Density & Universal Equation of State Bulk Modulus (Rose-Vinet)
+        # K_0 = (4/3) * (E_coh / V_0)
+        v_atom_ang3 = float(struct_pred.unit_cell_volume_ang3 / max(1.0, total_atoms * (struct_pred.formula_units_per_cell_z or 1.0)))
+        vec = float(struct_pred.valence_electron_concentration_vec)
+        z_d_val = float(sum((cnt / total_atoms) * max(0.0, p[3] - 2.0) for cnt, p in zip(counts, elem_props) if p[2] in range(21, 31) or p[2] in range(39, 49) or p[2] in range(57, 81)))
         z_d_eff = float(min(z_d_val, 10.0 - z_d_val))
         mean_period = float(sum((cnt / total_atoms) * (2 if p[2] < 30 else (3 if p[2] < 80 else (4 if p[2] < 130 else 5))) for cnt, p in zip(counts, elem_props)))
         has_interstitial_carbide = any(p[0] < 0.85 for p in elem_props)
@@ -262,33 +261,26 @@ class FormulaPredictionBenchmarkSuite:
         f_covalent_interstitial = float(sum((cnt / total_atoms) * max(0.0, 1.0 - (p[0] / max(0.5, r_matrix))) for cnt, p in zip(counts, elem_props)))
 
         if is_solid_electrolyte:
-            # Multi-cation thiophosphate / selenophosphate superionic frameworks
             e_coh_ev = float(2.0 + 0.3 * (1.0 - f_ionicity))
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 1.25, 1))
             nu = float(round(0.24 + 0.04 * f_ionicity, 2))
         elif is_metallic:
-            # Friedel d-band filling and tight-binding spd hybridization
             z_s = min(2.0, vec)
             period_fac = 1.0 + 0.25 * max(0.0, mean_period - 3.0)
             e_coh_metal = float(1.20 + 0.65 * z_s + 0.70 * z_d_eff * period_fac + 1.80 * np.exp(-z_d_eff))
-
-            # Covalent p-d hybridization in interstitial alloys, carbides, nitrides, and MAX phases
             x_interstitial = float(sum(cnt / total_atoms for cnt, p in zip(counts, elem_props) if p[0] < 0.85))
             e_coh_ev = float(e_coh_metal + 5.5 * x_interstitial)
-
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 2.50, 1))
             nu_metal = float(np.clip(0.33 - 0.05 * (z_d_eff / 5.0), 0.22, 0.42))
             nu = float(round((1.0 - x_interstitial) * nu_metal + x_interstitial * 0.20, 2))
         elif e_g > 0.0:
-            # Covalent & ionic semiconductors / ceramics
             z_eff = float(sum((cnt / total_atoms) * abs(p[3]) for cnt, p in zip(counts, elem_props)))
             e_coh_ev = float((14.3996 * (z_eff**0.45) / d_bond) * (1.0 - 0.30 * f_ionicity) + (1.7476 * 14.3996 * f_ionicity) / d_bond)
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 0.75, 1))
             nu = float(round(np.clip(0.18 + 0.12 * f_ionicity, 0.12, 0.35), 2))
         else:
             e_coh_ev = 4.0
-            k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * 1.5, 1))
             nu = 0.28
+
+        # Universal Rose-Vinet equation of state bulk modulus: K_0 = (4/3) * (E_coh / V_atom)
+        k_mod = float(round((e_coh_ev / v_atom_ang3) * 160.21766 * (4.0 / 3.0), 1))
 
         # Exact tensor elasticity relations for shear modulus and Young's modulus
         g_mod = float(round(k_mod * (3.0 * (1.0 - 2.0 * nu)) / max(1e-4, 2.0 * (1.0 + nu)), 1))
@@ -404,7 +396,7 @@ class FormulaPredictionBenchmarkSuite:
             
             # Thermodynamic native point-defect equilibrium (Kröger-Vink / Arrhenius)
             if e_g < 0.40:
-                delta_h_defect_ev = 0.18 + 0.20 * (e_g - 0.17)
+                delta_h_defect_ev = float(max(0.12, 0.50 * e_g + 0.80 * abs(r_cat - r_ani) / max(0.5, mean_rcov) + 0.30 * delta_chi))
                 n_sites_m3 = (density_theoretical * 1000.0 * 6.02214076e23) / (mean_mass * 1e-3)
                 kbt_ev = 0.02585 * (temperature_k / 300.0)
                 n_defect = float(n_sites_m3 * np.exp(-min(30.0, delta_h_defect_ev / kbt_ev)))
@@ -577,22 +569,13 @@ class FormulaPredictionBenchmarkSuite:
             c_voigt_mat = np.zeros((6, 6), dtype=np.float64)
             c11 = k_mod + 4.0 / 3.0 * g_mod
             c12 = k_mod - 2.0 / 3.0 * g_mod
-            c_voigt_mat[0, 0] = c_voigt_mat[1, 1] = c11
-            c_voigt_mat[0, 1] = c_voigt_mat[1, 0] = c12
-            if c_sys == CrystalSystem.HEXAGONAL:
-                c_voigt_mat[2, 2] = 1.12 * c11
-                c_voigt_mat[0, 2] = c_voigt_mat[2, 0] = c_voigt_mat[1, 2] = c_voigt_mat[2, 1] = c12
-                c_voigt_mat[3, 3] = c_voigt_mat[4, 4] = g_mod
-                c_voigt_mat[5, 5] = 0.5 * (c11 - c12)
-            elif c_sys == CrystalSystem.TRIGONAL:
-                c_voigt_mat[2, 2] = 1.08 * c11
-                c_voigt_mat[0, 2] = c_voigt_mat[2, 0] = c_voigt_mat[1, 2] = c_voigt_mat[2, 1] = c12
-                c_voigt_mat[3, 3] = c_voigt_mat[4, 4] = g_mod
+            c_voigt_mat[0, 0] = c_voigt_mat[1, 1] = c_voigt_mat[2, 2] = c11
+            c_voigt_mat[0, 1] = c_voigt_mat[1, 0] = c_voigt_mat[0, 2] = c_voigt_mat[2, 0] = c_voigt_mat[1, 2] = c_voigt_mat[2, 1] = c12
+            c_voigt_mat[3, 3] = c_voigt_mat[4, 4] = g_mod
+            if c_sys in [CrystalSystem.HEXAGONAL, CrystalSystem.TRIGONAL]:
                 c_voigt_mat[5, 5] = 0.5 * (c11 - c12)
             else:
-                c_voigt_mat[2, 2] = c11
-                c_voigt_mat[0, 2] = c_voigt_mat[2, 0] = c_voigt_mat[1, 2] = c_voigt_mat[2, 1] = c12
-                c_voigt_mat[3, 3] = c_voigt_mat[4, 4] = c_voigt_mat[5, 5] = g_mod
+                c_voigt_mat[5, 5] = g_mod
 
         # Real Born mechanical and acoustic stability check on genuine 6x6 Voigt matrix
         born_res = BornStabilityValidator.validate_universal_born_and_acoustic_stability(c_voigt_mat)

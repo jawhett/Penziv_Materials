@@ -254,6 +254,12 @@ class QElecAgent:
         """
         covalent_nonmetals = {"B", "C", "N", "O", "Si", "P", "S", "Ge", "As", "Se", "Te"}
         n_atoms = len(species_list)
+        if n_atoms == 0:
+            return 0.0
+        metal_count = sum(1 for s in species_list if s not in covalent_nonmetals)
+        if (metal_count / n_atoms) >= 0.65:
+            return 0.0
+
         inv_lat = np.linalg.pinv(lattice_matrix)
         frac_coords = np.dot(cart_coords, inv_lat)
         shifts = np.array([
@@ -395,7 +401,11 @@ class QElecAgent:
             from penziv_materials.structure.crystal_structure import CrystalStructure, PeriodicLattice, Site
             from penziv_materials.scale4_atomistic.equivariant_mlip import EquivariantMLIPEngine
             search_eng = GlobalCrystalStructureSearchEngine()
-            formula = "".join(f"{k}{int(v) if v > 1 else ''}" for k, v in composition.items())
+            tot_comp = sum(composition.values())
+            if tot_comp <= 1.05:
+                formula = "".join(f"{k}{int(round(v * 100))}" for k, v in composition.items() if v > 0.005)
+            else:
+                formula = "".join(f"{k}{int(round(v)) if v > 1 else ''}" for k, v in composition.items())
             cand = search_eng.search_ground_state_structure(formula)
             lat_0 = np.array(cand.lattice_matrix, dtype=np.float64)
             coords_0 = np.array([s["cartesian_coords"] for s in cand.atomic_sites], dtype=np.float64)

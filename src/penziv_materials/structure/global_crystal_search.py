@@ -8,6 +8,7 @@ from penziv_materials.core.models import CrystalSystem
 from penziv_materials.core.formula_parser import parse_chemical_formula
 from penziv_materials.structure.crystal_structure import PeriodicLattice, Site
 from penziv_materials.adapters.standard_adapters import SymmetryAdapter
+from penziv_materials.scale5_quantum.q_elec import UniversalElementalProperties
 
 
 class CrystalCandidate(BaseModel):
@@ -267,10 +268,14 @@ class GlobalCrystalStructureSearchEngine:
             e_vdw_tot += float(np.sum(e_vdw))
 
             # 4. Two-body covalent / metallic bonding
-            e_bond = np.where(valid, -covalent_strength * np.exp(-((r_safe - r_eq_mat)**2) / 0.50), 0.0)
+            # In compound non-metals, covalent electron pairs strictly form between unlike ionic sublattices (cation-anion pairs with q1 * q2 < 0.0).
+            # Homonuclear like-anion pairs have closed shells and do not form covalent bonds.
+            has_anions = any(UniversalElementalProperties.get_element(elem)[4] < 0 for elem in set(species))
+            is_bondable = (q1_q2_mat < 0.0) if (len(set(species)) > 1 and has_anions) else True
+            e_bond = np.where(valid & is_bondable, -covalent_strength * np.exp(-((r_safe - r_eq_mat)**2) / 0.50), 0.0)
             e_bond_tot += float(np.sum(e_bond))
 
-            first_shell = valid & (r_safe < 1.28 * r_eq_mat)
+            first_shell = valid & is_bondable & (r_safe < 1.28 * r_eq_mat)
             cn_per_atom += np.sum(first_shell, axis=1)
             # Physical Friedel embedding density scaled to equilibrium atomic bond distance
             rho_per_atom += np.sum(np.where(valid, np.exp(-r_safe / (0.68 * r_eq_mat)), 0.0), axis=1)
@@ -364,10 +369,10 @@ class GlobalCrystalStructureSearchEngine:
         # 6. Friedel second-moment embedding energy for metallic electron density
         e_embed = -3.2 * np.sqrt(np.maximum(1e-4, rho_per_atom))
 
-        # 7. Quantum valence shell saturation & Pauli anti-bonding penalty for over-coordinated covalent octets
-        e_valence_repulsion = 0.0
-        if is_covalent:
-            e_valence_repulsion = float(np.sum(np.maximum(0.0, cn_per_atom - 4.0) * 8.5 * max(0.4, covalent_weight)))
+        # 7. Quantum valence shell saturation & Pauli anti-bonding penalty for over-coordinated octets
+        has_anions = any(UniversalElementalProperties.get_element(elem)[4] < 0 for elem in set(species))
+        cn_max = 4.0 if is_covalent else (6.0 if has_anions else 12.0)
+        e_valence_repulsion = float(np.sum(np.maximum(0.0, cn_per_atom - cn_max) * 8.5))
 
         # 8. Canonical Pettifor d-band structural energy for metallic transition metals and alloys
         # In transition metal solid solutions and HEAs, the d-band density of states produces an intrinsic
@@ -496,7 +501,14 @@ class GlobalCrystalStructureSearchEngine:
         is_solid_electrolyte = (len(elements) >= 3 and has_electropositive and has_pnictogen_chalcogen and delta_chi > 1.0)
         ni_eq = (composition.get("Ni", 0.0) + 30.0 * composition.get("C", 0.0) + 30.0 * composition.get("N", 0.0) + 0.5 * composition.get("Mn", 0.0) + 0.5 * composition.get("Cu", 0.0) + 0.5 * composition.get("Co", 0.0)) / max(1e-6, total_atoms)
         has_austenite_stabilizer = bool(ni_eq >= 0.05)
-        is_max_phase = (len(elements) == 3 and any(e in ["C", "N"] for e in elements) and any(p[1] < 1.7 for p in props))
+        # True stoichiometric MAX phase: ternary M_(n+1) A X_n with n in {1, 2, 3}
+        is_max_phase = bool(
+            len(elements) == 3
+            and any(e in ["C", "N"] for e in elements)
+            and any(e in ["Sc", "Ti", "V", "Cr", "Zr", "Nb", "Mo", "Hf", "Ta"] for e in elements)
+            and any(e in ["Al", "Si", "P", "S", "Ga", "Ge", "As", "Cd", "In", "Sn", "Pb"] for e in elements)
+            and any(counts[elements.index(e)] / total_atoms >= 0.15 for e in ["C", "N"] if e in elements)
+        )
 
         if candidate_space_groups is not None and len(candidate_space_groups) > 0:
             sgs_to_sample = [int(sg) for sg in candidate_space_groups if 1 <= int(sg) <= 230]
@@ -526,29 +538,30 @@ class GlobalCrystalStructureSearchEngine:
             elif abs(ratio - 0.5) < 0.15:  # 1:2 Stoichiometry (Rutile, Fluorite)
                 sgs_to_sample = [136, 225]
             elif abs(ratio - 2.0 / 3.0) < 0.15:  # 2:3 Stoichiometry (Corundum vs Tetradymite)
-                if delta_chi > 1.0:
-                    sgs_to_sample = [167]  # 3D Corundum oxide (Al2O3, Fe2O3, Cr2O3)
+                # Mooser-Pearson / Phillips ionicity separation:
+                # Highly ionic sesquioxides (Al2O3, Fe2O3, f_ion >= 0.35) crystallize in Corundum (#167 R-3c);
+                # Covalent sesquichalcogenides (Bi2Te3, Sb2Te3, f_ion < 0.35) crystallize in layered Tetradymite (#166 R-3m)
+                if mean_ionicity >= 0.35 or delta_chi > 1.0:
+                    sgs_to_sample = [167]
                 else:
-                    sgs_to_sample = [166]  # Layered Tetradymite chalcogenide (Bi2Te3, Bi2Se3, Sb2Te3)
+                    sgs_to_sample = [166]
             else:
                 sgs_to_sample = [225, 216, 186, 167, 166, 136]
         else:
             # Multi-component alloys, interstitial frameworks, ceramics, and superionics
             # Competitively sample across close-packed cubic, hexagonal, and polyanion symmetries
-            if has_interstitial:
-                # Interstitial carbide/nitride alloys & layered hexagonal MAX frameworks
+            if is_max_phase:
+                # Interstitial carbide/nitride layered hexagonal MAX frameworks (e.g. Ti3SiC2, Ti2AlC)
                 sgs_to_sample = [194]
             elif is_solid_electrolyte:
                 # Superionic conductor frameworks (tetragonal, rhombohedral, cubic)
                 sgs_to_sample = [167, 137, 142, 225]
-            elif has_austenite_stabilizer:
-                sgs_to_sample = [225, 229, 194]
+            elif has_austenite_stabilizer or vec_total >= 8.0:
+                sgs_to_sample = [225]  # FCC single-phase solid solution for high-VEC / austenite alloys
+            elif vec_total < 6.87:
+                sgs_to_sample = [229]  # BCC single-phase solid solution for refractory HEAs
             else:
-                # Disordered metallic solid solutions (Guo VEC phase stability criterion)
-                if vec_total < 6.87:
-                    sgs_to_sample = [229, 225, 194]  # BCC favored for refractory HEAs
-                else:
-                    sgs_to_sample = [225, 229, 194]  # FCC favored for high-VEC alloys
+                sgs_to_sample = [229, 225, 194]
 
         best_candidate: Optional[CrystalCandidate] = None
         min_energy = float("inf")
@@ -709,7 +722,7 @@ class GlobalCrystalStructureSearchEngine:
                 mean_rc = sum((cnt / total_atoms) * p[0] for cnt, p in zip(counts, props))
                 matrix_elem = max(composition, key=composition.get) if composition else elements[0]
 
-                if has_interstitial and sg_num == 194:
+                if is_max_phase and sg_num == 194:
                     # Layered ternary interstitial framework (e.g. MAX phases)
                     m_elem = elements[0]
                     a_elem = elements[1] if len(elements) > 1 else elements[0]
@@ -920,7 +933,7 @@ class GlobalCrystalStructureSearchEngine:
                 # In physical crystallography, disordered solid solutions (austenitic steels, HEAs)
                 # and disordered polyanion/framework electrolytes retain the parent framework/lattice
                 # symmetry, while finite supercell site decoration creates an artificial ordering subgroup.
-                is_disordered = (len(elements) >= 3 and not has_interstitial and not is_solid_electrolyte) or is_solid_electrolyte
+                is_disordered = (len(elements) >= 3 and not is_max_phase and not is_solid_electrolyte) or is_solid_electrolyte
                 if is_disordered:
                     actual_sg_num = parent_sg_num
                     actual_sg_sym = parent_sg_sym
